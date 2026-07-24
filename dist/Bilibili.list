@@ -1,0 +1,42 @@
+# NAME: Bilibili
+# VERSION: 1.0.0
+# REPO: https://github.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite
+# PURPOSE: Core Bilibili, video CDN, live CDN, API, and static-resource routing
+
+DOMAIN,p-bstarstatic.akamaized.net
+DOMAIN,p.bstarstatic.com
+DOMAIN,upos-bstar-mirrorakam.akamaized.net
+DOMAIN,upos-bstar1-mirrorakam.akamaized.net
+DOMAIN,upos-hz-mirrorakam.akamaized.net
+DOMAIN,uposdash-302-bilivideo.yfcdn.net
+DOMAIN-SUFFIX,acg.tv
+DOMAIN-SUFFIX,acgvideo.com
+DOMAIN-SUFFIX,b23.tv
+DOMAIN-SUFFIX,bili22.cn
+DOMAIN-SUFFIX,bili2233.cn
+DOMAIN-SUFFIX,bili23.cn
+DOMAIN-SUFFIX,bili33.cn
+DOMAIN-SUFFIX,biliapi.com
+DOMAIN-SUFFIX,biliapi.net
+DOMAIN-SUFFIX,bilibili.cc
+DOMAIN-SUFFIX,bilibili.cn
+DOMAIN-SUFFIX,bilibili.co
+DOMAIN-SUFFIX,bilibili.com
+DOMAIN-SUFFIX,bilibili.net
+DOMAIN-SUFFIX,bilibili.tv
+DOMAIN-SUFFIX,bilibilivideo.com
+DOMAIN-SUFFIX,bilicdn1.com
+DOMAIN-SUFFIX,bilicdn2.com
+DOMAIN-SUFFIX,bilicdn3.com
+DOMAIN-SUFFIX,bilicdn4.com
+DOMAIN-SUFFIX,bilicdn5.com
+DOMAIN-SUFFIX,biliimg.com
+DOMAIN-SUFFIX,biliintl.co
+DOMAIN-SUFFIX,biliintl.com
+DOMAIN-SUFFIX,bilivideo.cn
+DOMAIN-SUFFIX,bilivideo.com
+DOMAIN-SUFFIX,bilivideo.net
+DOMAIN-SUFFIX,bstarstatic.com
+DOMAIN-SUFFIX,hdslb.com
+DOMAIN-SUFFIX,hdslb.net
+DOMAIN-SUFFIX,hdslb.org
