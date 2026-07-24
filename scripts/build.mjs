@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const rootDirectory = path.resolve(scriptDirectory, "..");
 const checkOnly = process.argv.includes("--check");
+const require = createRequire(import.meta.url);
 
 const repository = "STERILITZIA02/IOS_Bilibiliu_CDN_rewrite";
 const rawRoot = `https://raw.githubusercontent.com/${repository}/main`;
@@ -17,12 +19,18 @@ const packageJson = JSON.parse(
 const domains = JSON.parse(
   await readFile(path.join(rootDirectory, "config", "domains.json"), "utf8"),
 );
+const candidateConfig = JSON.parse(
+  await readFile(
+    path.join(rootDirectory, "config", "cdn-candidates.json"),
+    "utf8",
+  ),
+);
 const sourceScript = await readFile(
   path.join(rootDirectory, "src", "bilibili-cdn.js"),
   "utf8",
 );
 
-function validateDomainList(name, values) {
+function validateDomainList(name, values, requireSorted = true) {
   if (!Array.isArray(values) || values.length === 0) {
     throw new Error(`${name} must be a non-empty array`);
   }
@@ -30,7 +38,7 @@ function validateDomainList(name, values) {
   if (new Set(values).size !== values.length) {
     throw new Error(`${name} contains duplicate entries`);
   }
-  if (JSON.stringify(sorted) !== JSON.stringify(values)) {
+  if (requireSorted && JSON.stringify(sorted) !== JSON.stringify(values)) {
     throw new Error(`${name} must remain sorted`);
   }
   for (const value of values) {
@@ -47,6 +55,34 @@ function validateDomainList(name, values) {
 
 validateDomainList("domains.exact", domains.exact);
 validateDomainList("domains.suffix", domains.suffix);
+validateDomainList(
+  "cdnCandidates.maintained",
+  candidateConfig.maintained,
+  false,
+);
+validateDomainList(
+  "cdnCandidates.supplemental",
+  candidateConfig.supplemental,
+  false,
+);
+
+const configuredCandidates = [
+  ...candidateConfig.maintained,
+  ...candidateConfig.supplemental,
+];
+if (new Set(configuredCandidates).size !== configuredCandidates.length) {
+  throw new Error("CDN candidate groups contain duplicate hosts");
+}
+
+const sourceApi = require(path.join(rootDirectory, "src", "bilibili-cdn.js"));
+if (
+  JSON.stringify(sourceApi.AUTO_CDN_CANDIDATES) !==
+  JSON.stringify(configuredCandidates)
+) {
+  throw new Error(
+    "config/cdn-candidates.json and AUTO_CDN_CANDIDATES are out of sync",
+  );
+}
 
 const ruleList = [
   "# NAME: Bilibili",
@@ -66,21 +102,21 @@ const grpcPattern =
 
 const moduleText = [
   "#!name=Bilibili CDN Switcher",
-  "#!desc=哔哩哔哩点播 CDN 改写 + 视频、直播与 API 完整分流（iOS 26 / iOS 27）",
+  "#!desc=哔哩哔哩低频自动测速选 CDN + 视频、直播与 API 完整分流（iOS 26 / iOS 27）",
   `#!version=${packageJson.version}`,
   "#!author=STERILITZIA02",
   `#!homepage=${homepage}`,
   "#!icon=https://i0.hdslb.com/bfs/static/jinkela/long/images/512.png",
   "#!category=Bilibili",
-  "#!arguments=CDN:upos-sz-mirrorali.bilivideo.com,分流策略:DIRECT,调试日志:false",
-  "#!arguments-desc=CDN：点播视频目标主机；填写 off 可仅保留分流、不改写 CDN。\\n\\n分流策略：DIRECT 或现有配置中的策略组名称；境外用户可填写中国大陆节点组。\\n\\n调试日志：排错时临时设为 true。",
+  "#!arguments=CDN:auto,分流策略:DIRECT,测速间隔:12,切换阈值:20,调试日志:false",
+  "#!arguments-desc=CDN：auto 为自动测速选择；也可填写固定点播主机，或填写 off 仅保留分流。\\n\\n分流策略：DIRECT、PROXY 或现有策略组名称。\\n\\n测速间隔：6-72 小时，默认 12；每轮最多测试 6 个候选。\\n\\n切换阈值：新线路至少快多少百分比才切换，默认 20；正常线路至少保持 24 小时。\\n\\n调试日志：排错时临时设为 true。",
   "",
   "[Rule]",
   `RULE-SET,${rawRoot}/dist/Bilibili.list,{{{分流策略}}}`,
   "",
   "[Script]",
-  `Bilibili CDN JSON = type=http-response,pattern=${jsonPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="{"cdn":"{{{CDN}}}","debug":{{{调试日志}}}}"`,
-  `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="{"cdn":"{{{CDN}}}","debug":{{{调试日志}}}}"`,
+  `Bilibili CDN JSON = type=http-response,pattern=${jsonPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="{"cdn":"{{{CDN}}}","intervalHours":{{{测速间隔}}},"switchThreshold":{{{切换阈值}}},"debug":{{{调试日志}}}}"`,
+  `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="{"cdn":"{{{CDN}}}","intervalHours":{{{测速间隔}}},"switchThreshold":{{{切换阈值}}},"debug":{{{调试日志}}}}"`,
   "",
   "[MITM]",
   "h2 = true",

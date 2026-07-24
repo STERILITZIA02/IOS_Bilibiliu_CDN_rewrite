@@ -19,6 +19,14 @@ const liveUrl =
 const config = cdn.parseArgument(
   JSON.stringify({ cdn: targetHost, debug: false }),
 );
+const autoConfig = cdn.parseArgument(
+  JSON.stringify({
+    cdn: "auto",
+    debug: false,
+    intervalHours: 12,
+    switchThreshold: 20,
+  }),
+);
 
 function bytes(...chunks) {
   const normalized = chunks.map((chunk) =>
@@ -58,6 +66,52 @@ function asciiFromBinary(value) {
   return Buffer.from(value).toString("latin1");
 }
 
+function makeAutoEnvironment(now, timings, state) {
+  const storage = {};
+  const calls = [];
+  if (state) {
+    storage[cdn.AUTO_STATE_KEY] = JSON.stringify(state);
+  }
+
+  return {
+    calls,
+    services: {
+      benchmark(host, url, timeoutMs, callback) {
+        calls.push({ host, timeoutMs, url });
+        const timing = timings[host];
+        callback({
+          elapsedMs: typeof timing === "number" ? timing : timeoutMs,
+          ok: typeof timing === "number",
+          status: typeof timing === "number" ? 200 : 0,
+        });
+      },
+      now() {
+        return now;
+      },
+      persistent: true,
+      read(key) {
+        return storage[key] || null;
+      },
+      write(value, key) {
+        storage[key] = value;
+        return true;
+      },
+    },
+    storage,
+  };
+}
+
+function autoSelect(sampleUrl, configValue, environment) {
+  return new Promise((resolve) => {
+    cdn.selectAutoCdn(
+      sampleUrl,
+      configValue,
+      environment.services,
+      resolve,
+    );
+  });
+}
+
 test("normalizes a hostname or an HTTPS URL", () => {
   assert.equal(cdn.normalizeCdnHost(targetHost.toUpperCase()), targetHost);
   assert.equal(
@@ -71,25 +125,50 @@ test("normalizes a hostname or an HTTPS URL", () => {
 
 test("parses module JSON arguments and fails closed on invalid hosts", () => {
   assert.deepEqual(config, {
+    auto: false,
     cdnHost: targetHost,
     debug: false,
+    intervalHours: 12,
+    switchThreshold: 20,
     valid: true,
   });
   assert.deepEqual(cdn.parseArgument("cdn=off&debug=true"), {
+    auto: false,
     cdnHost: "",
     debug: true,
+    intervalHours: 12,
+    switchThreshold: 20,
     valid: true,
   });
   assert.deepEqual(cdn.parseArgument('{"cdn":"bad host","debug":true}'), {
+    auto: false,
     cdnHost: null,
     debug: true,
+    intervalHours: 12,
+    switchThreshold: 20,
     valid: false,
   });
   assert.deepEqual(cdn.parseArgument("cdn=%"), {
+    auto: false,
     cdnHost: null,
     debug: false,
+    intervalHours: 12,
+    switchThreshold: 20,
     valid: false,
   });
+  assert.deepEqual(
+    cdn.parseArgument(
+      '{"cdn":"auto","intervalHours":1,"switchThreshold":99}',
+    ),
+    {
+      auto: true,
+      cdnHost: null,
+      debug: false,
+      intervalHours: 6,
+      switchThreshold: 80,
+      valid: true,
+    },
+  );
 });
 
 test("rewrites only Bilibili VOD media URLs", () => {
@@ -137,6 +216,7 @@ test("rewrites DASH, DURL, and nested PGC JSON without replacing backups", () =>
   const result = cdn.transformJsonText(JSON.stringify(fixture), config);
   const output = JSON.parse(result.body);
 
+  assert.equal(cdn.findFirstJsonVodUrl(JSON.stringify(fixture)), originalUrl);
   assert.equal(result.valid, true);
   assert.equal(result.changed, 5);
   assert.match(output.data.dash.video[0].baseUrl, new RegExp(targetHost));
@@ -214,6 +294,7 @@ test("rewrites deeply nested Protobuf URL strings and updates lengths", () => {
   const result = cdn.transformGrpcBody(framed, config);
   const output = asciiFromBinary(result.body);
 
+  assert.equal(cdn.findFirstGrpcVodUrl(framed), originalUrl);
   assert.equal(result.valid, true);
   assert.equal(result.changed, 1);
   assert.equal(output.includes(originalHost), false);
@@ -277,6 +358,123 @@ test("fails open for malformed gRPC and Protobuf bodies", () => {
   assert.deepEqual(Buffer.from(result.body), Buffer.from(malformed));
 });
 
+test("auto mode tests at most six hosts and reuses its cached selection", async () => {
+  const now = Date.UTC(2026, 6, 24, 12, 0, 0);
+  const environment = makeAutoEnvironment(now, {
+    [originalHost]: 140,
+    [cdn.DEFAULT_CDN]: 100,
+    "upos-sz-mirrorcos.bilivideo.com": 80,
+    "upos-sz-mirrorhw.bilivideo.com": 120,
+    "upos-sz-mirroraliov.bilivideo.com": 130,
+    "upos-sz-mirrorhwov.bilivideo.com": 150,
+  });
+
+  const first = await autoSelect(originalUrl, autoConfig, environment);
+  assert.equal(first.host, "upos-sz-mirrorcos.bilivideo.com");
+  assert.equal(first.reason, "initial-fastest");
+  assert.equal(first.tested, true);
+  assert.ok(environment.calls.length <= 6);
+
+  const cachedState = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
+  assert.equal(cachedState.selectedHost, first.host);
+  assert.equal(cachedState.nextTestAt, now + 12 * 60 * 60 * 1000);
+
+  const cachedEnvironment = makeAutoEnvironment(
+    now + 60 * 60 * 1000,
+    {},
+    cachedState,
+  );
+  const cached = await autoSelect(originalUrl, autoConfig, cachedEnvironment);
+  assert.equal(cached.host, first.host);
+  assert.equal(cached.reason, "cached");
+  assert.equal(cached.tested, false);
+  assert.equal(cachedEnvironment.calls.length, 0);
+});
+
+test("auto mode safely falls back when runtime services are unavailable", async () => {
+  const selected = await new Promise((resolve) => {
+    cdn.selectAutoCdn(originalUrl, autoConfig, null, resolve);
+  });
+
+  assert.equal(selected.host, originalHost);
+  assert.equal(selected.reason, "services-unavailable");
+  assert.equal(selected.tested, false);
+  assert.deepEqual(selected.results, []);
+});
+
+test("auto mode applies hold time and improvement hysteresis", async () => {
+  const now = Date.UTC(2026, 6, 26, 12, 0, 0);
+  const baseState = {
+    cursor: 0,
+    nextTestAt: 0,
+    scores: {},
+    selectedAt: now - 25 * 60 * 60 * 1000,
+    selectedHost: cdn.DEFAULT_CDN,
+    testingUntil: 0,
+    version: 1,
+  };
+
+  const belowThreshold = makeAutoEnvironment(now, {
+    [cdn.DEFAULT_CDN]: 100,
+    [originalHost]: 110,
+    "upos-sz-mirrorcos.bilivideo.com": 85,
+    "upos-sz-mirrorhw.bilivideo.com": 120,
+    "upos-sz-mirroraliov.bilivideo.com": 130,
+  }, baseState);
+  const kept = await autoSelect(originalUrl, autoConfig, belowThreshold);
+  assert.equal(kept.host, cdn.DEFAULT_CDN);
+  assert.equal(kept.reason, "below-threshold");
+
+  const faster = makeAutoEnvironment(now, {
+    [cdn.DEFAULT_CDN]: 100,
+    [originalHost]: 110,
+    "upos-sz-mirrorcos.bilivideo.com": 70,
+    "upos-sz-mirrorhw.bilivideo.com": 120,
+    "upos-sz-mirroraliov.bilivideo.com": 130,
+  }, baseState);
+  const switched = await autoSelect(originalUrl, autoConfig, faster);
+  assert.equal(switched.host, "upos-sz-mirrorcos.bilivideo.com");
+  assert.equal(switched.reason, "meaningfully-faster");
+
+  const heldState = {
+    ...baseState,
+    selectedAt: now - 13 * 60 * 60 * 1000,
+  };
+  const heldEnvironment = makeAutoEnvironment(now, {
+    [cdn.DEFAULT_CDN]: 100,
+    [originalHost]: 110,
+    "upos-sz-mirrorcos.bilivideo.com": 40,
+    "upos-sz-mirrorhw.bilivideo.com": 120,
+    "upos-sz-mirroraliov.bilivideo.com": 130,
+  }, heldState);
+  const held = await autoSelect(originalUrl, autoConfig, heldEnvironment);
+  assert.equal(held.host, cdn.DEFAULT_CDN);
+  assert.equal(held.reason, "minimum-hold");
+});
+
+test("auto mode immediately fails over from an unreachable cached host", async () => {
+  const now = Date.UTC(2026, 6, 26, 12, 0, 0);
+  const state = {
+    cursor: 0,
+    nextTestAt: 0,
+    scores: {},
+    selectedAt: now - 2 * 60 * 60 * 1000,
+    selectedHost: cdn.DEFAULT_CDN,
+    testingUntil: 0,
+    version: 1,
+  };
+  const environment = makeAutoEnvironment(now, {
+    [originalHost]: 90,
+    "upos-sz-mirrorcos.bilivideo.com": 80,
+    "upos-sz-mirrorhw.bilivideo.com": 120,
+    "upos-sz-mirroraliov.bilivideo.com": 130,
+  }, state);
+
+  const selected = await autoSelect(originalUrl, autoConfig, environment);
+  assert.equal(selected.host, "upos-sz-mirrorcos.bilivideo.com");
+  assert.equal(selected.reason, "current-unreachable");
+});
+
 test("Shadowrocket entrypoint returns only the changed JSON body", () => {
   const source = fs.readFileSync(
     path.join(__dirname, "..", "src", "bilibili-cdn.js"),
@@ -310,4 +508,83 @@ test("Shadowrocket entrypoint returns only the changed JSON body", () => {
   vm.runInNewContext(source, context, { filename: "bilibili-cdn.js" });
   assert.ok(completion && typeof completion.body === "string");
   assert.match(completion.body, new RegExp(targetHost));
+});
+
+test("Shadowrocket auto entrypoint benchmarks, persists, and rewrites", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "src", "bilibili-cdn.js"),
+    "utf8",
+  );
+  const storage = {};
+  let completion;
+  let clock = Date.UTC(2026, 6, 24, 12, 0, 0);
+  const timings = {
+    [originalHost]: 100,
+    [cdn.DEFAULT_CDN]: 50,
+    "upos-sz-mirrorcos.bilivideo.com": 80,
+    "upos-sz-mirrorhw.bilivideo.com": 90,
+    "upos-sz-mirroraliov.bilivideo.com": 110,
+    "upos-sz-mirrorhwov.bilivideo.com": 120,
+  };
+  const context = {
+    $argument: JSON.stringify({
+      cdn: "auto",
+      debug: false,
+      intervalHours: 12,
+      switchThreshold: 20,
+    }),
+    $done(value) {
+      completion = value;
+    },
+    $httpClient: {
+      head(request, callback) {
+        const hostname = new URL(request.url).hostname;
+        const elapsed = timings[hostname] || 3000;
+        clock += elapsed;
+        callback(
+          elapsed < 3000 ? null : new Error("timeout"),
+          elapsed < 3000 ? { status: 200 } : null,
+        );
+      },
+    },
+    $persistentStore: {
+      read(key) {
+        return storage[key] || null;
+      },
+      write(value, key) {
+        storage[key] = value;
+        return true;
+      },
+    },
+    $request: {
+      url: "https://api.bilibili.com/x/player/playurl?bvid=test",
+    },
+    $response: {
+      body: JSON.stringify({ code: 0, data: { durl: [{ url: originalUrl }] } }),
+    },
+    ArrayBuffer,
+    Boolean,
+    clearTimeout,
+    console,
+    Date: { now: () => clock },
+    decodeURIComponent,
+    Error,
+    JSON,
+    Math,
+    Number,
+    Object,
+    RegExp,
+    setTimeout,
+    String,
+    Uint8Array,
+    URL,
+  };
+
+  vm.runInNewContext(source, context, { filename: "bilibili-cdn.js" });
+
+  assert.ok(completion && typeof completion.body === "string");
+  assert.match(completion.body, new RegExp(cdn.DEFAULT_CDN));
+  const state = JSON.parse(storage[cdn.AUTO_STATE_KEY]);
+  assert.equal(state.selectedHost, cdn.DEFAULT_CDN);
+  assert.ok(state.nextTestAt > 0);
 });

@@ -1,0 +1,23 @@
+{
+  "maintained": [
+    "upos-sz-mirrorali.bilivideo.com",
+    "upos-sz-mirrorcos.bilivideo.com",
+    "upos-sz-mirrorhw.bilivideo.com",
+    "upos-sz-mirroraliov.bilivideo.com",
+    "upos-sz-mirrorcosov.bilivideo.com",
+    "upos-sz-mirrorhwov.bilivideo.com",
+    "cn-hk-eq-01-01.bilivideo.com",
+    "cn-hk-eq-01-03.bilivideo.com",
+    "cn-hk-eq-01-09.bilivideo.com",
+    "cn-hk-eq-01-10.bilivideo.com",
+    "cn-hk-eq-01-12.bilivideo.com",
+    "cn-hk-eq-01-13.bilivideo.com",
+    "cn-hk-eq-01-14.bilivideo.com"
+  ],
+  "supplemental": [
+    "cn-jxnc-cmcc-bcache-06.bilivideo.com",
+    "upos-hz-mirrorakam.akamaized.net",
+    "upos-sz-mirroralib.bilivideo.com",
+    "upos-sz-mirrorbos.bilivideo.com"
+  ]
+}

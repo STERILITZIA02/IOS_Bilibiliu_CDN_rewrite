@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const cdn = require("../src/bilibili-cdn.js");
 
 const root = path.resolve(__dirname, "..");
 const moduleText = fs.readFileSync(
@@ -13,6 +14,12 @@ const moduleText = fs.readFileSync(
 const rules = fs.readFileSync(
   path.join(root, "dist", "Bilibili.list"),
   "utf8",
+);
+const candidateConfig = JSON.parse(
+  fs.readFileSync(
+    path.join(root, "config", "cdn-candidates.json"),
+    "utf8",
+  ),
 );
 
 test("generated module has routing, JSON, gRPC, and scoped MITM sections", () => {
@@ -27,6 +34,9 @@ test("generated module has routing, JSON, gRPC, and scoped MITM sections", () =>
   assert.match(moduleText, /h2 = true/);
   assert.match(moduleText, /grpc\.biliapi\.net/);
   assert.doesNotMatch(moduleText, /api\.live\.bilibili\.com/);
+  assert.match(moduleText, /#!arguments=CDN:auto,/);
+  assert.match(moduleText, /"intervalHours":\{\{\{测速间隔\}\}\}/);
+  assert.match(moduleText, /"switchThreshold":\{\{\{切换阈值\}\}\}/);
 });
 
 test("generated response patterns compile and cover current playback APIs", () => {
@@ -74,6 +84,20 @@ test("rule set covers main, API, VOD CDN, live CDN, and static domains", () => {
     "DOMAIN-SUFFIX,hdslb.com",
   ]) {
     assert.ok(rules.includes(line), `missing ${line}`);
+  }
+});
+
+test("automatic CDN candidates match the reviewed configuration", () => {
+  const configured = [
+    ...candidateConfig.maintained,
+    ...candidateConfig.supplemental,
+  ];
+  assert.deepEqual(cdn.AUTO_CDN_CANDIDATES, configured);
+  assert.equal(new Set(configured).size, configured.length);
+  assert.ok(configured.length >= 13);
+  for (const hostname of configured) {
+    assert.equal(cdn.normalizeCdnHost(hostname), hostname);
+    assert.equal(cdn.isBilibiliMediaHost(hostname), true);
   }
 });
 
