@@ -10,7 +10,7 @@ import {
 } from "@/lib/repository";
 
 const SAFE_CDN_HOST =
-  /^(?:[a-z0-9-]+\.)+(?:bilivideo\.(?:com|cn)|acgvideo\.com|akamaized\.net)$/i;
+  /^(?:(?:[a-z0-9-]+\.)+(?:bilivideo\.(?:com|cn)|acgvideo\.com)|upos-[a-z0-9-]+\.akamaized\.net)$/i;
 const SAFE_POLICY = /^[\p{L}\p{N}_.+ -]{1,64}$/u;
 const SAFE_PROFILE = /^[A-Za-z0-9._-]{1,40}$/;
 
@@ -145,6 +145,34 @@ function customizeModule(
   values: Map<string, boolean | number | string>,
 ): string {
   const options = optionsForVariant(catalog, variant);
+  const expectedArguments = options.map((option) => option.argument);
+  const argumentsMatch = template.match(/^#!arguments=(.+)$/m);
+  const templateArguments = argumentsMatch?.[1]
+    .split(",")
+    .map((entry) => entry.slice(0, entry.indexOf(":")));
+  const templatePlaceholders = new Set(
+    Array.from(
+      template.matchAll(/\{\{\{([^{}\r\n]+)\}\}\}/g),
+      (match) => match[1],
+    ),
+  );
+  const expectedPlaceholders = new Set(expectedArguments);
+
+  if (
+    !templateArguments ||
+    templateArguments.some((argument) => argument.length === 0) ||
+    templateArguments.length !== expectedArguments.length ||
+    templateArguments.some(
+      (argument, index) => argument !== expectedArguments[index],
+    ) ||
+    templatePlaceholders.size !== expectedPlaceholders.size ||
+    Array.from(templatePlaceholders).some(
+      (argument) => !expectedPlaceholders.has(argument),
+    )
+  ) {
+    throw new Error("Latest module arguments are out of sync with catalog");
+  }
+
   for (const option of options) {
     if (!template.includes(`{{{${option.argument}}}}`)) {
       throw new Error(
@@ -190,7 +218,11 @@ export async function GET(request: Request) {
       throw new RequestError("variant 参数不能重复");
     }
     const variant = parseVariant(url.searchParams.get("variant"));
-    const { catalog } = await loadLatestCatalog();
+    const { catalog, source: catalogSource } =
+      await loadLatestCatalog();
+    if (catalogSource !== "repository") {
+      throw new Error("Latest repository catalog is unavailable");
+    }
     const values = resolveArguments(url, catalog, variant);
     const { text, sourceUrl } = await loadLatestModule(variant);
     const customized = customizeModule(

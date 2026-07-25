@@ -105,13 +105,14 @@ test("parses independent enhancement switches and rejects malformed arguments", 
     liveShopping: true,
     searchPromotions: true,
     ui: true,
+    videoOnlyRecommendations: true,
     vipPromotions: true,
     valid: true,
     ...enhance.UI_OPTION_DEFAULTS,
   });
   assert.deepEqual(
     enhance.parseArgument(
-      "ads=false&ui=0&searchPromotions=off&liveShopping=no&vipPromotions=0&hideMineWallet=1&debug=1",
+      "ads=false&videoOnlyRecommendations=0&ui=0&searchPromotions=off&liveShopping=no&vipPromotions=0&hideMineWallet=1&debug=1",
     ),
     {
       ads: false,
@@ -119,6 +120,7 @@ test("parses independent enhancement switches and rejects malformed arguments", 
       liveShopping: false,
       searchPromotions: false,
       ui: false,
+      videoOnlyRecommendations: false,
       vipPromotions: false,
       valid: true,
       ...enhance.UI_OPTION_DEFAULTS,
@@ -774,10 +776,146 @@ test("handles view, reply, PGC, web feed, and live ads conservatively", () => {
   ]);
 });
 
-test("gRPC View v1 removes only explicit CM fields and related CM cards", () => {
+test("view recommendations keep only ordinary videos by default", () => {
+  const fixture = {
+    code: 0,
+    data: {
+      cm: { source: "ad" },
+      relates: [
+        {
+          aid: 1,
+          bvid: "BV1xx411c7mD",
+          goto: "av",
+          title: "普通 UP 主视频",
+          badge: "UP",
+        },
+        {
+          aid: 2,
+          title: "旧版普通视频",
+        },
+        {
+          aid: 10,
+          goto: "av",
+          title: "普通 UP 主拍了一部纪录片",
+        },
+        {
+          goto: "ogv",
+          card_type_en: "documentary",
+          badge: "纪录片",
+          title: "纪录片",
+        },
+        {
+          aid: 3,
+          goto: "av",
+          badge_info: { text: "综艺" },
+          title: "综艺",
+        },
+        {
+          goto: "bangumi",
+          season_id: 1,
+          title: "番剧",
+        },
+        {
+          goto: "live",
+          room_id: 1,
+          title: "直播",
+        },
+        {
+          goto: "game",
+          title: "游戏",
+        },
+        {
+          goto: "resource",
+          title: "资源卡",
+        },
+        {
+          goto: "special",
+          title: "特殊卡",
+        },
+        {
+          aid: 6,
+          player_args: { type: "live" },
+          title: "缺少 goto 的直播卡",
+        },
+        {
+          aid: 7,
+          uri: "bilibili://bangumi/season/1",
+          title: "缺少 goto 的番剧卡",
+        },
+        {
+          aid: 8,
+          goto: "av",
+          player_args: { type: "live" },
+          title: "冲突标记的直播卡",
+        },
+        {
+          aid: 9,
+          goto: "av",
+          uri: "bilibili://bangumi/season/2",
+          title: "冲突标记的番剧卡",
+        },
+        {
+          aid: 4,
+          goto: "av",
+          rcmd_reason: { content: "必火推荐" },
+          title: "商业推荐",
+        },
+        {
+          aid: 5,
+          goto: "av",
+          desc_button: { text: "立即下载" },
+          title: "下载广告",
+        },
+        {
+          title: "无法确认类型的卡片",
+        },
+      ],
+    },
+  };
+  const strict = transform(
+    `${appRoot}/x/v2/view?aid=1`,
+    fixture,
+  );
+  assert.deepEqual(
+    JSON.parse(strict.body).data.relates.map((item) => item.title),
+    [
+      "普通 UP 主视频",
+      "旧版普通视频",
+      "普通 UP 主拍了一部纪录片",
+    ],
+  );
+  const strictAgain = enhance.transformJsonText(
+    strict.body,
+    `${appRoot}/x/v2/view?aid=1`,
+    enhance.parseArgument(""),
+  );
+  assert.equal(strictAgain.changed, 0);
+  assert.equal(strictAgain.body, strict.body);
+
+  const relaxed = transform(
+    `${appRoot}/x/v2/view?aid=1`,
+    fixture,
+    '{"videoOnlyRecommendations":false}',
+  );
+  const relaxedTitles = JSON.parse(relaxed.body).data.relates.map(
+    (item) => item.title,
+  );
+  assert.ok(relaxedTitles.includes("纪录片"));
+  assert.ok(relaxedTitles.includes("综艺"));
+  assert.ok(relaxedTitles.includes("直播"));
+  assert.ok(relaxedTitles.includes("无法确认类型的卡片"));
+  assert.ok(!relaxedTitles.includes("商业推荐"));
+  assert.ok(!relaxedTitles.includes("下载广告"));
+});
+
+test("gRPC View v1 keeps only explicit AV relations by default", () => {
   const normalRelate = bytes(
     stringField(3, "normal-related-video"),
     stringField(7, "av"),
+  );
+  const specialRelate = bytes(
+    stringField(3, "documentary-related-card"),
+    stringField(7, "special"),
   );
   const adRelate = bytes(
     stringField(3, "commercial-related-card"),
@@ -785,6 +923,7 @@ test("gRPC View v1 removes only explicit CM fields and related CM cards", () => 
   );
   const reply = bytes(
     messageField(10, normalRelate),
+    messageField(10, specialRelate),
     messageField(10, adRelate),
     messageField(30, stringField(1, "cm-body")),
     messageField(31, stringField(1, "cm-config")),
@@ -799,16 +938,29 @@ test("gRPC View v1 removes only explicit CM fields and related CM cards", () => 
   const outputText = Buffer.from(output).toString("latin1");
 
   assert.equal(result.valid, true);
-  assert.equal(result.changed, 3);
+  assert.equal(result.changed, 4);
   assert.equal(protoFields(output, 10, 2).length, 1);
   assert.equal(protoFields(output, 30).length, 0);
   assert.equal(protoFields(output, 31).length, 0);
   assert.match(outputText, /normal-related-video/);
   assert.match(outputText, /unknown-field-must-stay/);
+  assert.doesNotMatch(outputText, /documentary-related-card/);
   assert.doesNotMatch(outputText, /commercial-related-card/);
+
+  const relaxed = enhance.transformGrpcBody(
+    grpcFrame(reply),
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/View",
+    enhance.parseArgument('{"videoOnlyRecommendations":false}'),
+  );
+  const relaxedText = Buffer.from(grpcPayload(relaxed.body)).toString(
+    "latin1",
+  );
+  assert.match(relaxedText, /normal-related-video/);
+  assert.match(relaxedText, /documentary-related-card/);
+  assert.doesNotMatch(relaxedText, /commercial-related-card/);
 });
 
-test("gRPC ViewUnite filters reviewed promotion cards and modules", () => {
+test("gRPC ViewUnite keeps only AV cards and filters promotion modules", () => {
   const card = (type, title, extra) =>
     bytes(
       varintField(1, type),
@@ -827,8 +979,16 @@ test("gRPC ViewUnite filters reviewed promotion cards and modules", () => {
     );
   const relates = bytes(
     messageField(1, card(1, "normal-av")),
+    messageField(1, card(0, "unknown-card")),
+    messageField(1, card(2, "bangumi-card")),
+    messageField(1, card(3, "resource-card")),
     messageField(1, card(4, "game-promotion")),
     messageField(1, card(5, "cm-promotion")),
+    messageField(1, card(6, "live-card")),
+    messageField(1, card(7, "ai-recommend-card")),
+    messageField(1, card(8, "bangumi-av-card")),
+    messageField(1, card(9, "bangumi-ugc-card")),
+    messageField(1, card(10, "special-card")),
     messageField(1, card(11, "course-promotion")),
     messageField(1, card(1, "stock-promotion", "stock")),
     messageField(1, card(1, "unique-promotion", "unique")),
@@ -876,19 +1036,52 @@ test("gRPC ViewUnite filters reviewed promotion cards and modules", () => {
   );
 
   assert.equal(result.valid, true);
-  assert.equal(result.changed, 9);
+  assert.equal(result.changed, 17);
   assert.match(outputText, /normal-av/);
   assert.match(outputText, /unknown-report/);
   assert.match(outputText, /future-module/);
   assert.doesNotMatch(outputText, /game-promotion/);
   assert.doesNotMatch(outputText, /cm-promotion/);
   assert.doesNotMatch(outputText, /course-promotion/);
+  assert.doesNotMatch(outputText, /unknown-card/);
+  assert.doesNotMatch(outputText, /bangumi-card/);
+  assert.doesNotMatch(outputText, /resource-card/);
+  assert.doesNotMatch(outputText, /live-card/);
+  assert.doesNotMatch(outputText, /ai-recommend-card/);
+  assert.doesNotMatch(outputText, /bangumi-av-card/);
+  assert.doesNotMatch(outputText, /bangumi-ugc-card/);
+  assert.doesNotMatch(outputText, /special-card/);
   assert.doesNotMatch(outputText, /stock-promotion/);
   assert.doesNotMatch(outputText, /unique-promotion/);
   assert.doesNotMatch(outputText, /activity-banner/);
   assert.doesNotMatch(outputText, /vip-banner/);
   assert.doesNotMatch(outputText, /up-goods/);
   assert.doesNotMatch(outputText, /top-level-cm/);
+  const repeated = enhance.transformGrpcBody(
+    result.body,
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/View",
+    enhance.parseArgument(""),
+  );
+  assert.equal(repeated.changed, 0);
+  assert.deepEqual(Buffer.from(repeated.body), Buffer.from(result.body));
+
+  const relaxed = enhance.transformGrpcBody(
+    grpcFrame(reply),
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/View",
+    enhance.parseArgument('{"videoOnlyRecommendations":false}'),
+  );
+  const relaxedText = Buffer.from(
+    grpcPayload(relaxed.body),
+  ).toString("latin1");
+  assert.match(relaxedText, /bangumi-card/);
+  assert.match(relaxedText, /resource-card/);
+  assert.match(relaxedText, /live-card/);
+  assert.match(relaxedText, /special-card/);
+  assert.doesNotMatch(relaxedText, /game-promotion/);
+  assert.doesNotMatch(relaxedText, /cm-promotion/);
+  assert.doesNotMatch(relaxedText, /course-promotion/);
+  assert.doesNotMatch(relaxedText, /stock-promotion/);
+  assert.doesNotMatch(relaxedText, /unique-promotion/);
 
   const vipDisabled = enhance.transformGrpcBody(
     grpcFrame(reply),
@@ -901,6 +1094,49 @@ test("gRPC ViewUnite filters reviewed promotion cards and modules", () => {
   assert.match(vipDisabledText, /vip-banner/);
   assert.doesNotMatch(vipDisabledText, /activity-banner/);
   assert.doesNotMatch(vipDisabledText, /up-goods/);
+});
+
+test("gRPC RelatesFeed endpoints use the same ordinary-video allowlist", () => {
+  const v1 = enhance.transformGrpcBody(
+    grpcFrame(
+      bytes(
+        messageField(
+          1,
+          bytes(stringField(3, "v1-av"), stringField(7, "av")),
+        ),
+        messageField(
+          1,
+          bytes(stringField(3, "v1-special"), stringField(7, "special")),
+        ),
+      ),
+    ),
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/RelatesFeed",
+    enhance.parseArgument(""),
+  );
+  const v1Text = Buffer.from(grpcPayload(v1.body)).toString("latin1");
+  assert.match(v1Text, /v1-av/);
+  assert.doesNotMatch(v1Text, /v1-special/);
+
+  const uniteCard = (type, title) =>
+    bytes(
+      varintField(1, type),
+      messageField(12, stringField(1, title)),
+    );
+  const unite = enhance.transformGrpcBody(
+    grpcFrame(
+      bytes(
+        messageField(1, uniteCard(1, "unite-av")),
+        messageField(1, uniteCard(2, "unite-bangumi")),
+      ),
+    ),
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/RelatesFeed",
+    enhance.parseArgument(""),
+  );
+  const uniteText = Buffer.from(
+    grpcPayload(unite.body),
+  ).toString("latin1");
+  assert.match(uniteText, /unite-av/);
+  assert.doesNotMatch(uniteText, /unite-bangumi/);
 });
 
 test("gRPC dynamic, search, and reply filters use endpoint-specific fields", () => {

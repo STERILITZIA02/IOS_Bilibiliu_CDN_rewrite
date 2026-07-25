@@ -371,6 +371,9 @@ export function Customizer({
   const installUrl = moduleUrl
     ? `shadowrocket://install?module=${encodeURIComponent(moduleUrl)}`
     : "#";
+  const repoSynced = catalogSource === "repository";
+  const uiEnabled =
+    variant === "enhanced" && Boolean(values.ui);
 
   const visibilityOptions = useMemo(
     () =>
@@ -387,6 +390,10 @@ export function Customizer({
   const hiddenItems = visibilityOptions.filter((option) =>
     Boolean(values[option.key]),
   );
+  const effectiveVisibleItems = uiEnabled
+    ? visibleItems
+    : visibilityOptions;
+  const effectiveHiddenItems = uiEnabled ? hiddenItems : [];
 
   function setValue(key: string, value: OptionValue) {
     setValues((current) => ({ ...current, [key]: value }));
@@ -410,10 +417,6 @@ export function Customizer({
       window.prompt("复制下面的模块地址", moduleUrl);
     }
   }
-
-  const repoSynced = catalogSource === "repository";
-  const uiEnabled =
-    variant === "enhanced" && Boolean(values.ui);
 
   return (
     <main>
@@ -505,7 +508,7 @@ export function Customizer({
                 </strong>
                 <small>
                   {variant === "enhanced"
-                    ? "CDN、广告过滤与界面精简"
+                    ? "CDN、广告/推荐过滤与界面精简"
                     : "仅 CDN 与流量分流"}
                 </small>
               </div>
@@ -514,7 +517,7 @@ export function Customizer({
                   <div>
                     <Icon name="home" />
                     <span>首页 / 我的</span>
-                    <strong>{visibleItems.length} 项显示</strong>
+                    <strong>{effectiveVisibleItems.length} 项显示</strong>
                   </div>
                   <div>
                     <Icon name="shield" />
@@ -582,7 +585,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>CDN + Enhanced</strong>
-                    <small>推荐 · CDN、去广告、界面逐项精简</small>
+                    <small>推荐 · CDN、去广告、普通视频推荐、界面精简</small>
                   </span>
                   <span className="radio-dot">
                     {variant === "enhanced" && <span />}
@@ -890,11 +893,11 @@ export function Customizer({
               {variant === "enhanced" && (
                 <div className="summary-stats">
                   <div>
-                    <strong>{visibleItems.length}</strong>
+                    <strong>{effectiveVisibleItems.length}</strong>
                     <span>可配置项显示</span>
                   </div>
                   <div>
-                    <strong>{hiddenItems.length}</strong>
+                    <strong>{effectiveHiddenItems.length}</strong>
                     <span>可配置项隐藏</span>
                   </div>
                 </div>

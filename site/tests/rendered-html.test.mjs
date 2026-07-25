@@ -36,6 +36,7 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /你的 Bilibili/);
   assert.match(html, /CDN \+ Enhanced/);
   assert.match(html, /仅 CDN Switcher/);
+  assert.match(html, /播放页只保留普通视频/);
   assert.match(html, /一键安装到 Shadowrocket/);
   assert.match(html, /明确的安全边界/);
   assert.doesNotMatch(html, /Your site is taking shape|SkeletonPreview/);
@@ -82,7 +83,7 @@ test("catalog and custom module routes use only fixed repository sources", async
     assert.equal(catalogPayload.catalog.schemaVersion, 1);
 
     const enhancedResponse = await request(
-      "/module.sgmodule?variant=enhanced&hideMineWallet=true&hideMoreSettings=true&intervalHours=24",
+      "/module.sgmodule?variant=enhanced&videoOnlyRecommendations=true&hideMineWallet=true&hideMoreSettings=true&intervalHours=24",
     );
     assert.equal(enhancedResponse.status, 200);
     assert.match(
@@ -96,6 +97,7 @@ test("catalog and custom module routes use only fixed repository sources", async
     const enhancedText = await enhancedResponse.text();
     assert.match(enhancedText, /隐藏我的钱包:true/);
     assert.match(enhancedText, /隐藏设置:true/);
+    assert.match(enhancedText, /推荐仅普通视频:true/);
     assert.match(enhancedText, /测速间隔:24/);
     assert.match(enhancedText, /Bilibili Enhance JSON/);
 
@@ -141,10 +143,53 @@ test("custom module route rejects unknown and injection-style parameters", async
     );
     assert.equal(injection.status, 400);
 
+    const unrelatedAkamaiHost = await request(
+      "/module.sgmodule?variant=cdn&cdn=unrelated.akamaized.net",
+    );
+    assert.equal(unrelatedAkamaiHost.status, 400);
+
     const duplicate = await request(
       "/module.sgmodule?variant=cdn&intervalHours=12&intervalHours=24",
     );
     assert.equal(duplicate.status, 400);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("custom module generation fails closed on repository drift or outage", async () => {
+  const originalFetch = globalThis.fetch;
+  const catalog = await readFile(
+    new URL("../../dist/module-options.json", import.meta.url),
+    "utf8",
+  );
+  const enhanced = await readFile(
+    new URL("../../dist/Bilibili.CDN.Enhanced.sgmodule", import.meta.url),
+    "utf8",
+  );
+
+  try {
+    globalThis.fetch = async (input) =>
+      String(input).endsWith("/dist/module-options.json")
+        ? new Response("Unavailable", { status: 503 })
+        : new Response(enhanced);
+    const outage = await request("/module.sgmodule?variant=enhanced");
+    assert.equal(outage.status, 502);
+
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/dist/module-options.json")) {
+        return new Response(catalog);
+      }
+      return new Response(
+        enhanced.replace(
+          /^#!arguments=(.+)$/m,
+          "#!arguments=$1,未审核参数:true",
+        ),
+      );
+    };
+    const drift = await request("/module.sgmodule?variant=enhanced");
+    assert.equal(drift.status, 502);
   } finally {
     globalThis.fetch = originalFetch;
   }

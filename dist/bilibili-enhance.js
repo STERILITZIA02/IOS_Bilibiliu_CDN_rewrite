@@ -259,6 +259,7 @@
       liveShopping: true,
       searchPromotions: true,
       ui: true,
+      videoOnlyRecommendations: true,
       vipPromotions: true,
       valid: true
     };
@@ -291,6 +292,10 @@
     }
 
     config.ads = parseBoolean(parsed.ads, config.ads);
+    config.videoOnlyRecommendations = parseBoolean(
+      parsed.videoOnlyRecommendations,
+      config.videoOnlyRecommendations
+    );
     config.ui = parseBoolean(parsed.ui, config.ui);
     config.searchPromotions = parseBoolean(
       parsed.searchPromotions,
@@ -484,13 +489,59 @@
     return true;
   }
 
+  function knownLabelText(value, depth) {
+    var keys = [
+      "content",
+      "desc",
+      "label",
+      "name",
+      "text",
+      "title",
+      "value"
+    ];
+    var parts = [];
+    var index;
+    var nested;
+    if (depth > 3 || value === null || value === undefined) {
+      return "";
+    }
+    if (typeof value === "string" || typeof value === "number") {
+      return normalizeLabel(String(value));
+    }
+    if (Array.isArray(value)) {
+      for (index = 0; index < value.length; index += 1) {
+        nested = knownLabelText(value[index], depth + 1);
+        if (nested) {
+          parts.push(nested);
+        }
+      }
+      return parts.join("|");
+    }
+    if (!isPlainObject(value)) {
+      return "";
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      if (hasOwn.call(value, keys[index])) {
+        nested = knownLabelText(value[keys[index]], depth + 1);
+        if (nested) {
+          parts.push(nested);
+        }
+      }
+    }
+    return parts.join("|");
+  }
+
   function explicitCommercialLabel(item) {
     var keys = [
       "ad_tag",
       "ad_label",
       "badge",
+      "badge_info",
       "badge_text",
       "corner_mark",
+      "rcmd_reason",
+      "rcmd_reason_style",
+      "reason",
       "source_name"
     ];
     var index;
@@ -499,12 +550,9 @@
       return false;
     }
     for (index = 0; index < keys.length; index += 1) {
-      value = normalizeLabel(item[keys[index]]);
+      value = knownLabelText(item[keys[index]], 0);
       if (
-        includes(
-          ["广告", "必火推广", "小火箭", "商业推广"],
-          value
-        )
+        /(?:广告|必火推广|必火推荐|小火箭|商业推广)/.test(value)
       ) {
         return true;
       }
@@ -1214,7 +1262,197 @@
     return changes;
   }
 
-  function handleView(body) {
+  function hasAnyMarker(item, keys) {
+    var index;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      if (
+        hasOwn.call(item, keys[index]) &&
+        hasMarkerValue(item[keys[index]])
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function recommendationMarker(item, keys) {
+    var values = [];
+    var index;
+    var value;
+    if (!isPlainObject(item)) {
+      return "";
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      value = item[keys[index]];
+      if (typeof value === "string" || typeof value === "number") {
+        values.push(String(value).toLowerCase().trim());
+      }
+    }
+    return values.join("|");
+  }
+
+  function recommendationLabels(item) {
+    var keys = [
+      "badge",
+      "badge_info",
+      "badge_text",
+      "card_type",
+      "card_type_en",
+      "corner_mark",
+      "new_ep",
+      "rcmd_reason",
+      "rcmd_reason_style",
+      "reason",
+      "style"
+    ];
+    var labels = [];
+    var index;
+    var label;
+    if (!isPlainObject(item)) {
+      return "";
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      label = knownLabelText(item[keys[index]], 0);
+      if (label) {
+        labels.push(label);
+      }
+    }
+    return labels.join("|");
+  }
+
+  function isPlainVideoRecommendation(item) {
+    var marker;
+    var labels;
+    var uri;
+    var playerType;
+    var explicitAv;
+    var bvid;
+    var aid;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    if (
+      isHighConfidencePromotion(item) ||
+      hasCommercialAction(item)
+    ) {
+      return false;
+    }
+
+    marker = recommendationMarker(
+      item,
+      ["goto", "card_goto", "type", "card_type", "card_type_en"]
+    );
+    if (
+      /(?:^|\|)(?:ad|cm|ogv|pgc|bangumi|bangumi_av|bangumi_ugc|season|episode|live|game|resource|course|cheese|special|article|comic|audio|activity|banner|movie|tv|documentary|variety)(?:\||$)/i.test(
+        marker
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      hasAnyMarker(
+        item,
+        [
+          "season_id",
+          "seasonId",
+          "ep_id",
+          "epId",
+          "epid",
+          "season_type",
+          "seasonType",
+          "new_ep",
+          "newEp",
+          "pgc_info",
+          "pgcInfo",
+          "ogv_info",
+          "ogvInfo",
+          "live_info",
+          "liveInfo",
+          "room_id",
+          "roomId",
+          "game_info",
+          "gameInfo",
+          "resource_id",
+          "resourceId",
+          "course_id",
+          "courseId"
+        ]
+      )
+    ) {
+      return false;
+    }
+
+    labels = recommendationLabels(item);
+    if (
+      /(?:纪录片|综艺|番剧|国创|电影|电视剧|影视|直播|游戏|课程|课堂|专栏|文章|漫画|音频|播单|活动|广告|必火推荐|必火推广|documentary|variety|bangumi|ogv|pgc|live|game|course|cheese|special|article|comic|audio|activity)/i.test(
+        labels
+      )
+    ) {
+      return false;
+    }
+
+    explicitAv =
+      includes(
+        ["av", "video"],
+        String(item.goto || "").toLowerCase()
+      ) ||
+      includes(
+        ["av", "video"],
+        String(item.card_goto || "").toLowerCase()
+      ) ||
+      includes(
+        ["av", "video"],
+        String(item.type || "").toLowerCase()
+      );
+    playerType =
+      isPlainObject(item.player_args) &&
+      (
+        typeof item.player_args.type === "string" ||
+        typeof item.player_args.type === "number"
+      )
+        ? String(item.player_args.type).toLowerCase()
+        : "";
+    if (
+      playerType &&
+      playerType !== "av" &&
+      playerType !== "video"
+    ) {
+      return false;
+    }
+    uri = objectLink(item);
+    if (
+      /^(?:bilibili:\/\/(?:live|bangumi|pgc|season|ep|game|cheese|course|article|read|comic|audio|activity|mall)(?:[/?#]|$)|https?:\/\/(?:www\.)?bilibili\.com\/(?:bangumi|cheese|read|comic|audio|blackboard|festival)(?:[/?#]|$)|https?:\/\/live\.bilibili\.com(?:[/?#]|$))/i.test(
+        uri
+      )
+    ) {
+      return false;
+    }
+    if (explicitAv) {
+      return true;
+    }
+    if (playerType === "av" || playerType === "video") {
+      return true;
+    }
+    if (
+      /^(?:bilibili:\/\/video\/|https?:\/\/(?:www\.)?bilibili\.com\/video\/)/i.test(
+        uri
+      )
+    ) {
+      return true;
+    }
+    bvid = String(item.bvid || item.bv_id || item.bvId || "");
+    if (/^BV[0-9A-Za-z]{10,}$/i.test(bvid)) {
+      return true;
+    }
+    aid = Number(item.aid || item.av_id || item.avId || 0);
+    return Number.isFinite(aid) && aid > 0;
+  }
+
+  function handleView(body, config) {
     var data = body.data;
     var changes = 0;
     if (!isPlainObject(data)) {
@@ -1225,10 +1463,17 @@
     changes += deleteProperty(data, "cm_config");
     changes += deleteProperty(data, "cm_ipad");
     changes += replaceFilteredArray(data, "relates", function (item) {
+      if (
+        config.videoOnlyRecommendations !== false &&
+        !isPlainVideoRecommendation(item)
+      ) {
+        return true;
+      }
       return (
         isPlainObject(item) &&
         (
           isHighConfidencePromotion(item) ||
+          hasCommercialAction(item) ||
           (
             hasOwn.call(item, "cm") &&
             item.cm !== null &&
@@ -1381,7 +1626,7 @@
       case "search-results":
         return handleSearchResults(body);
       case "view":
-        return handleView(body);
+        return handleView(body, config);
       case "reply":
         return handleReply(body);
       case "pgc":
@@ -1714,6 +1959,27 @@
     return field ? field.scalar : null;
   }
 
+  function shortAsciiField(input, fieldNumber) {
+    var field = findProtoField(input, fieldNumber, 2);
+    var payload;
+    var text = "";
+    var index;
+    if (!field) {
+      return null;
+    }
+    payload = protoPayload(input, field);
+    if (!payload || payload.length === 0 || payload.length > 64) {
+      return null;
+    }
+    for (index = 0; index < payload.length; index += 1) {
+      if (payload[index] < 0x20 || payload[index] > 0x7e) {
+        return null;
+      }
+      text += String.fromCharCode(payload[index]);
+    }
+    return text.toLowerCase();
+  }
+
   function bytesContainCommercialLink(input) {
     var bytes = toUint8Array(input);
     var text = "";
@@ -1731,6 +1997,16 @@
 
   function isViewV1RelateAd(input) {
     return Boolean(findProtoField(input, 28, 2));
+  }
+
+  function shouldRemoveViewV1Relate(input, config) {
+    if (isViewV1RelateAd(input)) {
+      return true;
+    }
+    return (
+      config.videoOnlyRecommendations !== false &&
+      shortAsciiField(input, 7) !== "av"
+    );
   }
 
   function isViewUniteRelateAd(input) {
@@ -1754,6 +2030,16 @@
     return false;
   }
 
+  function shouldRemoveViewUniteRelate(input, config) {
+    if (isViewUniteRelateAd(input)) {
+      return true;
+    }
+    return (
+      config.videoOnlyRecommendations !== false &&
+      smallVarintField(input, 1) !== 1
+    );
+  }
+
   function filterRepeatedMessage(
     input,
     fieldNumber,
@@ -1774,9 +2060,11 @@
     });
   }
 
-  function transformViewV1(input, relatesOnly) {
+  function transformViewV1(input, relatesOnly, config) {
     if (relatesOnly) {
-      return filterRepeatedMessage(input, 1, isViewV1RelateAd);
+      return filterRepeatedMessage(input, 1, function (relate) {
+        return shouldRemoveViewV1Relate(relate, config);
+      });
     }
     return rewriteProtoMessage(input, function (field, bytes) {
       if (
@@ -1788,7 +2076,10 @@
       if (
         field.fieldNumber === 10 &&
         field.wireType === 2 &&
-        isViewV1RelateAd(protoPayload(bytes, field))
+        shouldRemoveViewV1Relate(
+          protoPayload(bytes, field),
+          config
+        )
       ) {
         return { changed: 1, remove: true };
       }
@@ -1796,15 +2087,17 @@
     });
   }
 
-  function transformViewUniteRelates(input) {
+  function transformViewUniteRelates(input, config) {
     return filterRepeatedMessage(
       input,
       1,
-      isViewUniteRelateAd
+      function (relate) {
+        return shouldRemoveViewUniteRelate(relate, config);
+      }
     );
   }
 
-  function transformViewUniteModule(input) {
+  function transformViewUniteModule(input, config) {
     var hadRelates = Boolean(findProtoField(input, 22, 2));
     var result = rewriteProtoMessage(
       input,
@@ -1817,7 +2110,8 @@
           return null;
         }
         nested = transformViewUniteRelates(
-          protoPayload(bytes, field)
+          protoPayload(bytes, field),
+          config
         );
         if (!nested.valid) {
           return { invalid: true };
@@ -1870,7 +2164,8 @@
         return { changed: 1, remove: true };
       }
       nested = transformViewUniteModule(
-        payload
+        payload,
+        config
       );
       if (!nested.valid) {
         return { invalid: true };
@@ -1962,7 +2257,7 @@
 
   function transformViewUnite(input, relatesOnly, config) {
     if (relatesOnly) {
-      return transformViewUniteRelates(input);
+      return transformViewUniteRelates(input, config);
     }
     return rewriteProtoMessage(input, function (field, bytes) {
       var nested;
@@ -2084,9 +2379,9 @@
     config = config || parseArgument("");
     switch (endpoint) {
       case "grpc-view-v1":
-        return transformViewV1(input, false);
+        return transformViewV1(input, false, config);
       case "grpc-view-v1-relates":
-        return transformViewV1(input, true);
+        return transformViewV1(input, true, config);
       case "grpc-view-unite":
         return transformViewUnite(input, false, config);
       case "grpc-view-unite-relates":

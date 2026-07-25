@@ -1,8 +1,9 @@
 # BiliFlow website
 
 The production website for this repository. It provides an iPhone/iPad-first
-interface for choosing the CDN-only or Enhanced module, changing each reviewed
-Home/Mine visibility option, and generating a stable Shadowrocket install URL.
+interface for choosing the CDN-only or Enhanced module, enabling the ordinary-
+video-only recommendation filter, changing each reviewed Home/Mine visibility
+option, and generating a stable Shadowrocket install URL.
 
 ## Safety model
 
@@ -22,7 +23,7 @@ Home/Mine visibility option, and generating a stable Shadowrocket install URL.
 Requires Node.js `>=22.13.0`.
 
 ```bash
-npm ci
+npm ci --ignore-scripts --no-audit --no-fund
 npm run dev
 npm run lint
 npm test
@@ -30,7 +31,9 @@ npm test
 
 `npm test` performs a production build and checks server rendering, both module
 variants, latest-repository sourcing, customization persistence, and
-injection-style request rejection.
+injection-style request rejection. The generation route requires the latest
+repository catalog and an exact catalog/module argument match; the bundled
+catalog is only a display fallback.
 
 ## Main routes
 

@@ -43,11 +43,12 @@ export async function loadLatestCatalog(): Promise<{
 }> {
   try {
     const response = await fetchWithTimeout(CATALOG_URL);
-    if (
-      response.ok &&
-      Number(response.headers.get("content-length") || 0) < 262144
-    ) {
-      const value: unknown = await response.json();
+    if (response.ok) {
+      const text = await response.text();
+      const value: unknown =
+        text.length > 0 && text.length <= 262144
+          ? JSON.parse(text)
+          : null;
       if (isModuleCatalog(value)) {
         return { catalog: value, source: "repository" };
       }

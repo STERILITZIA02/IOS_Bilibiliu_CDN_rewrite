@@ -10,12 +10,24 @@ All notable changes to this project are documented here.
 - Add conservative VIP-center and video-page marketing cleanup based on exact
   endpoints, stable identifiers, reviewed Protobuf module types, and
   high-confidence commercial markers.
+- Add a default-on, independently configurable video-page recommendation
+  allowlist that keeps only ordinary AV videos across JSON, View v1,
+  ViewUnite, and both RelatesFeed methods; filter documentary, variety, OGV,
+  live, game, course, resource, special, advertising, and unknown cards.
 - Add ViewUnite filtering for course relations and reviewed activity, VIP, and
   UP-goods modules without replacing or reconstructing unknown response arrays.
 - Publish separate CDN-only and CDN + ad/UI Enhanced Shadowrocket modules while
   preserving the historical module URL as an Enhanced compatibility alias.
 - Generate a versioned option catalog from the same schema used to build module
   arguments so the customization site cannot drift from the scripts.
+- Add the iPhone/iPad-first BiliFlow site for per-item visibility switches,
+  fixed-source module generation, persistent selections, and one-tap
+  Shadowrocket installation.
+- Make customized module generation fail closed when the latest repository
+  catalog is unavailable or its arguments/placeholders drift from the module;
+  keep the bundled catalog as display-only fallback.
+- Split core and website test discovery, verify both from clean CI/release
+  checkouts, and pin GitHub Actions to audited Node 24-runtime commit SHAs.
 - Preserve the existing resource-safe CDN selection algorithm and explicit
   fail-open boundaries for malformed, compressed, unauthorized, or unknown data.
 

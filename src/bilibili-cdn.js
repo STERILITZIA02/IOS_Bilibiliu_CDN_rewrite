@@ -1,5 +1,5 @@
 /*
- * Bilibili CDN Switcher v2 for Shadowrocket
+ * Bilibili CDN Switcher v3 for Shadowrocket
  *
  * Default auto mode is deliberately conservative:
  * - it only considers the primary and backup URLs returned for one media item;
