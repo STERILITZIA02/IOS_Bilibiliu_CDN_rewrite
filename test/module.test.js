@@ -38,6 +38,13 @@ const cdnSource = fs.readFileSync(
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(root, "package.json"), "utf8"),
 );
+const sitePackageJson = JSON.parse(
+  fs.readFileSync(path.join(root, "site", "package.json"), "utf8"),
+);
+const ciWorkflow = fs.readFileSync(
+  path.join(root, ".github", "workflows", "ci.yml"),
+  "utf8",
+);
 const releaseWorkflow = fs.readFileSync(
   path.join(root, ".github", "workflows", "release.yml"),
   "utf8",
@@ -322,4 +329,42 @@ test("release metadata and workflow publish every runtime artifact", () => {
   assert.match(releaseWorkflow, /--verify-tag/);
   assert.match(releaseWorkflow, /--fail-on-no-commits/);
   assert.match(releaseWorkflow, /Real-device iOS 26\/27 acceptance/);
+});
+
+test("CI validates core and website from a clean checkout", () => {
+  assert.equal(
+    packageJson.scripts.test,
+    'node --test --experimental-test-isolation=none "test/*.test.js"',
+  );
+  assert.equal(
+    packageJson.scripts["check:site"],
+    "npm --prefix site run lint && npm --prefix site test",
+  );
+  assert.equal(
+    sitePackageJson.scripts.test,
+    "npm run build && node --test --experimental-test-isolation=none tests/rendered-html.test.mjs",
+  );
+
+  for (const workflow of [ciWorkflow, releaseWorkflow]) {
+    assert.match(
+      workflow,
+      /actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7\.0\.1/,
+    );
+    assert.match(
+      workflow,
+      /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7\.0\.0/,
+    );
+    assert.match(workflow, /cache-dependency-path: site\/package-lock\.json/);
+    assert.match(
+      workflow,
+      /npm --prefix site ci --ignore-scripts --no-audit --no-fund/,
+    );
+    assert.match(workflow, /npm run check:all/);
+  }
+
+  const siteViteConfig = fs.readFileSync(
+    path.join(root, "site", "vite.config.ts"),
+    "utf8",
+  );
+  assert.doesNotMatch(siteViteConfig, /from ["']\.\/\.openai\/hosting\.json["']/);
 });

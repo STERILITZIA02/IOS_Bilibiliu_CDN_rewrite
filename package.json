@@ -10,8 +10,10 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:check": "node scripts/build.mjs --check",
-    "test": "node --test --experimental-test-isolation=none",
+    "test": "node --test --experimental-test-isolation=none \"test/*.test.js\"",
     "check": "npm run build:check && npm test",
+    "check:site": "npm --prefix site run lint && npm --prefix site test",
+    "check:all": "npm run check && npm run check:site",
     "smoke:auto": "node scripts/smoke-auto.mjs"
   }
 }
