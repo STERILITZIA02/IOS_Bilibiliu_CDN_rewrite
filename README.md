@@ -124,12 +124,18 @@ Enhanced 还会加入 `api.live.bilibili.com`，用于处理直播间明确的�
 | `直播带货` | `true` | 隐藏明确购物卡片和业务编号 33 的购物标签 |
 | `会员营销` | `true` | 隐藏“我的”页与大会员中心营销横幅/弹层，不改会员数据 |
 
-`推荐仅普通视频=true` 是播放页推荐列表的有意严格边界：JSON 需要普通视频
-标记、BVID/AVID 或 `/video/` 地址且不能带 PGC/直播/商业特征；旧版 View gRPC
-只保留 `goto=av`；ViewUnite 只保留关系卡类型 `1 (AV)`。类型 `0` 或字段缺失的
-未知推荐卡会删除，而未知字段仍按原始 wire bytes 保留。关闭该开关可恢复非视频
-推荐，但 `广告过滤=true` 时明确 CM、广告/游戏/课程推广、活动横幅、大会员横幅
-和 UP 主商品分享模块仍会清理。
+`推荐仅普通视频=true` 是播放页推荐列表的有意严格边界：JSON 必须有
+`goto/card_goto/type=av|video`、普通视频 `player_args` 或 `/video/` 地址，只有
+AVID/BVID 而没有类型证据的卡片不会放行；旧版 View gRPC 只保留 `goto=av`；
+ViewUnite 必须同时是关系卡类型 `1 (AV)` 且实际 oneof 为 `av(2)`。类型伪装、
+字段缺失或载荷为纪录片/番剧、资源、游戏、CM、直播、AI、特殊内容的卡片会删除，
+未知非目标字段仍按原始 wire bytes 保留。关闭该开关可恢复合法非视频推荐，但
+`广告过滤=true` 时明确 CM、广告/游戏/课程推广、活动横幅、大会员横幅和 UP 主
+商品分享模块仍会清理。
+
+播放页 gRPC 脚本同时读取 Shadowrocket 的 `bodyBytes`，并在 WebView 引擎内对
+首个 gzip 压缩响应做 4 MiB 解压上限处理；因此播放器下广告和关系卡会在第一次
+渲染前完成过滤。损坏帧、未知压缩格式或解压能力不可用时仍原样放行，避免破坏播放。
 
 大会员中心只处理营销 `banners` 和具有高置信营销标记的弹层字段；以下内容属于
 保护边界：会员状态、到期时间、钱包、订单、付款渠道、权益列表和未知字段。
@@ -210,6 +216,9 @@ DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 3. 重新应用配置；
 4. 完全退出并重开 Bilibili App。
 
+从 `3.0.1` 起，模块中的规则集和脚本 URL 都带当前版本键。更新模块后
+Shadowrocket 会取得新的远程资源地址，不会继续复用上一版同名脚本缓存。
+
 按影响最小顺序回滚：
 
 1. `CDN=off`，保留分流和 Enhanced；
@@ -240,7 +249,9 @@ DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 - 不读取或上传 Cookie、token、响应正文或完整媒体签名；
 - 不对媒体 CDN 做 MITM，不处理媒体分片响应体；
 - 不访问第三方测速/分析服务；探测只访问本次播放响应提供的同对象 URL；
-- 未知 JSON、压缩 gRPC、损坏 Protobuf、存储/网络异常全部故障开放；
+- 未知 JSON、损坏 Protobuf、未知/损坏压缩 gRPC、存储或网络异常全部故障开放；
+- 已审核 Bilibili gRPC 的 gzip 帧只在 4 MiB 解压上限内处理，修改后按标准
+  未压缩帧重新封装；
 - 网站生成器固定源、严格校验、无数据库、无登录、无分析与无用户数据上报。
 
 HTTPS 解密会让 Shadowrocket 在设备本地读取列出的 Bilibili API 明文响应。只安装
@@ -259,9 +270,9 @@ npm run check:all
 npm run smoke:auto
 ```
 
-- `npm run check` 验证确定性生成物，并覆盖 JSON、gRPC/Protobuf、播放页普通
-  视频白名单、逐项开关、双模块、严格 Range、缓存隔离、阈值、锁、退避、容量
-  和故障开放。
+- `npm run check` 验证确定性生成物，并覆盖 JSON、gRPC/Protobuf、首次响应
+  `bodyBytes`/gzip、播放页普通视频白名单、逐项开关、双模块、严格 Range、
+  缓存隔离、阈值、锁、退避、容量和故障开放。
 - `npm run check:all` 在上述核心检查后继续执行网站 lint、生产构建和路由安全测试；
   CI 与 Release 均使用该命令。
 - `npm run smoke:auto` 是可选联网冒烟，只探测公共播放响应中的主/备用 URL。

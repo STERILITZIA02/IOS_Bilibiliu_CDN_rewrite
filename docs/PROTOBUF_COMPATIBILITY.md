@@ -7,8 +7,9 @@
 
 本项目不打包完整 Bilibili Protobuf schema，也不使用“猜测式递归删除”。过滤器
 只在精确的 gRPC 方法上读取少量广告或推荐类型判别字段，删除目标字段或重复项时
-原样复制其余 wire bytes。未知字段、压缩帧和无法解析的消息全部保留；播放页关系
-卡的未知类型在 `推荐仅普通视频=true` 时删除。
+原样复制其余 wire bytes。未知字段和无法解析的消息全部保留；受支持的 gzip
+压缩帧先在有界 WebView 流中解压，播放页关系卡的未知类型在
+`推荐仅普通视频=true` 时删除。
 
 字段语义主要与 [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock) 当前 Apache-2.0 实现交叉核对；字段号再通过 `bilibili-API-collect` 的公开镜像提交 `cfc5fddcc8a94b74d91970bb5b4eaeb349addc47` 核对。后者采用 CC BY-NC 4.0；本仓库没有复制其 schema、注释或实现，只记录用于互操作所需的字段号与语义事实。
 
@@ -16,9 +17,10 @@
 
 | gRPC 方法 | 高置信处理 |
 | --- | --- |
-| `bilibili.app.view.v1.View/View` | 删除 `ViewReply` 的 `cms(30)`、`cm_config(31)`、`cm_ipad(41)`、`cm_under_player(48)`；始终移除含 `Relate.cm(28)` 的关联卡；严格模式下只保留 `Relate.goto(7) == "av"` |
+| `bilibili.app.view.v1.View/View` | 删除 `ViewReply` 的 `cms(30)`、`cm_config(31)`、`tf_panel_customized(34)`、`cm_ipad(41)`、兼容字段 `cm_under_player(48)`；始终移除含 `Relate.cm(28)` 的关联卡；严格模式下只保留 `Relate.goto(7) == "av"` |
 | `bilibili.app.view.v1.View/RelatesFeed` | 使用与上项相同的关系卡判据 |
-| `bilibili.app.viewunite.v1.View/View` | 删除顶层 `cm(7)`；始终移除类型 `4`（游戏推广）、`5`（广告）、`11`（课程推广）、非空 `cm_stock(11)` 或 `BasicInfo.unique_id(6)` 卡；严格模式下只保留类型 `1 (AV)`；移除介绍模块类型 `18`（活动横幅）、`55`（UP 主商品分享）以及受 `会员营销` 控制的 `29`（大会员横幅） |
+| `bilibili.app.view.v1.View/TFInfo` | 删除运营商免流营销 `tf_toast(2)` 与 `tf_panel_customized(3)`；保留 `tips_id(1)`、`user_flag_new(4)` 和未知字段 |
+| `bilibili.app.viewunite.v1.View/View` | 删除顶层 `cm(7)`；始终移除类型 `4`（游戏推广）、`5`（广告）、`11`（课程推广）、`game(5)`/`cm(6)` 载荷、非空 `cm_stock(11)` 或 `BasicInfo.unique_id(6)` 卡；严格模式下仅保留同时满足类型 `1 (AV)` 与 oneof `av(2)` 且不存在非 AV oneof `3/4/5/6/7/8/9/13/14` 的卡；移除介绍模块类型 `18`（活动横幅）、`55`（UP 主商品分享）以及受 `会员营销` 控制的 `29`（大会员横幅） |
 | `bilibili.app.viewunite.v1.View/RelatesFeed` | 使用与上项相同的关系卡判据；不处理介绍模块 |
 | `bilibili.app.dynamic.v2.Dynamic/DynAll` | 仅移除 `DynamicItem.card_type == 15 (ad)` |
 | `bilibili.polymer.app.search.v1.Search/SearchAll` | 仅移除 oneof 为 `game(11)` 或 `cm(25)` 的搜索卡 |
@@ -48,12 +50,15 @@ CDN 脚本只在模块精确列出的播放 gRPC 方法中运行。它不依赖�
 - `推荐仅普通视频` 默认开启且只影响播放页关系卡，并受 `广告过滤` 总开关控制；关闭后类型
   `0/2/3/6/7/8/9/10` 等合法非 AV 卡可恢复，但明确广告/推广判据仍执行。
 - 仅支持标准 Protobuf wire type `0`、`1`、`2`、`5`。
-- gRPC 压缩标志不为 `0` 的帧原样保留。
-- 多帧响应逐帧处理并重算被修改帧的长度。
-- 任一未压缩帧损坏、长度越界或嵌套消息无法解析时，整份响应原样返回。
+- gRPC 压缩标志 `0` 直接处理；标志 `1` 按 Bilibili 当前 gzip 约定解压，最多
+  4 MiB，修改后以标志 `0` 和新的消息长度输出。
+- 未知帧标志、gzip 解压不可用/失败或解压后超限时，整份响应原样返回。
+- 多帧响应逐帧处理并重算被修改帧的长度；未修改的压缩帧保持原字节。
+- 任一帧损坏、长度越界或嵌套消息无法解析时，整份响应原样返回。
 - 只有目标关系卡被清理后确实为空的嵌套容器才随之移除；其他字段与模块保留。
-- 不处理播放地址、弹幕会员效果、青少年模式、后台播放、会员提示或付费权益字段。
-- 模块把 gRPC 响应体上限限制为 1 MiB；更大的响应不进入脚本。
+- 不处理播放地址、弹幕会员效果、青少年模式、后台播放、真实会员状态或付费权益字段。
+- 模块把压缩前 gRPC 响应体上限限制为 1 MiB；更大的响应不进入脚本；脚本另有
+  4 MiB 解压输出上限。
 
 广告/UI gRPC 上限为 1 MiB；播放地址 gRPC 上限为 4 MiB。两类脚本均不匹配
 媒体分片域名或处理媒体文件响应体。

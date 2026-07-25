@@ -22,7 +22,7 @@
 
 | 项目 | 调研提交 | 许可证 | 本项目采用方式 |
 | --- | --- | --- | --- |
-| [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock) | `43b07841fa55` | Apache-2.0 | 参考当前接口覆盖范围与高置信广告特征，重新实现 |
+| [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock) | `v0.6.24` 与调研日 `main` | Apache-2.0 | 参考当前 View/TFInfo/ViewUnite 接口覆盖范围与高置信广告特征，重新实现 |
 | [BiliUniverse/Enhanced](https://github.com/BiliUniverse/Enhanced) | `6fcb1be0fb6d` | Apache-2.0 | 参考导航字段含义；不采用其覆盖服务端数组的方式 |
 | [BiliUniverse/Redirect](https://github.com/BiliUniverse/Redirect) | `7e4462847909` | Apache-2.0 | 参考 CDN 家族、海外内容和 MCDN 兼容边界 |
 | [BiliUniverse/Universe](https://github.com/BiliUniverse/Universe) | 调研日默认分支 | Apache-2.0 | 交叉核对模块结构与许可证 |
@@ -30,6 +30,9 @@
 | [app2smile/rules](https://github.com/app2smile/rules) | `df6366a7024e` | MIT | 交叉核对 JSON/Protobuf 广告卡片特征 |
 | [blackmatrix7/ios_rule_script](https://github.com/blackmatrix7/ios_rule_script) | `8f67b6419fe1` | GPL-2.0 | Bilibili 文件当前已归档；不复制代码或引用归档脚本 |
 | [Shadowrocket 使用手册](https://github.com/LOWERTOP/Shadowrocket/blob/main/README.md) | 调研日默认分支 | 文档仓库声明为准 | 核对模块、脚本、MITM、规则、安装和自动更新能力 |
+| [`@nsnanocat/grpc`](https://www.npmjs.com/package/@nsnanocat/grpc) | `1.1.0` npm 发行包 | Apache-2.0 | 核对 Bilibili gRPC 压缩标志 `1` 的 gzip 互操作行为；不复制其 pako 实现 |
+| [gRPC HTTP/2 protocol](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md) | 调研日默认分支 | Apache-2.0 | 核对压缩标志、消息长度和 `grpc-encoding` 语义 |
+| [WebKit Compression Streams](https://docs.webkit.org/Deep%20Dive/Modules/CompressionStreams.html) | 调研日文档 | WebKit 文档条款 | 核对 iOS WebView 的 gzip 流式解压能力与格式支持 |
 | [`bilibili-API-collect` 公开镜像](https://gitea.s1f.ren/shiran/bilibili-API-collect) | `cfc5fddcc8a94b74d91970bb5b4eaeb349addc47` | CC BY-NC 4.0 | 只交叉核对互操作字段号与语义事实，不复制 schema 或实现 |
 | [`pskdje/bilibili-API-collect`](https://github.com/pskdje/bilibili-API-collect) | `271b123a0836` | 仓库未声明标准 SPDX 许可证 | 只核对公开大会员中心 JSON 字段事实，不复制文档或实现 |
 
@@ -83,6 +86,12 @@ PCDN 网络规则只采用 Maasea 模块中可交叉核实的窄匹配
   `goto:"ogv"`，并给出明确广告类型；JSON 白名单据此实现，同时拒绝已审核的
   纪录片、综艺、番剧、影视和商业标签字段，不依据标题文本猜测类型。
 - `cm_stock` 和非空 `unique_id` 是明确推广特征，即使外层类型为 `1` 也删除。
+- `RelateCard` 的真实内容是 oneof：`av(2)`、`bangumi(3)`、`resource(4)`、
+  `game(5)`、`cm(6)`、`live(7)`、`bangumi_av(8)`、`ai_card(9)`、
+  `bangumi_ugc(13)`、`special(14)`。严格模式不能只相信外层类型 `1`，还必须
+  要求 oneof 实际为 `av(2)`，从而拒绝被伪装类型包裹的直播、纪录片或游戏广告。
+- 当前 `ViewReply` 还包含 `tf_panel_customized(34)`；独立 `TFInfo` 方法的
+  `tf_toast(2)` 与 `tf_panel_customized(3)`也是播放器下运营商营销面板。
 - 详情介绍模块类型 `18` 为活动横幅、`29` 为大会员横幅、
   `55` 为 UP 主分享好物；仅在精确 `ViewUnite` 结构中按类型删除。
 - 大会员中心组合接口为 `/x/vip/web/vip_center/combine`。营销
@@ -94,6 +103,9 @@ PCDN 网络规则只采用 Maasea 模块中可交叉核实的窄匹配
 - [BiliUniverse/Redirect issue #6](https://github.com/BiliUniverse/Redirect/issues/6) 报告了对 MCDN 请求进行中间人处理后出现 TLS 握手失败和持续缓冲。因此本项目不对媒体数据域做 MITM，也不在媒体分片热路径执行响应体脚本。
 - [BiliUniverse/Redirect pull request #8](https://github.com/BiliUniverse/Redirect/pull/8) 表明新增 CDN 在特定地区可能更快，但这只证明地区性收益，不能证明它可替代任意媒体对象的服务端候选。
 - Shadowrocket 手册说明模块可远程更新，也说明复杂脚本可能增加 Network Extension 的内存压力。因此模块应限制 MITM 域名、脚本响应体大小和每次请求的测速数量。
+- gRPC 规范规定压缩标志 `1` 的消息使用 `grpc-encoding` 指定的机制，而标志
+  `0` 表示消息字节未压缩；当前 Bilibili iOS 生态实现对标志 `1` 使用 gzip。
+  本项目只处理 gzip，按 4 MiB 限制解压，并把修改后的消息作为标志 `0` 输出。
 
 ## 明确不采用的做法
 

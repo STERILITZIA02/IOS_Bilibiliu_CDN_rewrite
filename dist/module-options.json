@@ -33,7 +33,7 @@
       "argument": "广告过滤",
       "group": "features",
       "label": "广告过滤",
-      "description": "仅移除具有明确广告字段或多项商业特征的卡片，未知内容保留",
+      "description": "仅移除具有明确广告字段或多项商业特征的卡片；播放页推荐另受普通视频白名单控制",
       "type": "boolean",
       "default": true,
       "variants": [
@@ -45,7 +45,7 @@
       "argument": "推荐仅普通视频",
       "group": "features",
       "label": "播放页只保留普通视频",
-      "description": "广告过滤开启时，播放页推荐只保留明确的普通 AV 视频；移除番剧、综艺、纪录片、影视、直播、游戏、课程、活动、广告和必火推荐等非视频卡片",
+      "description": "广告过滤开启时，首次进入播放页即清理播放器下广告，推荐只保留协议中明确携带 AV 载荷的普通视频；移除番剧、综艺、纪录片、影视、直播、游戏、课程、活动、广告和必火推荐等非视频卡片",
       "type": "boolean",
       "default": true,
       "variants": [

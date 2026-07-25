@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here.
 
+## [3.0.1] - 2026-07-26
+
+- Fix first-open video pages by reading Shadowrocket binary `bodyBytes` and
+  processing bounded gzip-compressed gRPC messages before the app renders them.
+- Remove current View v1 under-player marketing field `34`, the reviewed
+  `TFInfo` carrier-marketing fields, and the existing View/ViewUnite CM fields.
+- Require both ViewUnite relation type `1 (AV)` and the `av(2)` oneof payload;
+  reject mismatched documentary, live, game, CM, PGC, resource, AI, and special
+  payloads even when their outer type is disguised as AV.
+- Make the JSON strict mode require an explicit ordinary-video marker instead
+  of treating a bare AVID/BVID as sufficient type evidence.
+- Version-key every remote rule/script URL so an in-app module update cannot
+  continue using a cached script from an older release.
+- Add first-response gzip, `bodyBytes`, disguised-card, under-player marketing,
+  TFInfo, and remote-update cache regression coverage.
+
 ## [3.0.0] - 2026-07-26
 
 - Add independent per-item visibility switches for the reviewed Home, Mine, and
