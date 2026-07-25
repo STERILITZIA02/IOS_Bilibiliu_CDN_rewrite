@@ -105,11 +105,13 @@ test("parses independent enhancement switches and rejects malformed arguments", 
     liveShopping: true,
     searchPromotions: true,
     ui: true,
+    vipPromotions: true,
     valid: true,
+    ...enhance.UI_OPTION_DEFAULTS,
   });
   assert.deepEqual(
     enhance.parseArgument(
-      "ads=false&ui=0&searchPromotions=off&liveShopping=no&debug=1",
+      "ads=false&ui=0&searchPromotions=off&liveShopping=no&vipPromotions=0&hideMineWallet=1&debug=1",
     ),
     {
       ads: false,
@@ -117,11 +119,53 @@ test("parses independent enhancement switches and rejects malformed arguments", 
       liveShopping: false,
       searchPromotions: false,
       ui: false,
+      vipPromotions: false,
       valid: true,
+      ...enhance.UI_OPTION_DEFAULTS,
+      hideMineWallet: true,
     },
   );
   assert.equal(enhance.parseArgument('{"ads":').valid, false);
   assert.equal(enhance.parseArgument("ads=%").valid, false);
+});
+
+test("high-confidence promotion detection preserves ambiguous content", () => {
+  assert.equal(
+    enhance.isHighConfidencePromotion({
+      creative_id: 123,
+      title: "商业推广",
+    }),
+    true,
+  );
+  assert.equal(
+    enhance.isHighConfidencePromotion({
+      business_type: "promotion",
+      title: "推广",
+    }),
+    true,
+  );
+  assert.equal(
+    enhance.isHighConfidencePromotion({
+      track_id: "track",
+      button: { text: "立即购买" },
+      uri: "https://mall.bilibili.com/item/1",
+    }),
+    true,
+  );
+  assert.equal(
+    enhance.isHighConfidencePromotion({
+      title: "纪录片：广告人的一天",
+      uri: "bilibili://video/123",
+    }),
+    false,
+  );
+  assert.equal(
+    enhance.isHighConfidencePromotion({
+      card_type: "cm_v3",
+      card_goto: "future_unknown",
+    }),
+    false,
+  );
 });
 
 test("removes only high-confidence splash and feed advertisements", () => {
@@ -167,13 +211,12 @@ test("removes only high-confidence splash and feed advertisements", () => {
   );
   const feedBody = JSON.parse(feed.body);
 
-  assert.equal(feed.changed, 2);
-  assert.equal(feedBody.data.items.length, 3);
+  assert.equal(feed.changed, 3);
+  assert.equal(feedBody.data.items.length, 2);
   assert.deepEqual(feedBody.data.items[0].banner_item, [
     { type: "activity", title: "正常活动" },
   ]);
-  assert.equal(feedBody.data.items[1].card_type, "cm_v3");
-  assert.equal(feedBody.data.items[2].card_goto, "av");
+  assert.equal(feedBody.data.items[1].card_goto, "av");
 });
 
 test("filters Story advertisements while preserving unknown and premium cards", () => {
@@ -308,6 +351,57 @@ test("removes only the requested navigation entries and compacts positions", () 
     data.bottom.map((item) => item.pos),
     [1, 2, 3],
   );
+
+  const selective = transform(
+    `${appRoot}/x/resource/show/tab/v2`,
+    {
+      code: 0,
+      data: {
+        tab: [{
+          id: 136117,
+          name: "新征程",
+          uri: "bilibili://following/home_activity_tab/136117",
+          pos: 1,
+        }],
+        top: [{
+          id: 222,
+          name: "游戏中心",
+          uri: "bilibili://game_center/home",
+          pos: 1,
+        }],
+        bottom: [
+          {
+            id: 670,
+            name: "发布",
+            uri: "bilibili://uper/center_plus",
+            pos: 1,
+          },
+          {
+            id: 242,
+            name: "会员购",
+            uri: "bilibili://mall/home",
+            pos: 2,
+          },
+        ],
+      },
+    },
+    JSON.stringify({
+      hideHomeGame: false,
+      hideHomeJourney: false,
+      hideBottomPublish: false,
+      hideBottomMall: true,
+    }),
+  );
+  const selectiveData = JSON.parse(selective.body).data;
+  assert.deepEqual(selectiveData.top.map((item) => item.name), [
+    "游戏中心",
+  ]);
+  assert.deepEqual(selectiveData.tab.map((item) => item.name), [
+    "新征程",
+  ]);
+  assert.deepEqual(selectiveData.bottom.map((item) => item.name), [
+    "发布",
+  ]);
 });
 
 test("mine cleanup preserves account, membership, history, and unknown entries", () => {
@@ -387,6 +481,176 @@ test("mine cleanup preserves account, membership, history, and unknown entries",
     ["历史记录", "我的课程", "未知新服务"],
   );
   assert.equal("button" in data.sections_v2[0], false);
+});
+
+test("Mine and More service toggles are independent and default-visible", () => {
+  const fixture = {
+    code: 0,
+    data: {
+      mid: 123,
+      vip: { status: 1, due_date: 1893456000 },
+      sections_v2: [{
+        title: "我的服务",
+        items: [
+          {
+            id: 404,
+            title: "我的钱包",
+            uri: "bilibili://bilipay/mine_wallet",
+          },
+          {
+            id: 171,
+            title: "创作中心",
+            uri: "bilibili://uper/homevc",
+          },
+          {
+            id: 407,
+            title: "联系客服",
+            uri: "bilibili://user_center/feedback",
+          },
+          {
+            id: 410,
+            title: "设置",
+            uri: "bilibili://user_center/setting",
+          },
+          {
+            id: 400,
+            title: "我的课程",
+            uri: "https://m.bilibili.com/cheese/mine",
+          },
+          {
+            id: 9999,
+            title: "未来新服务",
+            uri: "bilibili://future/service",
+          },
+        ],
+      }],
+    },
+  };
+
+  const defaults = transform(
+    `${appRoot}/x/v2/account/mine`,
+    fixture,
+  );
+  assert.deepEqual(
+    JSON.parse(defaults.body).data.sections_v2[0].items.map(
+      (item) => item.title,
+    ),
+    ["我的钱包", "创作中心", "联系客服", "设置", "未来新服务"],
+  );
+
+  const customized = transform(
+    `${appRoot}/x/v2/account/mine`,
+    fixture,
+    JSON.stringify({
+      hideMineWallet: true,
+      hideMoreSettings: true,
+    }),
+  );
+  assert.deepEqual(
+    JSON.parse(customized.body).data.sections_v2[0].items.map(
+      (item) => item.title,
+    ),
+    ["创作中心", "联系客服", "未来新服务"],
+  );
+
+  const uiDisabled = transform(
+    `${appRoot}/x/v2/account/mine`,
+    fixture,
+    JSON.stringify({
+      ui: false,
+      hideMineWallet: true,
+      hideMoreSettings: true,
+    }),
+  );
+  assert.deepEqual(JSON.parse(uiDisabled.body), fixture);
+});
+
+test("VIP center cleanup removes only marketing overlays and banners", () => {
+  const fixture = {
+    code: 0,
+    data: {
+      user: {
+        mid: 123,
+        vip_status: 1,
+        due_date: 1893456000,
+      },
+      wallet: { balance: 88 },
+      privileges: [{ id: 1, enabled: true }],
+      orders: [{ id: "order-1", amount: 25 }],
+      payment: { channel: "apple" },
+      banners: [{
+        title: "大会员限时特惠",
+        uri: "https://www.bilibili.com/blackboard/activity-vip",
+      }],
+      popup: {
+        creative_id: 42,
+        title: "续费优惠",
+      },
+      dialog: {
+        title: "账号安全提示",
+        uri: "bilibili://security/check",
+      },
+      future_payload: { keep: true },
+    },
+  };
+  const result = transform(
+    `${apiRoot}/x/vip/web/vip_center/combine`,
+    fixture,
+  );
+  const data = JSON.parse(result.body).data;
+
+  assert.deepEqual(data.banners, []);
+  assert.equal("popup" in data, false);
+  assert.deepEqual(data.dialog, fixture.data.dialog);
+  assert.deepEqual(data.user, fixture.data.user);
+  assert.deepEqual(data.wallet, fixture.data.wallet);
+  assert.deepEqual(data.privileges, fixture.data.privileges);
+  assert.deepEqual(data.orders, fixture.data.orders);
+  assert.deepEqual(data.payment, fixture.data.payment);
+  assert.deepEqual(data.future_payload, { keep: true });
+
+  const disabled = transform(
+    `${apiRoot}/x/vip/web/vip_center/combine`,
+    fixture,
+    '{"vipPromotions":false}',
+  );
+  assert.deepEqual(JSON.parse(disabled.body), fixture);
+});
+
+test("JSON cleanup is idempotent across repeated refresh responses", () => {
+  const url = `${appRoot}/x/v2/account/mine`;
+  const first = enhance.transformJsonText(
+    JSON.stringify({
+      code: 0,
+      data: {
+        sections_v2: [{
+          items: [
+            {
+              id: 400,
+              title: "我的课程",
+              uri: "https://m.bilibili.com/cheese/mine",
+            },
+            {
+              id: 397,
+              title: "历史记录",
+              uri: "bilibili://user_center/history",
+            },
+          ],
+        }],
+      },
+    }),
+    url,
+    enhance.parseArgument(""),
+  );
+  const second = enhance.transformJsonText(
+    first.body,
+    url,
+    enhance.parseArgument(""),
+  );
+
+  assert.ok(first.changed > 0);
+  assert.equal(second.changed, 0);
+  assert.equal(second.body, first.body);
 });
 
 test("handles view, reply, PGC, web feed, and live ads conservatively", () => {
@@ -544,7 +808,7 @@ test("gRPC View v1 removes only explicit CM fields and related CM cards", () => 
   assert.doesNotMatch(outputText, /commercial-related-card/);
 });
 
-test("gRPC ViewUnite filters CM, game, stock, and unique-id promotion cards", () => {
+test("gRPC ViewUnite filters reviewed promotion cards and modules", () => {
   const card = (type, title, extra) =>
     bytes(
       varintField(1, type),
@@ -565,6 +829,7 @@ test("gRPC ViewUnite filters CM, game, stock, and unique-id promotion cards", ()
     messageField(1, card(1, "normal-av")),
     messageField(1, card(4, "game-promotion")),
     messageField(1, card(5, "cm-promotion")),
+    messageField(1, card(11, "course-promotion")),
     messageField(1, card(1, "stock-promotion", "stock")),
     messageField(1, card(1, "unique-promotion", "unique")),
   );
@@ -572,7 +837,25 @@ test("gRPC ViewUnite filters CM, game, stock, and unique-id promotion cards", ()
     varintField(1, 28),
     messageField(22, relates),
   );
-  const introduction = messageField(2, module);
+  const introduction = bytes(
+    messageField(2, module),
+    messageField(
+      2,
+      bytes(varintField(1, 18), stringField(3, "activity-banner")),
+    ),
+    messageField(
+      2,
+      bytes(varintField(1, 29), stringField(3, "vip-banner")),
+    ),
+    messageField(
+      2,
+      bytes(varintField(1, 55), stringField(3, "up-goods")),
+    ),
+    messageField(
+      2,
+      bytes(varintField(1, 99), stringField(3, "future-module")),
+    ),
+  );
   const tabModule = bytes(
     varintField(1, 1),
     messageField(2, introduction),
@@ -593,14 +876,31 @@ test("gRPC ViewUnite filters CM, game, stock, and unique-id promotion cards", ()
   );
 
   assert.equal(result.valid, true);
-  assert.equal(result.changed, 5);
+  assert.equal(result.changed, 9);
   assert.match(outputText, /normal-av/);
   assert.match(outputText, /unknown-report/);
+  assert.match(outputText, /future-module/);
   assert.doesNotMatch(outputText, /game-promotion/);
   assert.doesNotMatch(outputText, /cm-promotion/);
+  assert.doesNotMatch(outputText, /course-promotion/);
   assert.doesNotMatch(outputText, /stock-promotion/);
   assert.doesNotMatch(outputText, /unique-promotion/);
+  assert.doesNotMatch(outputText, /activity-banner/);
+  assert.doesNotMatch(outputText, /vip-banner/);
+  assert.doesNotMatch(outputText, /up-goods/);
   assert.doesNotMatch(outputText, /top-level-cm/);
+
+  const vipDisabled = enhance.transformGrpcBody(
+    grpcFrame(reply),
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/View",
+    enhance.parseArgument('{"vipPromotions":false}'),
+  );
+  const vipDisabledText = Buffer.from(
+    grpcPayload(vipDisabled.body),
+  ).toString("latin1");
+  assert.match(vipDisabledText, /vip-banner/);
+  assert.doesNotMatch(vipDisabledText, /activity-banner/);
+  assert.doesNotMatch(vipDisabledText, /up-goods/);
 });
 
 test("gRPC dynamic, search, and reply filters use endpoint-specific fields", () => {

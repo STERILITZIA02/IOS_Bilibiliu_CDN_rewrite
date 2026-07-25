@@ -13,18 +13,16 @@ const repository = "STERILITZIA02/IOS_Bilibiliu_CDN_rewrite";
 const rawRoot = `https://raw.githubusercontent.com/${repository}/main`;
 const homepage = `https://github.com/${repository}`;
 
-const packageJson = JSON.parse(
-  await readFile(path.join(rootDirectory, "package.json"), "utf8"),
-);
-const domains = JSON.parse(
-  await readFile(path.join(rootDirectory, "config", "domains.json"), "utf8"),
-);
-const candidateConfig = JSON.parse(
-  await readFile(
-    path.join(rootDirectory, "config", "cdn-candidates.json"),
-    "utf8",
-  ),
-);
+async function readJson(relativePath) {
+  return JSON.parse(
+    await readFile(path.join(rootDirectory, relativePath), "utf8"),
+  );
+}
+
+const packageJson = await readJson("package.json");
+const domains = await readJson("config/domains.json");
+const candidateConfig = await readJson("config/cdn-candidates.json");
+const moduleOptions = await readJson("config/module-options.json");
 const sourceScript = await readFile(
   path.join(rootDirectory, "src", "bilibili-cdn.js"),
   "utf8",
@@ -38,7 +36,9 @@ function validateDomainList(name, values, requireSorted = true) {
   if (!Array.isArray(values) || values.length === 0) {
     throw new Error(`${name} must be a non-empty array`);
   }
-  const sorted = [...values].sort((left, right) => left.localeCompare(right));
+  const sorted = [...values].sort((left, right) =>
+    left.localeCompare(right),
+  );
   if (new Set(values).size !== values.length) {
     throw new Error(`${name} contains duplicate entries`);
   }
@@ -53,6 +53,145 @@ function validateDomainList(name, values, requireSorted = true) {
       !value.includes(".")
     ) {
       throw new Error(`${name} contains invalid domain: ${String(value)}`);
+    }
+  }
+}
+
+function validateModuleOptions(schema, enhanceApi) {
+  if (
+    !schema ||
+    schema.schemaVersion !== 1 ||
+    !Array.isArray(schema.groups) ||
+    !Array.isArray(schema.options)
+  ) {
+    throw new Error("config/module-options.json has an invalid schema");
+  }
+
+  const groupIds = new Set();
+  for (const group of schema.groups) {
+    if (
+      !group ||
+      typeof group.id !== "string" ||
+      !group.id ||
+      typeof group.title !== "string" ||
+      !group.title ||
+      typeof group.surface !== "string" ||
+      !group.surface ||
+      groupIds.has(group.id)
+    ) {
+      throw new Error("module option groups must be unique and complete");
+    }
+    groupIds.add(group.id);
+  }
+
+  const keys = new Set();
+  const argumentsSeen = new Set();
+  const supportedTypes = new Set(["boolean", "number", "string"]);
+  const supportedVariants = new Set(["cdn", "enhanced"]);
+
+  for (const option of schema.options) {
+    if (
+      !option ||
+      typeof option.key !== "string" ||
+      !/^[A-Za-z][A-Za-z0-9]*$/.test(option.key) ||
+      keys.has(option.key)
+    ) {
+      throw new Error(`invalid or duplicate module option key: ${option?.key}`);
+    }
+    if (
+      typeof option.argument !== "string" ||
+      !option.argument ||
+      /[,\r\n:]/.test(option.argument) ||
+      argumentsSeen.has(option.argument)
+    ) {
+      throw new Error(
+        `invalid or duplicate Shadowrocket argument: ${option.argument}`,
+      );
+    }
+    if (
+      !groupIds.has(option.group) ||
+      typeof option.label !== "string" ||
+      !option.label ||
+      typeof option.description !== "string" ||
+      !option.description ||
+      !supportedTypes.has(option.type)
+    ) {
+      throw new Error(`module option ${option.key} is incomplete`);
+    }
+    if (
+      !Array.isArray(option.variants) ||
+      option.variants.length === 0 ||
+      option.variants.some((variant) => !supportedVariants.has(variant))
+    ) {
+      throw new Error(`module option ${option.key} has invalid variants`);
+    }
+    if (option.type === "boolean" && typeof option.default !== "boolean") {
+      throw new Error(`${option.key} must have a boolean default`);
+    }
+    if (
+      option.type === "number" &&
+      (
+        !Number.isFinite(option.default) ||
+        !Number.isFinite(option.minimum) ||
+        !Number.isFinite(option.maximum) ||
+        option.minimum > option.maximum ||
+        option.default < option.minimum ||
+        option.default > option.maximum
+      )
+    ) {
+      throw new Error(`${option.key} has an invalid numeric range`);
+    }
+    if (
+      option.type === "string" &&
+      (
+        typeof option.default !== "string" ||
+        /[,\r\n]/.test(option.default)
+      )
+    ) {
+      throw new Error(`${option.key} must have a safe string default`);
+    }
+    keys.add(option.key);
+    argumentsSeen.add(option.argument);
+  }
+
+  const sourceUiDefaults = enhanceApi.UI_OPTION_DEFAULTS;
+  if (!sourceUiDefaults || typeof sourceUiDefaults !== "object") {
+    throw new Error("bilibili-enhance.js must export UI_OPTION_DEFAULTS");
+  }
+  const schemaUiDefaults = Object.fromEntries(
+    schema.options
+      .filter((option) => option.key.startsWith("hide"))
+      .map((option) => [option.key, option.default]),
+  );
+  if (
+    JSON.stringify(Object.keys(schemaUiDefaults).sort()) !==
+      JSON.stringify(Object.keys(sourceUiDefaults).sort()) ||
+    Object.keys(schemaUiDefaults).some(
+      (key) => schemaUiDefaults[key] !== sourceUiDefaults[key],
+    )
+  ) {
+    throw new Error(
+      "module-options UI defaults and bilibili-enhance.js are out of sync",
+    );
+  }
+
+  const requiredKeys = [
+    "ads",
+    "ui",
+    "searchPromotions",
+    "liveShopping",
+    "vipPromotions",
+    "cdn",
+    "routingPolicy",
+    "pcdnPolicy",
+    "networkProfile",
+    "intervalHours",
+    "switchThreshold",
+    "debug",
+  ];
+  for (const key of requiredKeys) {
+    if (!keys.has(key)) {
+      throw new Error(`module option ${key} is required`);
     }
   }
 }
@@ -79,6 +218,9 @@ if (new Set(configuredCandidates).size !== configuredCandidates.length) {
 }
 
 const sourceApi = require(path.join(rootDirectory, "src", "bilibili-cdn.js"));
+const enhanceApi = require(
+  path.join(rootDirectory, "src", "bilibili-enhance.js"),
+);
 if (
   JSON.stringify(sourceApi.FIXED_CDN_CANDIDATES) !==
   JSON.stringify(configuredCandidates)
@@ -87,6 +229,80 @@ if (
     "config/cdn-candidates.json and FIXED_CDN_CANDIDATES are out of sync",
   );
 }
+validateModuleOptions(moduleOptions, enhanceApi);
+
+const optionByKey = new Map(
+  moduleOptions.options.map((option) => [option.key, option]),
+);
+
+function optionsForVariant(variant) {
+  return moduleOptions.options.filter((option) =>
+    option.variants.includes(variant),
+  );
+}
+
+function formatDefault(value) {
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  return String(value);
+}
+
+function argumentPlaceholder(key) {
+  const option = optionByKey.get(key);
+  if (!option) {
+    throw new Error(`unknown module argument key: ${key}`);
+  }
+  return `{{{${option.argument}}}}`;
+}
+
+function argumentsLine(variant) {
+  return optionsForVariant(variant)
+    .map(
+      (option) =>
+        `${option.argument}:${formatDefault(option.default)}`,
+    )
+    .join(",");
+}
+
+function argumentsDescription(variant) {
+  return optionsForVariant(variant)
+    .map(
+      (option) =>
+        `${option.argument}：${option.description}`,
+    )
+    .join("\\n\\n");
+}
+
+function scriptArgument(keys) {
+  const pairs = keys.map((key) => {
+    const option = optionByKey.get(key);
+    const placeholder = argumentPlaceholder(key);
+    const value =
+      option.type === "string" ? `"${placeholder}"` : placeholder;
+    return `"${key}":${value}`;
+  });
+  return `{${pairs.join(",")}}`;
+}
+
+const networkArgumentKeys = [
+  "cdn",
+  "networkProfile",
+  "intervalHours",
+  "switchThreshold",
+  "debug",
+];
+const enhanceArgumentKeys = [
+  "ads",
+  "ui",
+  "searchPromotions",
+  "liveShopping",
+  "vipPromotions",
+  ...Object.keys(enhanceApi.UI_OPTION_DEFAULTS),
+  "debug",
+];
+const cdnScriptArgument = scriptArgument(networkArgumentKeys);
+const enhanceScriptArgument = scriptArgument(enhanceArgumentKeys);
 
 const ruleList = [
   "# NAME: Bilibili",
@@ -104,46 +320,108 @@ const jsonPattern =
 const grpcPattern =
   String.raw`^https?:\/\/(?:(?:grpc|app)\.(?:bilibili\.com|biliapi\.net))\/(?:bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite|bilibili\.app\.playurl\.v1\.PlayURL\/PlayView|bilibili\.pgc\.gateway\.player\.v2\.PlayURL\/PlayView)(?:\?|$)`;
 const enhancePattern =
-  String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index(?:\/story)?|search(?:\/square|\/type)?|view|account\/mine(?:\/ipad)?)|x\/resource\/show\/tab\/v2)|(?:api\.bilibili\.com|api\.biliapi\.net)\/(?:pgc\/page\/(?:bangumi|cinema\/tab)|x\/web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd|x\/v2\/reply\/main)|api\.live\.bilibili\.com\/xlive\/app-room\/v1\/index\/getInfoByRoom)(?:\?|$)`;
+  String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index(?:\/story)?|search(?:\/square|\/type)?|view|account\/mine(?:\/ipad)?)|x\/resource\/show\/tab\/v2)|(?:api\.bilibili\.com|api\.biliapi\.net)\/(?:pgc\/page\/(?:bangumi|cinema\/tab)|x\/(?:vip\/web\/vip_center\/combine|web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd|v2\/reply\/main))|api\.live\.bilibili\.com\/xlive\/app-room\/v1\/index\/getInfoByRoom)(?:\?|$)`;
 const enhanceGrpcPattern =
   String.raw`^https?:\/\/(?:(?:grpc|app)\.bilibili\.com|(?:grpc|app)\.biliapi\.net)\/(?:bilibili\.app\.(?:view\.v1\.View\/(?:View|RelatesFeed)|viewunite\.v1\.View\/(?:View|RelatesFeed)|dynamic\.v2\.Dynamic\/DynAll)|bilibili\.polymer\.app\.search\.v1\.Search\/SearchAll|bilibili\.main\.community\.reply\.v1\.Reply\/MainList)(?:\?|$)`;
 
-const moduleText = [
-  "#!name=Bilibili CDN Switcher",
-  "#!desc=哔哩哔哩安全 CDN 自动选择 + 高置信广告/UI 清理 + 视频、直播与 API 分流（iOS 26 / iOS 27）",
-  `#!version=${packageJson.version}`,
-  "#!author=STERILITZIA02",
-  `#!homepage=${homepage}`,
-  "#!icon=https://i0.hdslb.com/bfs/static/jinkela/long/images/512.png",
-  "#!category=Bilibili",
-  "#!arguments=广告过滤:true,界面精简:true,搜索推广:true,直播带货:true,CDN:auto,分流策略:DIRECT,PCDN策略:DIRECT,网络档案:auto,测速间隔:12,切换阈值:20,调试日志:false",
-  "#!arguments-desc=广告过滤：只处理明确广告字段与多特征命中的卡片，未知结构保留。\\n\\n界面精简：移除指定首页导航和“我的”营销入口，不修改账号、会员或付费权益。\\n\\n搜索推广：移除搜索推广词；关闭后保留。\\n\\n直播带货：隐藏明确购物卡片；关闭后保留。\\n\\nCDN：auto 只比较同一媒体对象由服务端返回的主/备用完整 URL，并在两次严格 Range 验证后用于后续播放地址响应；也可填写固定点播主机，或填写 off 关闭改写。\\n\\n分流策略：DIRECT、PROXY 或现有策略组名称。\\n\\nPCDN策略：仅匹配 *pcdn*.biliapi.net；默认 DIRECT 与默认分流等效，设为 REJECT 可选阻断。若分流策略不是 DIRECT 且不想阻断，请把两者设为同一策略。\\n\\n网络档案：手动填写 home_wifi、cellular 等名称可隔离不同网络的缓存；auto 不声称识别 SSID，并把选择有效期限制为 6 小时。\\n\\n测速间隔：6-72 小时；显式网络档案的有效期最长 24 小时。每次播放地址响应最多验证 1 个媒体对象的 2 条服务端 URL，全局至少间隔 2 分钟。\\n\\n切换阈值：备用线路至少快多少百分比才进入二次确认，默认 20。\\n\\n调试日志：排错时临时设为 true；日志不记录完整媒体 URL、签名或响应正文。",
-  "",
-  "[Rule]",
-  "DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}",
-  `RULE-SET,${rawRoot}/dist/Bilibili.list,{{{分流策略}}}`,
-  "",
-  "[Script]",
-  `Bilibili Enhance JSON = type=http-response,pattern=${enhancePattern},requires-body=1,max-size=4194304,timeout=8,engine=jsc,script-path=${rawRoot}/dist/bilibili-enhance.js,argument="{"ads":{{{广告过滤}}},"ui":{{{界面精简}}},"searchPromotions":{{{搜索推广}}},"liveShopping":{{{直播带货}}},"debug":{{{调试日志}}}}"`,
-  `Bilibili Enhance gRPC = type=http-response,pattern=${enhanceGrpcPattern},requires-body=1,binary-body-mode=1,max-size=1048576,timeout=8,engine=webview,script-path=${rawRoot}/dist/bilibili-enhance.js,argument="{"ads":{{{广告过滤}}},"ui":{{{界面精简}}},"searchPromotions":{{{搜索推广}}},"liveShopping":{{{直播带货}}},"debug":{{{调试日志}}}}"`,
-  `Bilibili CDN JSON = type=http-response,pattern=${jsonPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="{"cdn":"{{{CDN}}}","networkProfile":"{{{网络档案}}}","intervalHours":{{{测速间隔}}},"switchThreshold":{{{切换阈值}}},"debug":{{{调试日志}}}}"`,
-  `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="{"cdn":"{{{CDN}}}","networkProfile":"{{{网络档案}}}","intervalHours":{{{测速间隔}}},"switchThreshold":{{{切换阈值}}},"debug":{{{调试日志}}}}"`,
-  "",
-  "[MITM]",
-  "h2 = true",
-  "hostname = %APPEND% api.bilibili.com, app.bilibili.com, interface.bilibili.com, api.biliapi.net, app.biliapi.net, grpc.bilibili.com, grpc.biliapi.net, api.live.bilibili.com",
-  "",
-].join("\n");
+function ruleSection() {
+  return [
+    "[Rule]",
+    `DOMAIN-WILDCARD,*pcdn*.biliapi.net,${argumentPlaceholder(
+      "pcdnPolicy",
+    )}`,
+    `RULE-SET,${rawRoot}/dist/Bilibili.list,${argumentPlaceholder(
+      "routingPolicy",
+    )}`,
+  ];
+}
+
+function cdnScriptLines() {
+  return [
+    `Bilibili CDN JSON = type=http-response,pattern=${jsonPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="${cdnScriptArgument}"`,
+    `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="${cdnScriptArgument}"`,
+  ];
+}
+
+function enhanceScriptLines() {
+  return [
+    `Bilibili Enhance JSON = type=http-response,pattern=${enhancePattern},requires-body=1,max-size=4194304,timeout=8,engine=jsc,script-path=${rawRoot}/dist/bilibili-enhance.js,argument="${enhanceScriptArgument}"`,
+    `Bilibili Enhance gRPC = type=http-response,pattern=${enhanceGrpcPattern},requires-body=1,binary-body-mode=1,max-size=1048576,timeout=8,engine=webview,script-path=${rawRoot}/dist/bilibili-enhance.js,argument="${enhanceScriptArgument}"`,
+  ];
+}
+
+function buildModule({
+  name,
+  description,
+  variant,
+  includeEnhancements,
+}) {
+  const mitmHosts = [
+    "api.bilibili.com",
+    "app.bilibili.com",
+    "interface.bilibili.com",
+    "api.biliapi.net",
+    "app.biliapi.net",
+    "grpc.bilibili.com",
+    "grpc.biliapi.net",
+  ];
+  if (includeEnhancements) {
+    mitmHosts.push("api.live.bilibili.com");
+  }
+
+  return [
+    `#!name=${name}`,
+    `#!desc=${description}`,
+    `#!version=${packageJson.version}`,
+    "#!author=STERILITZIA02",
+    `#!homepage=${homepage}`,
+    "#!icon=https://i0.hdslb.com/bfs/static/jinkela/long/images/512.png",
+    "#!category=Bilibili",
+    `#!arguments=${argumentsLine(variant)}`,
+    `#!arguments-desc=${argumentsDescription(variant)}`,
+    "",
+    ...ruleSection(),
+    "",
+    "[Script]",
+    ...(includeEnhancements ? enhanceScriptLines() : []),
+    ...cdnScriptLines(),
+    "",
+    "[MITM]",
+    "h2 = true",
+    `hostname = %APPEND% ${mitmHosts.join(", ")}`,
+    "",
+  ].join("\n");
+}
+
+const cdnOnlyModule = buildModule({
+  name: "Bilibili CDN Switcher",
+  description:
+    "仅包含保守 CDN 自动选择与视频、直播、API 分流；不改动页面内容或账号数据（iPhone / iPad）",
+  variant: "cdn",
+  includeEnhancements: false,
+});
+const enhancedModule = buildModule({
+  name: "Bilibili CDN Enhanced",
+  description:
+    "CDN 自动选择 + 高置信广告过滤 + 首页/我的逐项精简；保留未知内容、账号、会员、订单与付费权益（iPhone / iPad）",
+  variant: "enhanced",
+  includeEnhancements: true,
+});
+const publishedCatalog = `${JSON.stringify(moduleOptions, null, 2)}\n`;
 
 function sha256(content) {
   return createHash("sha256").update(content).digest("hex");
 }
 
 const outputs = new Map([
-  ["dist/Bilibili.CDN.sgmodule", moduleText],
+  ["dist/Bilibili.CDN.Switcher.sgmodule", cdnOnlyModule],
+  ["dist/Bilibili.CDN.Enhanced.sgmodule", enhancedModule],
+  // Keep the v1/v2 URL updating in place; it intentionally tracks Enhanced.
+  ["dist/Bilibili.CDN.sgmodule", enhancedModule],
   ["dist/Bilibili.list", ruleList],
   ["dist/bilibili-cdn.js", sourceScript],
   ["dist/bilibili-enhance.js", enhanceScript],
+  ["dist/module-options.json", publishedCatalog],
 ]);
 
 const checksums = [...outputs.entries()]

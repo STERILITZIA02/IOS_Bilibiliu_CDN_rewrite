@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here.
 
+## [3.0.0] - 2026-07-26
+
+- Add independent per-item visibility switches for the reviewed Home, Mine, and
+  More Services entries while preserving unknown entries and essential account,
+  search, message, navigation, and playback fields.
+- Add conservative VIP-center and video-page marketing cleanup based on exact
+  endpoints, stable identifiers, reviewed Protobuf module types, and
+  high-confidence commercial markers.
+- Add ViewUnite filtering for course relations and reviewed activity, VIP, and
+  UP-goods modules without replacing or reconstructing unknown response arrays.
+- Publish separate CDN-only and CDN + ad/UI Enhanced Shadowrocket modules while
+  preserving the historical module URL as an Enhanced compatibility alias.
+- Generate a versioned option catalog from the same schema used to build module
+  arguments so the customization site cannot drift from the scripts.
+- Preserve the existing resource-safe CDN selection algorithm and explicit
+  fail-open boundaries for malformed, compressed, unauthorized, or unknown data.
+
 ## [2.0.0] - 2026-07-26
 
 - Add independent, conservative JSON and gRPC filters for high-confidence

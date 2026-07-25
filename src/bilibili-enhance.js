@@ -30,48 +30,170 @@
     "vertical_ad_picture",
     "vertical_ad_live"
   ];
+  var UI_OPTION_DEFAULTS = {
+    hideHomeGame: true,
+    hideHomeJourney: true,
+    hideBottomPublish: true,
+    hideBottomMall: true,
+    hideMineFirstVideo: true,
+    hideMineRewardPublish: true,
+    hideMineCourse: true,
+    hideMineFreeData: true,
+    hideMineWorkshop: true,
+    hideMineEnergy: true,
+    hideMineBwPark: true,
+    hideMineBmoe: true,
+    hideMinePersonalDress: false,
+    hideMineWallet: false,
+    hideMineGameCenter: false,
+    hideMineMallOrders: false,
+    hideMineLive: false,
+    hideMinePromotion: false,
+    hideMineCreatorCenter: false,
+    hideMineCommunityCenter: false,
+    hideMoreCustomerService: false,
+    hideMoreListenVideo: false,
+    hideMoreTeenProtection: false,
+    hideMoreSettings: false
+  };
   var MINE_TARGETS = {
-    "大会员暑期特惠": {
+    hideMineFirstVideo: {
+      labels: ["发布你的第一个视频"],
       ids: [],
-      uri: /(?:vip|member|summer|blackboard|activity|promotion)/i
+      uri: /(?:uper|upload|member\.bilibili|creative)/i,
+      labelOnly: true
     },
-    "会员中心营销横幅": {
-      ids: [],
-      uri: /(?:vip|member|mall|blackboard|activity|promotion)/i
+    hideMineRewardPublish: {
+      labels: ["有奖发布", "有奖活动"],
+      ids: [174],
+      uri: /(?:uper|upload|york|reward|activity|member\.bilibili)/i,
+      labelOnly: false
     },
-    "发布你的第一个视频": {
-      ids: [],
-      uri: /(?:uper|upload|member\.bilibili|creative)/i
-    },
-    "有奖发布": {
-      ids: [],
-      uri: /(?:uper|upload|york|reward|activity|member\.bilibili)/i
-    },
-    "我的课程": {
+    hideMineCourse: {
+      labels: ["我的课程"],
       ids: [400, 794],
-      uri: /(?:cheese|course)/i
+      uri: /(?:cheese|course)/i,
+      labelOnly: false
     },
-    "看视频免流量": {
+    hideMineFreeData: {
+      labels: ["看视频免流量"],
       ids: [401],
-      uri: /(?:free[_/-]?traffic|user_center\/free_traffic|traffic)/i
+      uri: /(?:free[_/-]?traffic|user_center\/free_traffic|traffic)/i,
+      labelOnly: false
     },
-    "工房": {
+    hideMineWorkshop: {
+      labels: ["工房", "工房集市"],
       ids: [],
-      uri: /(?:workshop|mall|market|show)/i
+      uri: /(?:workshop|mall-up_market|up_market|market\/show)/i,
+      labelOnly: true
     },
-    "能量加油站": {
+    hideMineEnergy: {
+      labels: ["能量加油站"],
       ids: [990],
-      uri: /(?:306424|energy|blackboard)/i
+      uri: /(?:306424|energy|blackboard)/i,
+      labelOnly: false
     },
-    "BW乐园": {
+    hideMineBwPark: {
+      labels: ["BW乐园"],
       ids: [],
-      uri: /(?:\bbw\b|blackboard|activity)/i
+      uri: /(?:\bbw\b|blackboard|activity)/i,
+      labelOnly: true
     },
-    "B萌投票": {
+    hideMineBmoe: {
+      labels: ["B萌投票"],
       ids: [],
-      uri: /(?:bmoe|vote|blackboard|activity)/i
+      uri: /(?:bmoe|vote|blackboard|activity)/i,
+      labelOnly: true
+    },
+    hideMinePersonalDress: {
+      labels: ["个性装扮"],
+      ids: [402],
+      uri: /(?:h5\/mall\/home|garb|dress|pendant)/i,
+      labelOnly: false
+    },
+    hideMineWallet: {
+      labels: ["我的钱包"],
+      ids: [404, 741],
+      uri: /(?:bilipay\/mine_wallet|mine_wallet)/i,
+      labelOnly: false
+    },
+    hideMineGameCenter: {
+      labels: ["游戏中心"],
+      ids: [403],
+      uri: /game_center\/user/i,
+      labelOnly: false
+    },
+    hideMineMallOrders: {
+      labels: ["会员购订单", "会员购中心"],
+      ids: [622],
+      uri: /(?:bilibili:\/\/mall\/mine|mall\/mine)/i,
+      labelOnly: false
+    },
+    hideMineLive: {
+      labels: ["我的直播"],
+      ids: [710],
+      uri: /live-app-center/i,
+      labelOnly: false
+    },
+    hideMinePromotion: {
+      labels: ["必火推广"],
+      ids: [],
+      uri: /(?:cm|promotion|promote|commercial)/i,
+      labelOnly: true
+    },
+    hideMineCreatorCenter: {
+      labels: ["创作中心"],
+      ids: [171, 544],
+      uri: /(?:uper|upper)\/homevc/i,
+      labelOnly: false
+    },
+    hideMineCommunityCenter: {
+      labels: ["社区中心"],
+      ids: [514],
+      uri: /blackboard\/dynamic\/169422/i,
+      labelOnly: false
+    },
+    hideMoreCustomerService: {
+      labels: ["联系客服"],
+      ids: [407],
+      uri: /user_center\/feedback/i,
+      labelOnly: false
+    },
+    hideMoreListenVideo: {
+      labels: ["听视频"],
+      ids: [812],
+      uri: /bilibili:\/\/podcast/i,
+      labelOnly: false
+    },
+    hideMoreTeenProtection: {
+      labels: ["未成年人守护", "青少年守护"],
+      ids: [964],
+      uri: /h5\/teenagers\/home/i,
+      labelOnly: false
+    },
+    hideMoreSettings: {
+      labels: ["设置"],
+      ids: [410],
+      uri: /user_center\/setting/i,
+      labelOnly: false
     }
   };
+  var VIP_OVERLAY_KEYS = [
+    "popup",
+    "popups",
+    "dialog",
+    "dialogs",
+    "floating_layer",
+    "floating_layers",
+    "floatingLayer",
+    "floatingLayers",
+    "marketing_popup",
+    "marketing_popups",
+    "marketingPopup",
+    "marketingPopups",
+    "marketing_dialog",
+    "marketing_dialogs"
+  ];
 
   function isObject(value) {
     return value !== null && typeof value === "object";
@@ -137,9 +259,17 @@
       liveShopping: true,
       searchPromotions: true,
       ui: true,
+      vipPromotions: true,
       valid: true
     };
     var parsed;
+    var optionKey;
+
+    for (optionKey in UI_OPTION_DEFAULTS) {
+      if (hasOwn.call(UI_OPTION_DEFAULTS, optionKey)) {
+        config[optionKey] = UI_OPTION_DEFAULTS[optionKey];
+      }
+    }
 
     if (typeof raw !== "string" || raw.trim() === "") {
       return config;
@@ -170,6 +300,18 @@
       parsed.liveShopping,
       config.liveShopping
     );
+    config.vipPromotions = parseBoolean(
+      parsed.vipPromotions,
+      config.vipPromotions
+    );
+    for (optionKey in UI_OPTION_DEFAULTS) {
+      if (hasOwn.call(UI_OPTION_DEFAULTS, optionKey)) {
+        config[optionKey] = parseBoolean(
+          parsed[optionKey],
+          config[optionKey]
+        );
+      }
+    }
     config.debug = parseBoolean(parsed.debug, config.debug);
     return config;
   }
@@ -242,6 +384,9 @@
       }
       if (path === "/x/v2/reply/main") {
         return "reply";
+      }
+      if (path === "/x/vip/web/vip_center/combine") {
+        return "vip-center";
       }
     }
 
@@ -323,8 +468,60 @@
     return removed;
   }
 
+  function hasMarkerValue(value) {
+    if (
+      value === null ||
+      value === undefined ||
+      value === false ||
+      value === 0 ||
+      value === ""
+    ) {
+      return false;
+    }
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+    return true;
+  }
+
+  function explicitCommercialLabel(item) {
+    var keys = [
+      "ad_tag",
+      "ad_label",
+      "badge",
+      "badge_text",
+      "corner_mark",
+      "source_name"
+    ];
+    var index;
+    var value;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      value = normalizeLabel(item[keys[index]]);
+      if (
+        includes(
+          ["广告", "必火推广", "小火箭", "商业推广"],
+          value
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function hasExplicitAdMarker(item) {
     var adInfo;
+    var markerKeys = [
+      "ad_cb",
+      "creative_id",
+      "creativeId",
+      "ad_id",
+      "adId"
+    ];
+    var index;
     if (!isPlainObject(item)) {
       return false;
     }
@@ -334,18 +531,117 @@
     if (item.goto === "ad" || item.type === "ad") {
       return true;
     }
-    if (hasOwn.call(item, "ad_info")) {
-      adInfo = item.ad_info;
+    if (
+      item.goto === "cm" ||
+      item.card_goto === "cm" ||
+      /^ad(?:_|$)/i.test(String(item.card_goto || ""))
+    ) {
+      return true;
+    }
+    for (index = 0; index < markerKeys.length; index += 1) {
       if (
-        adInfo !== null &&
-        adInfo !== false &&
-        adInfo !== 0 &&
-        adInfo !== ""
+        hasOwn.call(item, markerKeys[index]) &&
+        hasMarkerValue(item[markerKeys[index]])
       ) {
         return true;
       }
     }
-    return isFeedAdCard(item);
+    if (
+      hasOwn.call(item, "cm") &&
+      hasMarkerValue(item.cm)
+    ) {
+      return true;
+    }
+    if (hasOwn.call(item, "ad_info")) {
+      adInfo = item.ad_info;
+      if (hasMarkerValue(adInfo)) {
+        return true;
+      }
+    }
+    return isFeedAdCard(item) || explicitCommercialLabel(item);
+  }
+
+  function hasCommercialTracking(item) {
+    var keys = [
+      "track_id",
+      "trackId",
+      "track_params",
+      "trackParams",
+      "show_url",
+      "showUrl",
+      "click_url",
+      "clickUrl",
+      "exposure_url",
+      "exposureUrl"
+    ];
+    var index;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      if (
+        hasOwn.call(item, keys[index]) &&
+        hasMarkerValue(item[keys[index]])
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function hasCommercialAction(item) {
+    var button;
+    var text;
+    var link;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    button = isPlainObject(item.button)
+      ? item.button
+      : isPlainObject(item.desc_button)
+        ? item.desc_button
+        : null;
+    text = button
+      ? normalizeLabel(
+          button.text ||
+          button.title ||
+          button.name ||
+          button.desc
+        )
+      : "";
+    link = objectLink(item);
+    return (
+      /^(?:下载|立即下载|购买|立即购买|领取|立即领取|打开|去看看)$/.test(
+        text
+      ) ||
+      isCommercialUri(link)
+    );
+  }
+
+  function isHighConfidencePromotion(item) {
+    var businessType;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    if (hasExplicitAdMarker(item)) {
+      return true;
+    }
+    businessType = String(
+      item.business_type ||
+      item.businessType ||
+      item.biz_type ||
+      item.bizType ||
+      item.source_type ||
+      ""
+    );
+    if (
+      /^(?:ad|cm|commercial|promotion|promote|game_ad)$/i.test(
+        businessType
+      )
+    ) {
+      return true;
+    }
+    return hasCommercialTracking(item) && hasCommercialAction(item);
   }
 
   function isFeedAdCard(item) {
@@ -391,7 +687,7 @@
     source = data.items;
     for (index = 0; index < source.length; index += 1) {
       item = source[index];
-      if (isFeedAdCard(item)) {
+      if (isHighConfidencePromotion(item)) {
         changes += 1;
         continue;
       }
@@ -436,7 +732,7 @@
         return false;
       }
       return (
-        hasExplicitAdMarker(item) ||
+        isHighConfidencePromotion(item) ||
         includes(STORY_AD_TYPES, String(item.card_goto || ""))
       );
     });
@@ -454,20 +750,32 @@
       });
     }
     if (config.ads) {
-      changes += replaceFilteredArray(body, "data", hasExplicitAdMarker);
+      changes += replaceFilteredArray(
+        body,
+        "data",
+        isHighConfidencePromotion
+      );
     }
     return changes;
   }
 
   function filterSearchArray(parent, key) {
-    return replaceFilteredArray(parent, key, hasExplicitAdMarker);
+    return replaceFilteredArray(
+      parent,
+      key,
+      isHighConfidencePromotion
+    );
   }
 
   function handleSearchResults(body) {
     var changes = 0;
     var data = body.data;
     if (Array.isArray(data)) {
-      return replaceFilteredArray(body, "data", hasExplicitAdMarker);
+      return replaceFilteredArray(
+        body,
+        "data",
+        isHighConfidencePromotion
+      );
     }
     if (!isPlainObject(data)) {
       return 0;
@@ -616,53 +924,165 @@
     return 0;
   }
 
-  function handleNavigation(body) {
+  function handleNavigation(body, config) {
     var data = body.data;
     var changes = 0;
     if (!isPlainObject(data)) {
       return 0;
     }
-    changes += filterNavigation(data, "top", "game");
-    changes += filterNavigation(data, "tab", "journey");
-    changes += filterNavigation(data, "bottom", "publish");
-    changes += filterNavigation(data, "bottom", "mall");
+    if (config.hideHomeGame) {
+      changes += filterNavigation(data, "top", "game");
+    }
+    if (config.hideHomeJourney) {
+      changes += filterNavigation(data, "tab", "journey");
+    }
+    if (config.hideBottomPublish) {
+      changes += filterNavigation(data, "bottom", "publish");
+    }
+    if (config.hideBottomMall) {
+      changes += filterNavigation(data, "bottom", "mall");
+    }
     return changes;
   }
 
-  function matchesMineTarget(item) {
+  function matchesMineTarget(item, optionKey) {
     var labels = objectLabels(item);
     var link = objectLink(item);
     var id = Number(item && item.id);
+    var target = MINE_TARGETS[optionKey];
     var index;
-    var label;
-    var target;
+    var targetIndex;
+    var labelMatched = false;
     if (!isPlainObject(item)) {
       return false;
     }
+    if (!target) {
+      return false;
+    }
     for (index = 0; index < labels.length; index += 1) {
-      label = labels[index];
-      target = MINE_TARGETS[label];
-      if (!target) {
-        continue;
-      }
-      if (includes(target.ids, id)) {
-        return true;
-      }
-      if (link && target.uri.test(link)) {
-        return true;
-      }
-      if (
-        hasOwn.call(item, "id") &&
-        item.id !== null &&
-        String(item.id) !== ""
+      for (
+        targetIndex = 0;
+        targetIndex < target.labels.length;
+        targetIndex += 1
       ) {
-        return true;
+        if (
+          labels[index] ===
+          normalizeLabel(target.labels[targetIndex])
+        ) {
+          labelMatched = true;
+          break;
+        }
       }
-      if (hasExplicitAdMarker(item)) {
+      if (labelMatched) {
+        break;
+      }
+    }
+    if (!labelMatched) {
+      return false;
+    }
+    return (
+      target.labelOnly === true ||
+      includes(target.ids, id) ||
+      Boolean(link && target.uri.test(link))
+    );
+  }
+
+  function configuredMineTarget(item, config) {
+    var optionKey;
+    if (!config.ui) {
+      return "";
+    }
+    for (optionKey in MINE_TARGETS) {
+      if (
+        hasOwn.call(MINE_TARGETS, optionKey) &&
+        config[optionKey] === true &&
+        matchesMineTarget(item, optionKey)
+      ) {
+        return optionKey;
+      }
+    }
+    return "";
+  }
+
+  function hasBannerVisual(item) {
+    var keys = [
+      "image",
+      "image_url",
+      "imageUrl",
+      "banner",
+      "background",
+      "background_image",
+      "backgroundImage"
+    ];
+    var index;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      if (
+        hasOwn.call(item, keys[index]) &&
+        hasMarkerValue(item[keys[index]])
+      ) {
         return true;
       }
     }
     return false;
+  }
+
+  function isMineMarketingBanner(item, contextKey) {
+    var labels;
+    var link;
+    var type;
+    var marketingLabel;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    labels = objectLabels(item).join("|");
+    link = objectLink(item);
+    type = String(
+      item.module_type ||
+      item.moduleType ||
+      item.business_type ||
+      item.businessType ||
+      item.type ||
+      item.style ||
+      ""
+    );
+    marketingLabel =
+      /(?:大会员|会员中心).*(?:特惠|优惠|券包|年卡|折扣|促销|营销|活动)|会员中心营销横幅/.test(
+        labels
+      );
+    return (
+      marketingLabel &&
+      (
+        hasExplicitAdMarker(item) ||
+        (
+          /(?:vip|member|summer|blackboard|activity|promotion|coupon)/i.test(
+            link
+          ) &&
+          (
+            hasBannerVisual(item) ||
+            /(?:banner|marketing|promotion|activity)/i.test(type) ||
+            /^(?:marketing_?banner|vip_?banner)$/i.test(
+              String(contextKey || "")
+            )
+          )
+        )
+      )
+    );
+  }
+
+  function shouldRemoveMineItem(item, config, contextKey) {
+    if (
+      config.ads &&
+      config.vipPromotions &&
+      isMineMarketingBanner(item, contextKey)
+    ) {
+      return true;
+    }
+    return Boolean(
+      config.ui && configuredMineTarget(item, config)
+    );
   }
 
   function isEmptyMineGroup(item) {
@@ -688,7 +1108,7 @@
     );
   }
 
-  function filterMineNode(node, depth) {
+  function filterMineNode(node, depth, config) {
     var changes = 0;
     var kept;
     var index;
@@ -703,11 +1123,11 @@
       kept = [];
       for (index = 0; index < node.length; index += 1) {
         value = node[index];
-        if (matchesMineTarget(value)) {
+        if (shouldRemoveMineItem(value, config)) {
           changes += 1;
           continue;
         }
-        changes += filterMineNode(value, depth + 1);
+        changes += filterMineNode(value, depth + 1, config);
         if (isEmptyMineGroup(value)) {
           changes += 1;
           continue;
@@ -727,20 +1147,71 @@
     for (index = 0; index < keys.length; index += 1) {
       key = keys[index];
       value = node[key];
-      if (matchesMineTarget(value)) {
+      if (shouldRemoveMineItem(value, config, key)) {
         delete node[key];
         changes += 1;
         continue;
       }
-      changes += filterMineNode(value, depth + 1);
+      changes += filterMineNode(value, depth + 1, config);
     }
     return changes;
   }
 
-  function handleMine(body) {
+  function handleMine(body, config) {
     return isPlainObject(body.data)
-      ? filterMineNode(body.data, 0)
+      ? filterMineNode(body.data, 0, config)
       : 0;
+  }
+
+  function vipOverlayHasMarketingMarker(value) {
+    var index;
+    if (Array.isArray(value)) {
+      for (index = 0; index < value.length; index += 1) {
+        if (vipOverlayHasMarketingMarker(value[index])) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (!isPlainObject(value)) {
+      return false;
+    }
+    return (
+      isHighConfidencePromotion(value) ||
+      isMineMarketingBanner(value)
+    );
+  }
+
+  function handleVipCenter(body, config) {
+    var data = body.data;
+    var changes = 0;
+    var index;
+    var key;
+    if (
+      !config.ads ||
+      !config.vipPromotions ||
+      !isPlainObject(data)
+    ) {
+      return 0;
+    }
+    if (Array.isArray(data.banners) && data.banners.length > 0) {
+      data.banners = [];
+      changes += 1;
+    }
+    for (index = 0; index < VIP_OVERLAY_KEYS.length; index += 1) {
+      key = VIP_OVERLAY_KEYS[index];
+      if (
+        hasOwn.call(data, key) &&
+        (
+          /^marketing/i.test(key) ||
+          vipOverlayHasMarketingMarker(data[key])
+        )
+      ) {
+        delete data[key];
+        changes += 1;
+      }
+    }
+    return changes;
   }
 
   function handleView(body) {
@@ -757,7 +1228,7 @@
       return (
         isPlainObject(item) &&
         (
-          hasExplicitAdMarker(item) ||
+          isHighConfidencePromotion(item) ||
           (
             hasOwn.call(item, "cm") &&
             item.cm !== null &&
@@ -828,7 +1299,7 @@
           "items",
           function (item) {
             return (
-              hasExplicitAdMarker(item) ||
+              isHighConfidencePromotion(item) ||
               isCommercialUri(objectLink(item))
             );
           }
@@ -843,7 +1314,7 @@
       return 0;
     }
     return replaceFilteredArray(body.data, "item", function (item) {
-      return isPlainObject(item) && item.goto === "ad";
+      return isHighConfidencePromotion(item);
     });
   }
 
@@ -884,10 +1355,15 @@
       return 0;
     }
     if (endpoint === "navigation") {
-      return config.ui ? handleNavigation(body) : 0;
+      return config.ui ? handleNavigation(body, config) : 0;
     }
     if (endpoint === "mine") {
-      return config.ui ? handleMine(body) : 0;
+      return config.ui || (config.ads && config.vipPromotions)
+        ? handleMine(body, config)
+        : 0;
+    }
+    if (endpoint === "vip-center") {
+      return handleVipCenter(body, config);
     }
     if (endpoint === "search-square") {
       return handleSearchSquare(body, config);
@@ -1263,7 +1739,7 @@
     var stock = findProtoField(bytes, 11, 2);
     var basic = findProtoField(bytes, 12, 2);
     var unique;
-    if (type === 4 || type === 5) {
+    if (type === 4 || type === 5 || type === 11) {
       return true;
     }
     if (stock && stock.payloadEnd > stock.payloadStart) {
@@ -1373,17 +1849,28 @@
     return result;
   }
 
-  function transformViewUniteIntroduction(input) {
+  function transformViewUniteIntroduction(input, config) {
     var result = rewriteProtoMessage(input, function (field, bytes) {
       var nested;
+      var payload;
+      var moduleType;
       if (
         field.fieldNumber !== 2 ||
         field.wireType !== 2
       ) {
         return null;
       }
+      payload = protoPayload(bytes, field);
+      moduleType = smallVarintField(payload, 1);
+      if (
+        moduleType === 18 ||
+        moduleType === 55 ||
+        (moduleType === 29 && config.vipPromotions !== false)
+      ) {
+        return { changed: 1, remove: true };
+      }
       nested = transformViewUniteModule(
-        protoPayload(bytes, field)
+        payload
       );
       if (!nested.valid) {
         return { invalid: true };
@@ -1409,7 +1896,7 @@
     return result;
   }
 
-  function transformViewUniteTabModule(input) {
+  function transformViewUniteTabModule(input, config) {
     var result = rewriteProtoMessage(input, function (field, bytes) {
       var nested;
       if (
@@ -1419,7 +1906,8 @@
         return null;
       }
       nested = transformViewUniteIntroduction(
-        protoPayload(bytes, field)
+        protoPayload(bytes, field),
+        config
       );
       if (!nested.valid) {
         return { invalid: true };
@@ -1444,7 +1932,7 @@
     return result;
   }
 
-  function transformViewUniteTab(input) {
+  function transformViewUniteTab(input, config) {
     return rewriteProtoMessage(input, function (field, bytes) {
       var nested;
       if (
@@ -1454,7 +1942,8 @@
         return null;
       }
       nested = transformViewUniteTabModule(
-        protoPayload(bytes, field)
+        protoPayload(bytes, field),
+        config
       );
       if (!nested.valid) {
         return { invalid: true };
@@ -1471,7 +1960,7 @@
     });
   }
 
-  function transformViewUnite(input, relatesOnly) {
+  function transformViewUnite(input, relatesOnly, config) {
     if (relatesOnly) {
       return transformViewUniteRelates(input);
     }
@@ -1484,7 +1973,8 @@
         return null;
       }
       nested = transformViewUniteTab(
-        protoPayload(bytes, field)
+        protoPayload(bytes, field),
+        config
       );
       if (!nested.valid) {
         return { invalid: true };
@@ -1590,16 +2080,17 @@
     });
   }
 
-  function transformGrpcPayload(input, endpoint) {
+  function transformGrpcPayload(input, endpoint, config) {
+    config = config || parseArgument("");
     switch (endpoint) {
       case "grpc-view-v1":
         return transformViewV1(input, false);
       case "grpc-view-v1-relates":
         return transformViewV1(input, true);
       case "grpc-view-unite":
-        return transformViewUnite(input, false);
+        return transformViewUnite(input, false, config);
       case "grpc-view-unite-relates":
-        return transformViewUnite(input, true);
+        return transformViewUnite(input, true, config);
       case "grpc-dynamic":
         return transformDynamic(input);
       case "grpc-search":
@@ -1683,7 +2174,7 @@
         continue;
       }
       payload = original.slice(offset + 5, end);
-      result = transformGrpcPayload(payload, endpoint);
+      result = transformGrpcPayload(payload, endpoint, config);
       if (!result.valid) {
         return {
           body: original,
@@ -1797,6 +2288,8 @@
   }
 
   var api = {
+    MINE_TARGETS: MINE_TARGETS,
+    UI_OPTION_DEFAULTS: UI_OPTION_DEFAULTS,
     classifyEndpoint: classifyEndpoint,
     classifyGrpcEndpoint: classifyGrpcEndpoint,
     concatBytes: concatBytes,
@@ -1804,7 +2297,10 @@
     handleFeed: handleFeed,
     handleMine: handleMine,
     handleNavigation: handleNavigation,
+    handleVipCenter: handleVipCenter,
     hasExplicitAdMarker: hasExplicitAdMarker,
+    isHighConfidencePromotion: isHighConfidencePromotion,
+    isMineMarketingBanner: isMineMarketingBanner,
     isFeedAdCard: isFeedAdCard,
     matchesMineTarget: matchesMineTarget,
     matchesNavigationItem: matchesNavigationItem,

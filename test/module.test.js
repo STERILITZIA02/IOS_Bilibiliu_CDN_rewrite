@@ -8,10 +8,19 @@ const test = require("node:test");
 const cdn = require("../src/bilibili-cdn.js");
 
 const root = path.resolve(__dirname, "..");
-const moduleText = fs.readFileSync(
+const compatibilityModule = fs.readFileSync(
   path.join(root, "dist", "Bilibili.CDN.sgmodule"),
   "utf8",
 );
+const enhancedModule = fs.readFileSync(
+  path.join(root, "dist", "Bilibili.CDN.Enhanced.sgmodule"),
+  "utf8",
+);
+const cdnOnlyModule = fs.readFileSync(
+  path.join(root, "dist", "Bilibili.CDN.Switcher.sgmodule"),
+  "utf8",
+);
+const moduleText = enhancedModule;
 const rules = fs.readFileSync(
   path.join(root, "dist", "Bilibili.list"),
   "utf8",
@@ -34,7 +43,8 @@ const releaseWorkflow = fs.readFileSync(
   "utf8",
 );
 
-test("generated module has routing, enhancement, CDN, and scoped MITM sections", () => {
+test("generated Enhanced and CDN-only modules are independently functional", () => {
+  assert.equal(compatibilityModule, enhancedModule);
   assert.match(moduleText, /\[Rule\]/);
   assert.match(moduleText, /RULE-SET,https:\/\/raw\.githubusercontent\.com\//);
   assert.match(moduleText, /\[Script\]/);
@@ -57,6 +67,9 @@ test("generated module has routing, enhancement, CDN, and scoped MITM sections",
   assert.match(moduleText, /界面精简:true/);
   assert.match(moduleText, /搜索推广:true/);
   assert.match(moduleText, /直播带货:true/);
+  assert.match(moduleText, /会员营销:true/);
+  assert.match(moduleText, /隐藏我的钱包:false/);
+  assert.match(moduleText, /隐藏设置:false/);
   assert.match(moduleText, /PCDN策略:DIRECT/);
   assert.match(moduleText, /网络档案:auto/);
   assert.match(
@@ -67,6 +80,24 @@ test("generated module has routing, enhancement, CDN, and scoped MITM sections",
   assert.match(moduleText, /"networkProfile":"\{\{\{网络档案\}\}\}"/);
   assert.match(moduleText, /"intervalHours":\{\{\{测速间隔\}\}\}/);
   assert.match(moduleText, /"switchThreshold":\{\{\{切换阈值\}\}\}/);
+  assert.match(moduleText, /"hideMineWallet":\{\{\{隐藏我的钱包\}\}\}/);
+  assert.match(moduleText, /"hideMoreSettings":\{\{\{隐藏设置\}\}\}/);
+
+  assert.match(cdnOnlyModule, /^#!name=Bilibili CDN Switcher$/m);
+  assert.match(cdnOnlyModule, /\[Rule\]/);
+  assert.match(cdnOnlyModule, /Bilibili CDN JSON = type=http-response/);
+  assert.match(cdnOnlyModule, /Bilibili CDN gRPC = type=http-response/);
+  assert.doesNotMatch(cdnOnlyModule, /Bilibili Enhance/);
+  assert.doesNotMatch(cdnOnlyModule, /广告过滤|界面精简|隐藏我的钱包/);
+  const cdnMitmHostnameLine = cdnOnlyModule
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("hostname = "));
+  assert.ok(cdnMitmHostnameLine);
+  assert.doesNotMatch(cdnMitmHostnameLine, /api\.live\.bilibili\.com/);
+  assert.doesNotMatch(
+    cdnMitmHostnameLine,
+    /bilivideo|acgvideo|akamaized/,
+  );
 });
 
 test("enhancement gRPC pattern is narrow and body processing is bounded", () => {
@@ -149,6 +180,7 @@ test("enhancement response pattern covers only reviewed API endpoints", () => {
     "https://app.bilibili.com/x/resource/show/tab/v2",
     "https://app.bilibili.com/x/v2/account/mine",
     "https://api.bilibili.com/x/v2/reply/main?oid=1",
+    "https://api.bilibili.com/x/vip/web/vip_center/combine",
     "https://api.bilibili.com/pgc/page/cinema/tab",
     "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByRoom",
   ]) {
@@ -201,10 +233,12 @@ test("safe auto uses server-provided URLs, GET Range validation, and bounded sta
 });
 
 test("all remote module resources use HTTPS", () => {
-  const urls = moduleText.match(/https?:\/\/[^,\s]+/g) || [];
-  assert.ok(urls.length >= 4);
-  for (const url of urls) {
-    assert.ok(url.startsWith("https://"), `non-HTTPS URL: ${url}`);
+  for (const generatedModule of [enhancedModule, cdnOnlyModule]) {
+    const urls = generatedModule.match(/https?:\/\/[^,\s]+/g) || [];
+    assert.ok(urls.length >= 3);
+    for (const url of urls) {
+      assert.ok(url.startsWith("https://"), `non-HTTPS URL: ${url}`);
+    }
   }
 });
 
@@ -215,9 +249,12 @@ test("generated artifacts are local, non-empty, and checksummed", () => {
   );
   for (const filename of [
     "Bilibili.CDN.sgmodule",
+    "Bilibili.CDN.Enhanced.sgmodule",
+    "Bilibili.CDN.Switcher.sgmodule",
     "Bilibili.list",
     "bilibili-cdn.js",
     "bilibili-enhance.js",
+    "module-options.json",
   ]) {
     const content = fs.readFileSync(
       path.join(root, "dist", filename),
@@ -232,6 +269,33 @@ test("generated artifacts are local, non-empty, and checksummed", () => {
   }
 });
 
+test("published module option catalog matches the reviewed source schema", () => {
+  const sourceCatalog = JSON.parse(
+    fs.readFileSync(
+      path.join(root, "config", "module-options.json"),
+      "utf8",
+    ),
+  );
+  const publishedCatalog = JSON.parse(
+    fs.readFileSync(
+      path.join(root, "dist", "module-options.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(publishedCatalog, sourceCatalog);
+  assert.equal(
+    new Set(publishedCatalog.options.map((option) => option.key)).size,
+    publishedCatalog.options.length,
+  );
+  assert.ok(
+    publishedCatalog.options.every(
+      (option) =>
+        option.variants.includes("cdn") ||
+        option.variants.includes("enhanced"),
+    ),
+  );
+});
+
 test("release metadata and workflow publish every runtime artifact", () => {
   assert.match(moduleText, new RegExp(`^#!version=${packageJson.version}$`, "m"));
   assert.match(
@@ -240,9 +304,12 @@ test("release metadata and workflow publish every runtime artifact", () => {
   );
   for (const filename of [
     "Bilibili.CDN.sgmodule",
+    "Bilibili.CDN.Enhanced.sgmodule",
+    "Bilibili.CDN.Switcher.sgmodule",
     "Bilibili.list",
     "bilibili-cdn.js",
     "bilibili-enhance.js",
+    "module-options.json",
     "SHA256SUMS.txt",
   ]) {
     assert.match(

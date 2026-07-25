@@ -1,0 +1,475 @@
+{
+  "schemaVersion": 1,
+  "groups": [
+    {
+      "id": "features",
+      "title": "核心功能",
+      "surface": "global"
+    },
+    {
+      "id": "home",
+      "title": "首页",
+      "surface": "home"
+    },
+    {
+      "id": "mine",
+      "title": "我的服务",
+      "surface": "mine"
+    },
+    {
+      "id": "more",
+      "title": "更多服务",
+      "surface": "mine"
+    },
+    {
+      "id": "network",
+      "title": "CDN 与分流",
+      "surface": "network"
+    }
+  ],
+  "options": [
+    {
+      "key": "ads",
+      "argument": "广告过滤",
+      "group": "features",
+      "label": "广告过滤",
+      "description": "仅移除具有明确广告字段或多项商业特征的卡片，未知内容保留",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "ui",
+      "argument": "界面精简",
+      "group": "features",
+      "label": "界面逐项精简",
+      "description": "启用下方首页、我的服务和更多服务的逐项隐藏设置",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "searchPromotions",
+      "argument": "搜索推广",
+      "group": "features",
+      "label": "搜索推广词",
+      "description": "隐藏搜索页明确的运营推广词，关闭后原样保留",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "liveShopping",
+      "argument": "直播带货",
+      "group": "features",
+      "label": "直播带货卡片",
+      "description": "隐藏直播间明确的购物卡片与业务编号 33 的购物标签",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "vipPromotions",
+      "argument": "会员营销",
+      "group": "features",
+      "label": "大会员营销横幅",
+      "description": "隐藏我的页和大会员中心的营销横幅，不修改会员状态、到期时间、钱包或订单",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideHomeGame",
+      "argument": "隐藏首页游戏中心",
+      "group": "home",
+      "label": "右上角游戏中心",
+      "description": "默认隐藏；消息入口、红点、搜索框和头像始终保留",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideHomeJourney",
+      "argument": "隐藏新征程频道",
+      "group": "home",
+      "label": "新征程频道",
+      "description": "默认隐藏；其他普通频道和未知新频道保留",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideBottomPublish",
+      "argument": "隐藏底部发布",
+      "group": "home",
+      "label": "底部“+”发布",
+      "description": "默认隐藏并重新连续排列底栏位置",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideBottomMall",
+      "argument": "隐藏底部会员购",
+      "group": "home",
+      "label": "底部会员购",
+      "description": "默认隐藏；首页、关注和我的底栏始终保留",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineFirstVideo",
+      "argument": "隐藏首次投稿",
+      "group": "mine",
+      "label": "发布你的第一个视频",
+      "description": "默认隐藏",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineRewardPublish",
+      "argument": "隐藏有奖发布",
+      "group": "mine",
+      "label": "有奖发布",
+      "description": "默认隐藏",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineCourse",
+      "argument": "隐藏我的课程",
+      "group": "mine",
+      "label": "我的课程",
+      "description": "默认隐藏",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineFreeData",
+      "argument": "隐藏免流量",
+      "group": "mine",
+      "label": "看视频免流量",
+      "description": "默认隐藏",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineWorkshop",
+      "argument": "隐藏工房",
+      "group": "mine",
+      "label": "工房",
+      "description": "默认隐藏",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineEnergy",
+      "argument": "隐藏能量加油站",
+      "group": "mine",
+      "label": "能量加油站",
+      "description": "默认隐藏",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineBwPark",
+      "argument": "隐藏BW乐园",
+      "group": "mine",
+      "label": "BW 乐园",
+      "description": "默认隐藏",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineBmoe",
+      "argument": "隐藏B萌投票",
+      "group": "mine",
+      "label": "B萌投票",
+      "description": "默认隐藏",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMinePersonalDress",
+      "argument": "隐藏个性装扮",
+      "group": "mine",
+      "label": "个性装扮",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineWallet",
+      "argument": "隐藏我的钱包",
+      "group": "mine",
+      "label": "我的钱包",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineGameCenter",
+      "argument": "隐藏我的游戏中心",
+      "group": "mine",
+      "label": "游戏中心",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineMallOrders",
+      "argument": "隐藏会员购订单",
+      "group": "mine",
+      "label": "会员购订单",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineLive",
+      "argument": "隐藏我的直播",
+      "group": "mine",
+      "label": "我的直播",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMinePromotion",
+      "argument": "隐藏必火推广",
+      "group": "mine",
+      "label": "必火推广",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineCreatorCenter",
+      "argument": "隐藏创作中心",
+      "group": "mine",
+      "label": "创作中心",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMineCommunityCenter",
+      "argument": "隐藏社区中心",
+      "group": "mine",
+      "label": "社区中心",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMoreCustomerService",
+      "argument": "隐藏联系客服",
+      "group": "more",
+      "label": "联系客服",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMoreListenVideo",
+      "argument": "隐藏听视频",
+      "group": "more",
+      "label": "听视频",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMoreTeenProtection",
+      "argument": "隐藏未成年人守护",
+      "group": "more",
+      "label": "未成年人守护",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "hideMoreSettings",
+      "argument": "隐藏设置",
+      "group": "more",
+      "label": "设置",
+      "description": "默认显示",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
+      "key": "cdn",
+      "argument": "CDN",
+      "group": "network",
+      "label": "CDN 模式",
+      "description": "auto 只比较同一媒体对象的服务端主/备用完整 URL；off 完全关闭；也可填写固定点播主机",
+      "type": "string",
+      "default": "auto",
+      "variants": [
+        "cdn",
+        "enhanced"
+      ]
+    },
+    {
+      "key": "routingPolicy",
+      "argument": "分流策略",
+      "group": "network",
+      "label": "Bilibili 分流策略",
+      "description": "DIRECT、PROXY 或 Shadowrocket 中已有的策略组名称",
+      "type": "string",
+      "default": "DIRECT",
+      "variants": [
+        "cdn",
+        "enhanced"
+      ]
+    },
+    {
+      "key": "pcdnPolicy",
+      "argument": "PCDN策略",
+      "group": "network",
+      "label": "PCDN 策略",
+      "description": "默认 DIRECT；可选择 REJECT，海外回国分流时也可填写同一个策略组",
+      "type": "string",
+      "default": "DIRECT",
+      "variants": [
+        "cdn",
+        "enhanced"
+      ]
+    },
+    {
+      "key": "networkProfile",
+      "argument": "网络档案",
+      "group": "network",
+      "label": "网络档案",
+      "description": "auto 使用 6 小时缓存；手动填写 home_wifi、cellular 等名称可隔离不同网络",
+      "type": "string",
+      "default": "auto",
+      "variants": [
+        "cdn",
+        "enhanced"
+      ]
+    },
+    {
+      "key": "intervalHours",
+      "argument": "测速间隔",
+      "group": "network",
+      "label": "测速间隔",
+      "description": "6 到 72 小时；所有资源探测仍有至少 2 分钟的全局间隔",
+      "type": "number",
+      "default": 12,
+      "minimum": 6,
+      "maximum": 72,
+      "variants": [
+        "cdn",
+        "enhanced"
+      ]
+    },
+    {
+      "key": "switchThreshold",
+      "argument": "切换阈值",
+      "group": "network",
+      "label": "切换阈值",
+      "description": "备用线路至少快多少百分比才进入第二次确认",
+      "type": "number",
+      "default": 20,
+      "minimum": 0,
+      "maximum": 90,
+      "variants": [
+        "cdn",
+        "enhanced"
+      ]
+    },
+    {
+      "key": "debug",
+      "argument": "调试日志",
+      "group": "network",
+      "label": "调试日志",
+      "description": "仅排错时开启；日志不记录完整媒体 URL、签名或响应正文",
+      "type": "boolean",
+      "default": false,
+      "variants": [
+        "cdn",
+        "enhanced"
+      ]
+    }
+  ]
+}

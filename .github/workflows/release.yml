@@ -43,7 +43,10 @@ jobs:
           --verify-tag
           --fail-on-no-commits
           dist/Bilibili.CDN.sgmodule
+          dist/Bilibili.CDN.Enhanced.sgmodule
+          dist/Bilibili.CDN.Switcher.sgmodule
           dist/Bilibili.list
           dist/bilibili-cdn.js
           dist/bilibili-enhance.js
+          dist/module-options.json
           dist/SHA256SUMS.txt
