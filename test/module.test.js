@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
@@ -23,6 +24,13 @@ const candidateConfig = JSON.parse(
 );
 const cdnSource = fs.readFileSync(
   path.join(root, "src", "bilibili-cdn.js"),
+  "utf8",
+);
+const packageJson = JSON.parse(
+  fs.readFileSync(path.join(root, "package.json"), "utf8"),
+);
+const releaseWorkflow = fs.readFileSync(
+  path.join(root, ".github", "workflows", "release.yml"),
   "utf8",
 );
 
@@ -114,6 +122,7 @@ test("generated response patterns compile and cover current playback APIs", () =
 
   for (const url of [
     "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUnite",
+    "https://grpc.bilibili.com/bilibili.app.playurl.v1.PlayURL/PlayView",
     "https://app.bilibili.com/bilibili.app.playurl.v1.PlayURL/PlayView",
     "https://app.biliapi.net/bilibili.pgc.gateway.player.v2.PlayURL/PlayView",
   ]) {
@@ -172,7 +181,7 @@ test("fixed-mode CDN guidance matches the reviewed configuration", () => {
     ...candidateConfig.maintained,
     ...candidateConfig.supplemental,
   ];
-  assert.deepEqual(cdn.AUTO_CDN_CANDIDATES, configured);
+  assert.deepEqual(cdn.FIXED_CDN_CANDIDATES, configured);
   assert.equal(new Set(configured).size, configured.length);
   assert.ok(configured.length >= 13);
   for (const hostname of configured) {
@@ -199,12 +208,14 @@ test("all remote module resources use HTTPS", () => {
   }
 });
 
-test("generated scripts are local, non-empty, and checksummed", () => {
+test("generated artifacts are local, non-empty, and checksummed", () => {
   const checksums = fs.readFileSync(
     path.join(root, "dist", "SHA256SUMS.txt"),
     "utf8",
   );
   for (const filename of [
+    "Bilibili.CDN.sgmodule",
+    "Bilibili.list",
     "bilibili-cdn.js",
     "bilibili-enhance.js",
   ]) {
@@ -213,6 +224,35 @@ test("generated scripts are local, non-empty, and checksummed", () => {
       "utf8",
     );
     assert.ok(content.length > 1000);
-    assert.match(checksums, new RegExp(`  ${filename.replace(".", "\\.")}$`, "m"));
+    const expected = createHash("sha256").update(content).digest("hex");
+    assert.match(
+      checksums,
+      new RegExp(`^${expected}  ${filename.replace(".", "\\.")}$`, "m"),
+    );
   }
+});
+
+test("release metadata and workflow publish every runtime artifact", () => {
+  assert.match(moduleText, new RegExp(`^#!version=${packageJson.version}$`, "m"));
+  assert.match(
+    fs.readFileSync(path.join(root, "CHANGELOG.md"), "utf8"),
+    new RegExp(`^## \\[${packageJson.version.replaceAll(".", "\\.")}\\]`, "m"),
+  );
+  for (const filename of [
+    "Bilibili.CDN.sgmodule",
+    "Bilibili.list",
+    "bilibili-cdn.js",
+    "bilibili-enhance.js",
+    "SHA256SUMS.txt",
+  ]) {
+    assert.match(
+      releaseWorkflow,
+      new RegExp(`dist/${filename.replaceAll(".", "\\.")}`),
+    );
+  }
+  assert.ok(fs.existsSync(path.join(root, "THIRD_PARTY_NOTICES.md")));
+  assert.ok(fs.existsSync(path.join(root, "docs", "DEVICE_ACCEPTANCE.md")));
+  assert.match(releaseWorkflow, /--verify-tag/);
+  assert.match(releaseWorkflow, /--fail-on-no-commits/);
+  assert.match(releaseWorkflow, /Real-device iOS 26\/27 acceptance/);
 });

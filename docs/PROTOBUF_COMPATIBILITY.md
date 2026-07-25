@@ -2,6 +2,8 @@
 
 > 字段核对日期：2026-07-26
 > 过滤器实现：`src/bilibili-enhance.js`
+>
+> 播放地址实现：`src/bilibili-cdn.js`
 
 本项目不打包完整 Bilibili Protobuf schema，也不使用“猜测式递归删除”。过滤器只在精确的 gRPC 方法上读取少量广告判别字段，删除目标字段或重复项时原样复制其余 wire bytes。未知字段、未知 oneof、压缩帧和无法解析的消息全部保留。
 
@@ -19,6 +21,24 @@
 | `bilibili.polymer.app.search.v1.Search/SearchAll` | 仅移除 oneof 为 `game(11)` 或 `cm(25)` 的搜索卡 |
 | `bilibili.main.community.reply.v1.Reply/MainList` | 删除顶层 `cm(11)`；仅移除正文或 URL map 明确含 `b23.tv/cm`、`b23.tv/mall` 的置顶评论 |
 
+## 播放地址互操作字段
+
+CDN 脚本只在模块精确列出的播放 gRPC 方法中运行。它不依赖完整 schema，而在
+单个直接消息内同时存在主 URL 与备用 URL 时识别以下结构：
+
+| 结构 | 主 URL | 备用 URL | 隔离元数据 |
+| --- | --- | --- | --- |
+| `DashVideo` | `base_url(1)` | `backup_url(2)` | 带宽、编码、大小、音频 ID、帧率、宽高等直接字段 |
+| `DashItem` | `base_url(2)` | `backup_url(3)` | `id(1)`、带宽、编码、大小、帧率等直接字段 |
+| `ResponseUrl` | `url(4)` | `backup_url(5)` | 分段序号、时长、大小、md5 等直接字段 |
+
+`DashItem.id >= 30000` 作为音频表示，常规较小清晰度 ID 作为视频表示；无把握
+的 ID 使用独立 `unknown` 类型，仍不会与已识别音频/视频共享缓存。资源路径、
+直接表示字段、候选集合、网络档案和媒体类型共同参与固定长度缓存摘要。
+
+自动模式只提升该消息自己的当前备用完整 URL，并把原始主 URL 放入对应备用
+字段；不会把一个 Protobuf 消息的候选用于另一个消息。
+
 ## 解析与失败边界
 
 - 仅支持标准 Protobuf wire type `0`、`1`、`2`、`5`。
@@ -27,6 +47,9 @@
 - 任一未压缩帧损坏、长度越界或嵌套消息无法解析时，整份响应原样返回。
 - 不处理播放地址、弹幕会员效果、青少年模式、后台播放、会员提示或付费权益字段。
 - 模块把 gRPC 响应体上限限制为 1 MiB；更大的响应不进入脚本。
+
+广告/UI gRPC 上限为 1 MiB；播放地址 gRPC 上限为 4 MiB。两类脚本均不匹配
+媒体分片域名或处理媒体文件响应体。
 
 ## 更新规则
 

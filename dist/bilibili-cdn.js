@@ -36,7 +36,7 @@
    * This list is documentation and fixed-mode input guidance only. Safe auto
    * mode never injects these hosts into a server-provided candidate set.
    */
-  var AUTO_CDN_CANDIDATES = [
+  var FIXED_CDN_CANDIDATES = [
     "upos-sz-mirrorali.bilivideo.com",
     "upos-sz-mirrorcos.bilivideo.com",
     "upos-sz-mirrorhw.bilivideo.com",
@@ -2353,6 +2353,12 @@
       return;
     }
 
+    /*
+     * Re-read immediately before claiming a probe. Response parsing can take
+     * time, and another script invocation may have claimed the global slot or
+     * this resource while the current body was being inspected.
+     */
+    state = loadAutoState(services);
     descriptor = findProbeDescriptor(prepared.descriptors, state, now);
     if (!descriptor) {
       callback({
@@ -2705,7 +2711,7 @@
 
   var api = {
     AUTO_CACHE_CAPACITY: AUTO_CACHE_CAPACITY,
-    AUTO_CDN_CANDIDATES: AUTO_CDN_CANDIDATES,
+    FIXED_CDN_CANDIDATES: FIXED_CDN_CANDIDATES,
     AUTO_CONFIRM_DELAY_MS: AUTO_CONFIRM_DELAY_MS,
     AUTO_GLOBAL_PROBE_GAP_MS: AUTO_GLOBAL_PROBE_GAP_MS,
     AUTO_RANGE_END: AUTO_RANGE_END,

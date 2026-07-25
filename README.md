@@ -1,159 +1,287 @@
-# Bilibili CDN Switcher for Shadowrocket
+# Bilibili Shadowrocket 增强模块
 
-面向 iPhone / iPad 的哔哩哔哩分流与点播 CDN 改写模块，目标系统为
-iOS 26 与 iOS 27。模块覆盖视频、直播、API、图片与静态资源域名，并同时
-处理网页接口的 JSON 播放响应和当前哔哩哔哩 App 使用的 gRPC / Protobuf
-播放响应。
+面向 iPhone / iPad 的哔哩哔哩 Shadowrocket 模块，目标系统为 iOS 26 与
+iOS 27。它把以下能力放在一个可直接安装、可在 Shadowrocket 内更新的模块中：
+
+- Bilibili 主站、API、图片、点播 CDN 与直播 CDN 分流；
+- JSON 与 gRPC / Protobuf 播放地址处理；
+- 同一媒体对象内的安全 CDN 验证与自动选择；
+- 高置信广告过滤、指定导航/营销入口精简；
+- 可选的窄范围 PCDN 请求阻断。
 
 > [!IMPORTANT]
-> iOS 27 在本项目发布时仍处于测试阶段。请使用最新版 Shadowrocket 与
-> 哔哩哔哩客户端；系统或客户端协议变化后，仍可能需要更新本模块。
+> iOS 27、Shadowrocket 和 Bilibili App 都可能继续改变协议。仓库中的自动化
+> 测试不能替代真实 iPhone/iPad 验收；发布前后的真机检查项目见
+> [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
 
-## 下载与安装
+## 下载、安装与更新
 
 - [一键安装到 Shadowrocket][install]
-- [下载最新版 `Bilibili.CDN.sgmodule`][latest-module]
-- [查看全部发行版与更新日志][releases]
-- [获取 main 分支直接安装版][raw-module]
+- [直接安装版（main 分支 raw 模块）][raw-module]
+- [下载最新发行版模块][latest-module]
+- [下载最新发行版校验文件][latest-checksums]
+- [查看全部 Releases][releases]
 
 [install]: https://lowertop.github.io/Shadowrocket-First/redirect.html?url=shadowrocket%3A%2F%2Finstall%3Fmodule%3Dhttps%3A%2F%2Fraw.githubusercontent.com%2FSTERILITZIA02%2FIOS_Bilibiliu_CDN_rewrite%2Fmain%2Fdist%2FBilibili.CDN.sgmodule
-[latest-module]: https://github.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/releases/latest/download/Bilibili.CDN.sgmodule
-[releases]: https://github.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/releases
 [raw-module]: https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.sgmodule
+[latest-module]: https://github.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/releases/latest/download/Bilibili.CDN.sgmodule
+[latest-checksums]: https://github.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/releases/latest/download/SHA256SUMS.txt
+[releases]: https://github.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/releases
 
-如果一键链接没有自动唤起 Shadowrocket，请复制下面的地址，在
-`Shadowrocket → 配置 → 模块 → ＋` 中粘贴并下载：
+推荐使用 raw 地址安装。它保持不变，后续可以直接在
+`Shadowrocket → 配置 → 模块 → 更新模块` 获取新版：
 
 ```text
 https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.sgmodule
 ```
 
-该 raw 地址保持不变，后续可直接在
-`Shadowrocket → 配置 → 模块 → 更新模块` 获取新版。模块的“编辑参数”会由
-Shadowrocket 单独保存，正常更新不会覆盖已填写的策略。
+如果一键链接没有唤起 Shadowrocket，请复制上面的地址，在
+`配置 → 模块 → ＋` 中粘贴。需要后台更新时，可在
+`设置 → 自动更新 → 模块` 开启自动更新，并允许 iOS 的“后台 App 刷新”。
 
-需要自动更新时，可在 `Shadowrocket → 设置 → 自动更新 → 模块` 开启
-“自动后台更新”，并选择 1–7 天的更新间隔；iOS 系统设置中同时需要允许
-Shadowrocket 后台 App 刷新。
+发行版下载适合留档或校验；希望 Shadowrocket 长期直接更新时，仍建议安装
+raw 地址。模块的“编辑参数”由 Shadowrocket 单独保存，常规更新通常会保留
+用户参数。跨大版本后仍应打开一次“编辑参数”，核对是否出现了新参数。
 
-如果旧模块的信息页显示的是带固定版本号的
-`/releases/download/v1.x.x/` 地址，请删除旧模块并用上面的 raw 地址重新安装
-一次；`/releases/latest/download/` 和 raw 地址都可以持续更新。
+## 首次启用
 
-从 `v1.0.0` 更新后，请进入一次“编辑参数”，把 `CDN` 改为 `auto` 才会启用
-自动选择；原来手动保存的固定 CDN 会按 Shadowrocket 的参数保留机制继续使用。
+1. 安装并启用模块。
+2. 把首页的“全局路由”设为 **配置**。国内和海外都应选“配置”，不是“场景”。
+3. 打开当前配置的 `ⓘ → HTTPS 解密`，生成 Shadowrocket CA。
+4. 按 iOS 提示安装描述文件，然后进入
+   `设置 → 通用 → 关于本机 → 证书信任设置`，完全信任该 CA。
+5. 回到 Shadowrocket，确认 HTTPS 解密已开启并重新使用当前配置。
+6. 完全退出 Bilibili App，再测试首页、普通视频、番剧、评论和直播。
 
-### 首次启用
+模块会追加以下最小 API 主机，不会把点播或直播媒体 CDN 加入 MITM：
 
-1. 安装模块，并在 `配置 → 模块` 中启用它。
-2. 打开当前使用配置的 `ⓘ → HTTPS 解密`，生成 CA 证书并按提示安装描述文件。
-3. 进入 iOS 的 `设置 → 通用 → 关于本机 → 证书信任设置`，完全信任刚生成的
-   Shadowrocket CA。
-4. 将 Shadowrocket 的“全局路由”设为“配置”，重新编译/使用当前配置。
-5. 完全退出并重新打开哔哩哔哩 App，分别测试普通视频、番剧和直播。
+```text
+api.bilibili.com
+app.bilibili.com
+interface.bilibili.com
+api.biliapi.net
+app.biliapi.net
+grpc.bilibili.com
+grpc.biliapi.net
+api.live.bilibili.com
+```
 
-HTTPS 解密是改写播放响应的必要条件；只需要域名分流时，可把模块参数
-`CDN` 改为 `off`，并不启用 HTTPS 解密。
+HTTPS 解密页面中如果还出现 `google.cn`、`googlevideo.com` 等主机，通常来自
+其他已启用模块或原配置，不是本项目添加的 Bilibili 范围。
+
+只需要域名分流、不需要 CDN/广告/UI 功能时，可以不启用 HTTPS 解密；此时
+响应脚本不会生效，但 `[Rule]` 分流仍可工作。
+
+## 国内与海外应该怎样配置
+
+“全局路由”一律选择 **配置**。“场景”只是 Shadowrocket 的可选自动化入口，
+不是本模块在国内使用的前提。
+
+| 使用位置 | `分流策略` 建议 | 说明 |
+| --- | --- | --- |
+| 中国大陆 | `DIRECT` | Bilibili API、视频与直播直接连接。 |
+| 海外，有中国大陆回国节点/策略组 | 填写该策略组的准确名称 | 例如配置中真实存在的 `回国`、`China`；普通新加坡/香港代理不等于大陆回国线路。 |
+| 海外，没有回国线路 | 先用 `DIRECT` 做基线 | 模块不会解锁地区版权；某些仅限大陆内容仍可能不可用。 |
+
+如果把 `分流策略` 改成非 `DIRECT`，同时又不想阻断 PCDN，请把
+`PCDN策略` 设置为同一个策略。规则按顺序匹配，PCDN 的窄规则位于通用
+Bilibili 规则之前。
 
 ## 模块参数
 
-在 `配置 → 模块 → Bilibili CDN Switcher → 编辑参数` 中修改：
+进入
+`配置 → 模块 → Bilibili CDN Switcher → 编辑参数`：
 
-| 参数 | 默认值 | 说明 |
+| 参数 | 默认值 | 作用 |
 | --- | --- | --- |
-| `CDN` | `auto` | 自动测速选择线路。也可填写固定主机名，或填写 `off` 关闭改写。 |
-| `分流策略` | `DIRECT` | 国内使用 `DIRECT`；海外可用 `PROXY` 或现有回国策略组的准确名称。 |
-| `测速间隔` | `12` | 自动测速缓存时长，单位为小时；允许范围 6–72。 |
-| `切换阈值` | `20` | 新线路至少快 20% 才允许切换；允许范围 10–80。 |
-| `调试日志` | `false` | 排错时临时改为 `true`；正常使用建议关闭。 |
+| `广告过滤` | `true` | 删除明确广告字段及多特征命中的广告卡片；未知结构保留。 |
+| `界面精简` | `true` | 移除指定导航和“我的”营销入口，不改账号/会员状态。 |
+| `搜索推广` | `true` | 删除明确搜索推广词；可独立关闭。 |
+| `直播带货` | `true` | 隐藏明确直播购物卡片；可独立关闭。 |
+| `CDN` | `auto` | 安全自动模式；也可填固定点播主机，或填 `off` 关闭 CDN 改写。 |
+| `分流策略` | `DIRECT` | `DIRECT`、`PROXY` 或当前配置中真实存在的策略组名称。 |
+| `PCDN策略` | `DIRECT` | 只匹配 `*pcdn*.biliapi.net`；设为 `REJECT` 才阻断。 |
+| `网络档案` | `auto` | 手动命名不同网络的独立缓存，如 `home_wifi`、`cellular`。 |
+| `测速间隔` | `12` | 6–72 小时；`auto` 档案有效期最长 6 小时，显式档案最长 24 小时。 |
+| `切换阈值` | `20` | 备用线路至少快多少百分比才进入二次确认，范围 10–80。 |
+| `调试日志` | `false` | 排错时临时开启；日志不输出完整 URL、签名或响应正文。 |
 
-### 自动选择如何避免频繁重连
+模块不会读取可靠性未经 Shadowrocket 文档承诺的 SSID/蜂窝变量，因此
+`网络档案=auto` 并不声称自动识别 Wi-Fi。希望严格隔离家庭 Wi-Fi 与蜂窝网络
+时，请在切换网络后手动改成不同档案名。
 
-`CDN=auto` 不会在每个视频或每个分片上测速：
+## 广告过滤与界面精简
 
-1. 只在缓存到期后的下一次点播响应中测试，默认每 12 小时一次。
-2. 使用该视频当前有效的签名 URL，每轮并发测试最多 6 个候选；其余候选在
-   后续周期轮换覆盖。
-3. 优先用 HEAD 测量连接与首包响应；运行环境不支持 HEAD 时只请求 16 KiB
-   范围数据。
-4. 正常线路至少保持 24 小时，而且新线路必须快 20% 才切换。
-5. 仅当当前缓存线路不可达时立即故障转移。
-6. 选择只作用于新取得的播放地址，不会主动断开正在播放的媒体连接。
+过滤逻辑按已审查端点和响应结构执行，不进行全局“看到 ad 字样就递归删除”。
+当前覆盖开屏、首页/Story 推荐、搜索推广、视频相关推荐/评论推广、PGC/Web
+推荐、直播明确广告位，以及相应的部分 gRPC 响应。
 
-因此默认情况下每天最多测速两次，每次最多六个很小的 Bilibili CDN 请求。
-测速失败时继续使用缓存线路；没有缓存时保留 Bilibili 原始下发主机。
+默认界面精简目标：
 
-### 当前候选池
+- 顶部：“游戏中心”“新征程”；
+- 底部：“发布（＋）”“会员购”；
+- “我的”：已确认的课程、免流、能量加油站等营销/服务入口，以及代码中
+  明确列出的其他商业入口。
 
-当前池包含 17 个可复用入口，并会自动把播放响应中的原始 CDN 加入当轮测试。
-维护项目明确提供的候选为：
+以下数据属于保护边界，不会为了“去广告”而伪造或覆盖：
+
+- 登录、账号、实名和安全状态；
+- 真实大会员状态、付费权益、课程/番剧购买结果；
+- 历史、收藏、下载、消息和未读计数；
+- 弹幕、评论、点赞、投币、分享与直播互动；
+- 未识别的新卡片或新字段。
+
+不同 Bilibili App 版本、账号和 A/B 实验返回的结构可能不同。未知结构原样
+保留，所以“没有删掉一个新广告位”比“误删正常功能”更符合本项目策略。
+
+## 安全 CDN 自动选择
+
+### 为什么不再使用“网上所有服务器 + 全局最快主机”
+
+Bilibili 会按内容、地区、运营商、清晰度、编码和时效动态下发主 URL 与
+备用 URL。不存在一个可保证完整、长期有效、适合所有资源的公开服务器清单。
+把静态主机强行套到整份响应，会产生签名不匹配、音视频混用、海外番剧失败、
+HTML/JSON 错误体被当成媒体，以及 MCDN/PCDN 兼容问题。
+
+因此 `CDN=auto` 只使用 **同一个媒体对象中由 Bilibili 服务端实际返回** 的
+完整主/备用 URL，且不会跨普通 CDN、MCDN、PCDN 家族选择。
+
+### 自动流程
 
 ```text
-upos-sz-mirrorali.bilivideo.com
-upos-sz-mirrorcos.bilivideo.com
-upos-sz-mirrorhw.bilivideo.com
-upos-sz-mirroraliov.bilivideo.com
-upos-sz-mirrorcosov.bilivideo.com
-upos-sz-mirrorhwov.bilivideo.com
-cn-hk-eq-01-01.bilivideo.com
-cn-hk-eq-01-03.bilivideo.com
-cn-hk-eq-01-09.bilivideo.com
-cn-hk-eq-01-10.bilivideo.com
-cn-hk-eq-01-12.bilivideo.com
-cn-hk-eq-01-13.bilivideo.com
-cn-hk-eq-01-14.bilivideo.com
+播放地址 JSON/gRPC
+  → 分离视频/音频/分段与表示信息
+  → 只读取该对象的主 URL + 备用 URL
+  → 查找同资源、同档案、同候选集合的已验证缓存
+  → 有有效缓存：把当前服务端返回的完整备用 URL 提升为主 URL
+  → 无缓存：原样返回本次响应，并低频验证主 URL + 一条备用 URL
 ```
 
-经用户脚本、当前播放响应和公开规则补充的候选为：
+关键安全约束：
+
+1. 每次播放地址响应最多验证 1 个媒体对象的 2 条 URL；所有对象之间至少
+   间隔 2 分钟，不在媒体分片请求上运行脚本。
+2. 验证固定使用 `GET Range: bytes=0-16383`。只接受 `206`、从 0 开始且长度
+   一致的 `Content-Range`、媒体型 `Content-Type` 和 identity 编码。
+3. `HEAD` 成功、忽略 Range 的 `200`、HTML/JSON 错误体、压缩体、长度不符
+   或跳到另一资源都视为失败。
+4. 新备用线路必须相隔至少 10 分钟连续成功两次，并达到速度阈值。
+5. 探测结果只影响之后重新取得的播放地址；刚完成探测的当前响应保持原样，
+   不主动断开正在播放的连接。
+6. 提升备用 URL 时使用本次响应中的完整 scheme、host、path、query 和签名，
+   并把原始主 URL 放回备用列表。
+7. 持久化状态只含固定长度摘要、计数和时间戳，不保存完整 URL 或签名参数；
+   最多保存 64 个资源条目。
+8. 缓存过期后先停止应用，再重新验证。解析、存储、超时或验证异常均原样放行。
+
+首次安装后，前两次满足间隔的播放地址请求可能只是在学习，因此没有立即切换
+是正常现象。稳定性与正确性优先于“第一次就选出最低延迟”。
+
+### 固定主机兼容模式
+
+把 `CDN` 改成具体主机名会启用显式固定模式。该模式保留原 URL 的 path/query，
+但由用户承担目标主机是否接受该资源签名的兼容风险。仓库中的
+[`config/cdn-candidates.json`](config/cdn-candidates.json) 只作为手动输入参考，
+默认自动模式不会把这些静态主机注入服务端候选集合。
+
+直播地址的 host、path 与签名由服务端配套下发，模块不会强制替换直播 CDN；
+直播只由规则送往 `分流策略`。
+
+## PCDN 与网络请求拦截
+
+模块只提供一条窄规则：
 
 ```text
-cn-jxnc-cmcc-bcache-06.bilivideo.com
-upos-hz-mirrorakam.akamaized.net
-upos-sz-mirroralib.bilivideo.com
-upos-sz-mirrorbos.bilivideo.com
+DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 ```
 
-Bilibili 还会动态下发大量带地区、运营商和编号的 PCDN/MCDN 主机。这些地址
-不是稳定的通用入口，因此不会被永久写死；如果它是当前响应的原始主机，
-自动模式仍会在当轮保留并测试它。
+默认 `PCDN策略=DIRECT`，与默认直连分流等效；用户明确改为 `REJECT` 才阻断。
+本项目没有加入宽泛 IP/CIDR、`mcdn.bilivideo.cn` 全域阻断或模糊
+`DOMAIN-KEYWORD,bilibili` 拒绝规则，因为这些做法可能破坏点播、直播、登录
+或其他正常请求。
 
-## 工作原理
+如果启用 `REJECT` 后出现无法播放、反复缓冲或直播异常，先把 `PCDN策略`
+恢复为与 `分流策略` 相同。
 
-- **完整分流**：规则集覆盖哔哩哔哩主站、API、图片、静态资源、点播 CDN
-  与直播 CDN。默认直连，也可整体指向已有策略组。
-- **低频自动选择**：自动模式在真实签名 URL 上比较候选响应速度，将结果
-  缓存在 Shadowrocket 的持久化存储中，并通过保持时间和速度阈值抑制抖动。
-- **网页与 App 点播**：脚本识别 UGC、PGC、PUGV、DASH 与 DURL 播放响应。
-  JSON 与 gRPC / Protobuf 两条链路均只改写受支持的哔哩哔哩点播 URL。
-- **保留回退线路**：只替换主播放 URL，不修改服务端返回的备用 URL；目标
-  CDN 失败时，客户端仍有机会自动回退。
-- **直播安全处理**：直播地址的 host、path 与签名参数由服务端配套下发。
-  模块不会强行替换直播 CDN，而是通过规则将直播流量正确送到所选策略。
-- **故障开放**：无效参数、未知响应、压缩帧或解析异常都会原样放行，避免
-  因脚本错误破坏播放。
+## 更新、重置与回滚
 
-脚本不发送遥测，也不读取账号信息。自动模式只会向候选 Bilibili CDN 发起
-上述低频小请求，不联系任何测速平台或第三方分析服务。MITM 主机严格限定为
-播放接口所需的 API 主机，不包含直播 API 或大流量媒体 CDN。
+常规更新：
+
+1. `配置 → 模块 → 更新模块`；
+2. 打开“编辑参数”，确认新增参数有合理值；
+3. 重新使用当前配置；
+4. 完全退出并重开 Bilibili App。
+
+安全自动缓存不依赖旧版 `BiliCDN.auto.v1` 状态。若希望让 v2 使用全新缓存，
+可把 `网络档案` 临时改成一个新的合法名称，例如 `reset_20260726`。旧摘要
+不会再命中，并会在容量回收时淘汰。
+
+出现问题时按影响最小的顺序回滚：
+
+1. `CDN=off`：停用 CDN 改写，保留广告/UI 与分流；
+2. 将四个广告/UI 开关设为 `false`：保留分流和 CDN；
+3. 将 `PCDN策略` 改回与 `分流策略` 相同；
+4. 直接停用模块：恢复 Bilibili 原始网络行为；
+5. 如确需旧版，可从 [v1.1.0 Release][v110] 下载；旧版 `auto` 使用全局静态
+   主机选择，回滚后建议先设为 `off` 或显式固定主机。
+
+[v110]: https://github.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/releases/tag/v1.1.0
+
+停用/删除模块后，残留的持久化摘要不会执行网络请求或改写。若不再使用任何
+HTTPS 解密功能，可在 iOS 中撤销 Shadowrocket CA 信任并删除描述文件。
 
 ## 排错
 
-如果模块已启用但没有效果，请依次检查：
+### 模块已启用但完全没有效果
 
-1. 全局路由是否为“配置”，当前配置是否已重新编译/使用。
-2. HTTPS 解密是否开启，Shadowrocket CA 是否已安装并在系统中完全信任。
-3. 模块的 `分流策略` 是否为 `DIRECT`、`PROXY` 或配置中真实存在的策略组。
-4. 将 `调试日志` 设为 `true`，在 Shadowrocket 的脚本日志中查找
-   `[BiliCDN] auto test` 与 `[BiliCDN] auto selected`。
-5. 将 `CDN` 设为 `off` 后重试。若恢复播放，说明目标 CDN 对当前网络或资源
-   不可用；若仍失败，问题通常在节点、DNS、证书或上游服务。
+1. 确认首页“全局路由”为 **配置**。
+2. 确认当前使用的是包含该模块的配置，并重新使用/编译配置。
+3. 确认 HTTPS 解密已开启，CA 已安装并完全信任。
+4. 确认模块已启用，不是只下载到了“本地文件”列表。
+5. 关闭其他会改写相同 Bilibili API 的模块，避免执行顺序冲突。
 
-不同模块可能同时修改同一播放响应。排错时建议暂时关闭其他哔哩哔哩重写
-模块，避免执行顺序冲突。
+### 视频不播放或持续缓冲
+
+1. 先设 `CDN=off`。若立刻恢复，问题在 CDN 选择/固定主机范围。
+2. 把 `PCDN策略` 恢复为与 `分流策略` 相同。
+3. 海外用户确认所填策略组确实是可用的大陆回国线路。
+4. 检查证书错误；媒体 CDN 不应出现在 MITM hostname 列表中。
+5. 固定主机模式改回 `auto`，避免目标主机不接受当前签名。
+
+### 自动模式似乎没有切换
+
+这是预期的保守行为：新备用需要两次成功验证，间隔至少 10 分钟；刚验证的
+响应不会被改写。开启 `调试日志` 后只应看到类似：
+
+```text
+[BiliCDN] safe auto: alternative-pending, descriptors=...
+[BiliCDN] safe auto: alternative-confirmed, descriptors=...
+```
+
+日志不会显示完整媒体 URL、token、Cookie 或响应正文。
+
+### 广告/UI 仍有残留
+
+Bilibili 可能下发未审查的新结构。请记录 App 版本、接口 URL（删除 token）、
+目标入口名称和脱敏后的最小响应结构后提交 Issue。不要公开 Cookie、access_key、
+SESSDATA、设备标识或完整签名 URL。
+
+## 隐私与安全边界
+
+- 无运行时第三方依赖，不联系第三方测速或分析服务。
+- 探测只访问当前 Bilibili 播放响应已提供的同对象 URL。
+- 不读取或上传账号、Cookie、token、响应正文。
+- 不修改账号、会员、付费、版权或地区权益，不伪造运营商/地区请求头。
+- 不对媒体 CDN 做 MITM，不处理媒体分片响应体。
+- 无效参数、未知结构、压缩帧、损坏 Protobuf、存储失败和网络异常均故障开放。
+
+HTTPS 解密会让 Shadowrocket 在设备本地读取指定 API 的明文响应。只安装自己
+信任的模块与 CA，不要分享导出的私有证书。请遵守所在地法律、Bilibili 服务
+条款及内容版权限制。
 
 ## 开发与验证
 
-项目无运行时或构建依赖，只需要 Node.js 22 或更高版本：
+项目无运行时或构建依赖，需要 Node.js 22 或更高版本：
 
 ```bash
 npm run build
@@ -161,41 +289,34 @@ npm run check
 npm run smoke:auto
 ```
 
-`npm run check` 会验证生成文件未过期，并运行 JSON、DASH、DURL、直播保护、
-gRPC 多帧、Protobuf 长度更新、备用线路保留、候选池同步、测速缓存、最短
-保持、切换阈值、故障转移、异常放行和模块结构测试。发行版同时提供
-`SHA256SUMS.txt`，可用于核对下载文件。
-
-`npm run smoke:auto` 是可选的联网冒烟测试：获取一个公开视频的当前签名
-播放地址，按模块相同逻辑测试一轮候选并输出选择结果；CI 不依赖外部服务，
-因此不会自动运行此命令。
+- `npm run build` 从源码和配置确定性生成 `dist/`。
+- `npm run check` 检查生成物并运行 JSON、gRPC/Protobuf、广告/UI、候选隔离、
+  严格 Range、二次确认、TTL、容量、锁、退避、故障开放和模块范围测试。
+- `npm run smoke:auto` 是可选联网检查：读取当前公共播放响应，只探测该响应
+  的主/备用 URL，并要求两条都通过严格 Range 验证。CI 不依赖外部 Bilibili。
 
 生成物：
 
-- `dist/Bilibili.CDN.sgmodule`：可直接安装的完整模块
-- `dist/Bilibili.list`：可单独引用的 Shadowrocket 规则集
-- `dist/bilibili-cdn.js`：响应改写脚本
-- `dist/SHA256SUMS.txt`：SHA-256 校验值
+- `dist/Bilibili.CDN.sgmodule`：直接安装模块；
+- `dist/Bilibili.list`：可单独引用的分流规则集；
+- `dist/bilibili-cdn.js`：CDN JSON/gRPC 脚本；
+- `dist/bilibili-enhance.js`：广告/UI JSON/gRPC 脚本；
+- `dist/SHA256SUMS.txt`：发行资产 SHA-256。
 
-推送 `v*` 标签会在全部检查通过后自动创建 GitHub Release，并附带上述文件。
+提交 `v*` 标签后，Release 工作流会再次运行全部检查，校验标签与
+`package.json` 版本一致，再创建 GitHub Release。
 
-## 安全说明
+## 验收状态
 
-HTTPS 解密会让 Shadowrocket 在设备本地查看指定主机的明文响应。只应安装
-自己信任的模块与 CA；不要分享导出的私有证书。停用本模块后，可在 iOS
-`设置 → 通用 → VPN 与设备管理` 删除相应描述文件，并在“证书信任设置”中
-撤销信任。
-
-本项目只改变网络路由和服务端返回的点播 CDN 主机，不解锁付费、会员或
-地区受限内容。请遵守所在地法律法规及哔哩哔哩服务条款。
+自动化测试覆盖范围、仍需真机确认的项目和记录模板见
+[docs/DEVICE_ACCEPTANCE.md](docs/DEVICE_ACCEPTANCE.md)。没有完成真实设备
+矩阵时，不应把“测试通过”表述为“已在所有 iOS/Bilibili 组合中 100% 验证”。
 
 ## 参考与许可
 
-实现参考了用户提供的 Tampermonkey 脚本所采用的“保留 URL 路径和签名、仅
-替换点播主机”思路，并针对 iOS App 的 gRPC / Protobuf 链路从头实现。
-协议和配置格式交叉核对了
-[BiliUniverse Redirect](https://github.com/BiliUniverse/Redirect)、
-[Shadowrocket 使用手册](https://github.com/LOWERTOP/Shadowrocket) 与
-[社区维护的 Bilibili 分流规则](https://github.com/blackmatrix7/ios_rule_script/tree/master/rule/Shadowrocket/BiliBili)。
+实现为本仓库独立代码。上游项目仅用于交叉核对公开端点、字段语义、模块语法
+和已知兼容风险；具体提交与许可证见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和
+[上游调研基线](docs/UPSTREAM_RESEARCH.md)。
 
 本项目以 [MIT License](LICENSE) 发布。

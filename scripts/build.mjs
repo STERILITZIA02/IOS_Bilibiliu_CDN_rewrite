@@ -80,11 +80,11 @@ if (new Set(configuredCandidates).size !== configuredCandidates.length) {
 
 const sourceApi = require(path.join(rootDirectory, "src", "bilibili-cdn.js"));
 if (
-  JSON.stringify(sourceApi.AUTO_CDN_CANDIDATES) !==
+  JSON.stringify(sourceApi.FIXED_CDN_CANDIDATES) !==
   JSON.stringify(configuredCandidates)
 ) {
   throw new Error(
-    "config/cdn-candidates.json and AUTO_CDN_CANDIDATES are out of sync",
+    "config/cdn-candidates.json and FIXED_CDN_CANDIDATES are out of sync",
   );
 }
 
@@ -102,7 +102,7 @@ const ruleList = [
 const jsonPattern =
   String.raw`^https?:\/\/(?:(?:api|app)\.(?:bilibili\.com|biliapi\.net)|interface\.bilibili\.com)\/(?:x\/(?:player\/(?:wbi\/)?playurl(?:v2)?|v2\/playurl)|pgc\/player\/(?:api\/playurl(?:proj)?|web\/(?:v2\/)?playurl(?:\/html5)?)|pugv\/player\/(?:api|web)\/playurl|v2\/playurl)(?:\?|$)`;
 const grpcPattern =
-  String.raw`^https?:\/\/(?:grpc\.biliapi\.net|app\.(?:bilibili\.com|biliapi\.net))\/(?:bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite|bilibili\.app\.playurl\.v1\.PlayURL\/PlayView|bilibili\.pgc\.gateway\.player\.v2\.PlayURL\/PlayView)(?:\?|$)`;
+  String.raw`^https?:\/\/(?:(?:grpc|app)\.(?:bilibili\.com|biliapi\.net))\/(?:bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite|bilibili\.app\.playurl\.v1\.PlayURL\/PlayView|bilibili\.pgc\.gateway\.player\.v2\.PlayURL\/PlayView)(?:\?|$)`;
 const enhancePattern =
   String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index(?:\/story)?|search(?:\/square|\/type)?|view|account\/mine(?:\/ipad)?)|x\/resource\/show\/tab\/v2)|(?:api\.bilibili\.com|api\.biliapi\.net)\/(?:pgc\/page\/(?:bangumi|cinema\/tab)|x\/web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd|x\/v2\/reply\/main)|api\.live\.bilibili\.com\/xlive\/app-room\/v1\/index\/getInfoByRoom)(?:\?|$)`;
 const enhanceGrpcPattern =
