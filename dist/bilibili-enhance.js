@@ -194,6 +194,7 @@
     "marketing_dialog",
     "marketing_dialogs"
   ];
+  var MAX_GRPC_DECOMPRESSED_BYTES = 4 * 1024 * 1024;
 
   function isObject(value) {
     return value !== null && typeof value === "object";
@@ -427,6 +428,8 @@
         return "grpc-view-v1";
       case "/bilibili.app.view.v1.View/RelatesFeed":
         return "grpc-view-v1-relates";
+      case "/bilibili.app.view.v1.View/TFInfo":
+        return "grpc-view-v1-tfinfo";
       case "/bilibili.app.viewunite.v1.View/View":
         return "grpc-view-unite";
       case "/bilibili.app.viewunite.v1.View/RelatesFeed":
@@ -1329,8 +1332,6 @@
     var uri;
     var playerType;
     var explicitAv;
-    var bvid;
-    var aid;
     if (!isPlainObject(item)) {
       return false;
     }
@@ -1444,12 +1445,7 @@
     ) {
       return true;
     }
-    bvid = String(item.bvid || item.bv_id || item.bvId || "");
-    if (/^BV[0-9A-Za-z]{10,}$/i.test(bvid)) {
-      return true;
-    }
-    aid = Number(item.aid || item.av_id || item.avId || 0);
-    return Number.isFinite(aid) && aid > 0;
+    return false;
   }
 
   function handleView(body, config) {
@@ -2012,10 +2008,18 @@
   function isViewUniteRelateAd(input) {
     var bytes = toUint8Array(input);
     var type = smallVarintField(bytes, 1);
+    var game = findProtoField(bytes, 5, 2);
+    var cm = findProtoField(bytes, 6, 2);
     var stock = findProtoField(bytes, 11, 2);
     var basic = findProtoField(bytes, 12, 2);
     var unique;
-    if (type === 4 || type === 5 || type === 11) {
+    if (
+      type === 4 ||
+      type === 5 ||
+      type === 11 ||
+      game ||
+      cm
+    ) {
       return true;
     }
     if (stock && stock.payloadEnd > stock.payloadStart) {
@@ -2030,13 +2034,32 @@
     return false;
   }
 
+  function isExplicitViewUniteAv(input) {
+    var bytes = toUint8Array(input);
+    var nonAvPayloadFields = [3, 4, 5, 6, 7, 8, 9, 13, 14];
+    var index;
+    if (
+      !bytes ||
+      smallVarintField(bytes, 1) !== 1 ||
+      !findProtoField(bytes, 2, 2)
+    ) {
+      return false;
+    }
+    for (index = 0; index < nonAvPayloadFields.length; index += 1) {
+      if (findProtoField(bytes, nonAvPayloadFields[index], 2)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   function shouldRemoveViewUniteRelate(input, config) {
     if (isViewUniteRelateAd(input)) {
       return true;
     }
     return (
       config.videoOnlyRecommendations !== false &&
-      smallVarintField(input, 1) !== 1
+      !isExplicitViewUniteAv(input)
     );
   }
 
@@ -2069,7 +2092,7 @@
     return rewriteProtoMessage(input, function (field, bytes) {
       if (
         field.wireType === 2 &&
-        includes([30, 31, 41, 48], field.fieldNumber)
+        includes([30, 31, 34, 41, 48], field.fieldNumber)
       ) {
         return { changed: 1, remove: true };
       }
@@ -2080,6 +2103,18 @@
           protoPayload(bytes, field),
           config
         )
+      ) {
+        return { changed: 1, remove: true };
+      }
+      return null;
+    });
+  }
+
+  function transformViewV1TfInfo(input) {
+    return rewriteProtoMessage(input, function (field) {
+      if (
+        field.wireType === 2 &&
+        includes([2, 3], field.fieldNumber)
       ) {
         return { changed: 1, remove: true };
       }
@@ -2382,6 +2417,8 @@
         return transformViewV1(input, false, config);
       case "grpc-view-v1-relates":
         return transformViewV1(input, true, config);
+      case "grpc-view-v1-tfinfo":
+        return transformViewV1TfInfo(input);
       case "grpc-view-unite":
         return transformViewUnite(input, false, config);
       case "grpc-view-unite-relates":
@@ -2411,21 +2448,169 @@
     return header;
   }
 
-  function transformGrpcBody(body, requestUrl, config) {
+  function parseGrpcFrames(body) {
     var original = toUint8Array(body);
-    var endpoint = classifyGrpcEndpoint(requestUrl);
-    var effectiveConfig = config || parseArgument("");
-    var chunks = [];
+    var frames = [];
     var offset = 0;
-    var changed = 0;
     var flag;
     var length;
     var end;
-    var payload;
-    var result;
     if (!original || original.length < 5) {
       return {
         body: original || new Uint8Array(),
+        frames: frames,
+        valid: false
+      };
+    }
+    while (offset < original.length) {
+      if (offset + 5 > original.length) {
+        return {
+          body: original,
+          frames: [],
+          valid: false
+        };
+      }
+      flag = original[offset];
+      if (flag !== 0 && flag !== 1) {
+        return {
+          body: original,
+          frames: [],
+          valid: false
+        };
+      }
+      length =
+        original[offset + 1] * 0x1000000 +
+        original[offset + 2] * 0x10000 +
+        original[offset + 3] * 0x100 +
+        original[offset + 4];
+      end = offset + 5 + length;
+      if (end > original.length || end < offset + 5) {
+        return {
+          body: original,
+          frames: [],
+          valid: false
+        };
+      }
+      frames.push({
+        end: end,
+        flag: flag,
+        payloadStart: offset + 5,
+        start: offset
+      });
+      offset = end;
+    }
+    return {
+      body: original,
+      frames: frames,
+      valid: true
+    };
+  }
+
+  function hasCompressedGrpcFrame(body) {
+    var parsed = parseGrpcFrames(body);
+    var index;
+    if (!parsed.valid) {
+      return false;
+    }
+    for (index = 0; index < parsed.frames.length; index += 1) {
+      if (parsed.frames[index].flag === 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function decompressGzip(input) {
+    var bytes = toUint8Array(input);
+    var output;
+    var stream;
+    var reader;
+    var chunks = [];
+    var total = 0;
+
+    if (!bytes) {
+      return Promise.reject(new Error("invalid gzip input"));
+    }
+    if (
+      typeof $utils !== "undefined" &&
+      $utils &&
+      typeof $utils.ungzip === "function"
+    ) {
+      try {
+        output = toUint8Array($utils.ungzip(bytes));
+        if (
+          !output ||
+          output.length > MAX_GRPC_DECOMPRESSED_BYTES
+        ) {
+          throw new Error("decompressed gRPC message is too large");
+        }
+        return Promise.resolve(output);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
+    if (
+      typeof DecompressionStream !== "function" ||
+      typeof ReadableStream !== "function"
+    ) {
+      return Promise.reject(
+        new Error("gzip decompression is unavailable")
+      );
+    }
+    try {
+      stream = new ReadableStream({
+        start: function (controller) {
+          controller.enqueue(bytes);
+          controller.close();
+        }
+      }).pipeThrough(new DecompressionStream("gzip"));
+      reader = stream.getReader();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    function readNext() {
+      return reader.read().then(function (entry) {
+        var chunk;
+        if (entry.done) {
+          return concatBytes(chunks);
+        }
+        chunk = toUint8Array(entry.value);
+        if (!chunk) {
+          throw new Error("invalid decompressed gRPC chunk");
+        }
+        total += chunk.length;
+        if (total > MAX_GRPC_DECOMPRESSED_BYTES) {
+          try {
+            reader.cancel();
+          } catch (error) {
+            // The size guard is authoritative even if cancellation fails.
+          }
+          throw new Error("decompressed gRPC message is too large");
+        }
+        chunks.push(chunk);
+        return readNext();
+      });
+    }
+
+    return readNext();
+  }
+
+  function transformGrpcBody(body, requestUrl, config) {
+    var parsed = parseGrpcFrames(body);
+    var original = parsed.body;
+    var frames = parsed.frames;
+    var endpoint = classifyGrpcEndpoint(requestUrl);
+    var effectiveConfig = config || parseArgument("");
+    var chunks = [];
+    var changed = 0;
+    var index;
+    var frame;
+    var payload;
+    var result;
+    if (!parsed.valid) {
+      return {
+        body: original,
         changed: 0,
         endpoint: endpoint,
         valid: false
@@ -2439,37 +2624,18 @@
         valid: true
       };
     }
-    while (offset < original.length) {
-      if (offset + 5 > original.length) {
-        return {
-          body: original,
-          changed: 0,
-          endpoint: endpoint,
-          valid: false
-        };
-      }
-      flag = original[offset];
-      length =
-        original[offset + 1] * 0x1000000 +
-        original[offset + 2] * 0x10000 +
-        original[offset + 3] * 0x100 +
-        original[offset + 4];
-      end = offset + 5 + length;
-      if (end > original.length || end < offset + 5) {
-        return {
-          body: original,
-          changed: 0,
-          endpoint: endpoint,
-          valid: false
-        };
-      }
-      if (flag !== 0) {
-        chunks.push(original.slice(offset, end));
-        offset = end;
+    for (index = 0; index < frames.length; index += 1) {
+      frame = frames[index];
+      if (frame.flag === 1) {
+        chunks.push(original.slice(frame.start, frame.end));
         continue;
       }
-      payload = original.slice(offset + 5, end);
-      result = transformGrpcPayload(payload, endpoint, config);
+      payload = original.slice(frame.payloadStart, frame.end);
+      result = transformGrpcPayload(
+        payload,
+        endpoint,
+        effectiveConfig
+      );
       if (!result.valid) {
         return {
           body: original,
@@ -2483,9 +2649,8 @@
         chunks.push(result.body);
         changed += result.changed;
       } else {
-        chunks.push(original.slice(offset, end));
+        chunks.push(original.slice(frame.start, frame.end));
       }
-      offset = end;
     }
     return {
       body: changed > 0 ? concatBytes(chunks) : original,
@@ -2493,6 +2658,93 @@
       endpoint: endpoint,
       valid: true
     };
+  }
+
+  function transformGrpcBodyAsync(body, requestUrl, config) {
+    var parsed = parseGrpcFrames(body);
+    var original = parsed.body;
+    var frames = parsed.frames;
+    var endpoint = classifyGrpcEndpoint(requestUrl);
+    var effectiveConfig = config || parseArgument("");
+    var tasks;
+
+    if (!parsed.valid) {
+      return Promise.resolve({
+        body: original,
+        changed: 0,
+        endpoint: endpoint,
+        valid: false
+      });
+    }
+    if (!endpoint || !effectiveConfig.ads) {
+      return Promise.resolve({
+        body: original,
+        changed: 0,
+        endpoint: endpoint,
+        valid: true
+      });
+    }
+
+    tasks = frames.map(function (frame) {
+      var payload = original.slice(frame.payloadStart, frame.end);
+      var payloadPromise =
+        frame.flag === 1
+          ? decompressGzip(payload)
+          : Promise.resolve(payload);
+      return payloadPromise.then(function (decoded) {
+        return {
+          frame: frame,
+          result: transformGrpcPayload(
+            decoded,
+            endpoint,
+            effectiveConfig
+          )
+        };
+      });
+    });
+
+    return Promise.all(tasks).then(
+      function (entries) {
+        var chunks = [];
+        var changed = 0;
+        var index;
+        var entry;
+        for (index = 0; index < entries.length; index += 1) {
+          entry = entries[index];
+          if (!entry.result.valid) {
+            return {
+              body: original,
+              changed: 0,
+              endpoint: endpoint,
+              valid: false
+            };
+          }
+          if (entry.result.changed > 0) {
+            chunks.push(grpcHeader(0, entry.result.body.length));
+            chunks.push(entry.result.body);
+            changed += entry.result.changed;
+          } else {
+            chunks.push(
+              original.slice(entry.frame.start, entry.frame.end)
+            );
+          }
+        }
+        return {
+          body: changed > 0 ? concatBytes(chunks) : original,
+          changed: changed,
+          endpoint: endpoint,
+          valid: true
+        };
+      },
+      function () {
+        return {
+          body: original,
+          changed: 0,
+          endpoint: endpoint,
+          valid: false
+        };
+      }
+    );
   }
 
   function safeLog(message) {
@@ -2520,16 +2772,63 @@
         $done({});
         return;
       }
-      body =
-        typeof $response !== "undefined" && $response
-          ? $response.body
-          : null;
       requestUrl =
         typeof $request !== "undefined" && $request
           ? String($request.url || "")
           : "";
       grpcEndpoint = classifyGrpcEndpoint(requestUrl);
+      body =
+        grpcEndpoint &&
+        typeof $response !== "undefined" &&
+        $response &&
+        $response.bodyBytes !== undefined &&
+        $response.bodyBytes !== null
+          ? $response.bodyBytes
+          : (
+              typeof $response !== "undefined" && $response
+                ? $response.body
+                : null
+            );
       if (isByteView(body) || grpcEndpoint) {
+        if (hasCompressedGrpcFrame(body)) {
+          transformGrpcBodyAsync(
+            body,
+            requestUrl,
+            config
+          ).then(function (asyncResult) {
+            if (
+              asyncResult.valid &&
+              asyncResult.changed > 0
+            ) {
+              if (config.debug) {
+                safeLog(
+                  asyncResult.endpoint + " removed " +
+                    asyncResult.changed +
+                    " compressed Protobuf field/item(s)"
+                );
+              }
+              $done({ body: asyncResult.body });
+              return;
+            }
+            if (config.debug && !asyncResult.valid) {
+              safeLog(
+                "unsupported compressed gRPC response left unchanged"
+              );
+            }
+            $done({});
+          }, function (error) {
+            safeLog(
+              "compressed gRPC error; response left unchanged: " +
+                (
+                  error && error.message
+                    ? error.message
+                    : String(error)
+                )
+            );
+            $done({});
+          });
+          return;
+        }
         result = transformGrpcBody(body, requestUrl, config);
         if (result.valid && result.changed > 0) {
           if (config.debug) {
@@ -2604,6 +2903,7 @@
     readVarint: readVarint,
     runShadowrocket: runShadowrocket,
     transformGrpcBody: transformGrpcBody,
+    transformGrpcBodyAsync: transformGrpcBodyAsync,
     transformGrpcPayload: transformGrpcPayload,
     transformJsonText: transformJsonText
   };

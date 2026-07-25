@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { gzipSync } = require("node:zlib");
 
 const enhance = require("../src/bilibili-enhance.js");
 
@@ -663,14 +664,14 @@ test("handles view, reply, PGC, web feed, and live ads conservatively", () => {
       data: {
         cm: { source: "ad" },
         relates: [
-          { aid: 1, title: "正常推荐" },
+          { aid: 1, goto: "av", title: "正常推荐" },
           { aid: 2, cm: { source: "ad" } },
         ],
       },
     },
   );
   assert.deepEqual(JSON.parse(view.body).data.relates, [
-    { aid: 1, title: "正常推荐" },
+    { aid: 1, goto: "av", title: "正常推荐" },
   ]);
 
   const reply = transform(
@@ -791,7 +792,7 @@ test("view recommendations keep only ordinary videos by default", () => {
         },
         {
           aid: 2,
-          title: "旧版普通视频",
+          title: "无法明确确认类型的旧版卡片",
         },
         {
           aid: 10,
@@ -880,7 +881,6 @@ test("view recommendations keep only ordinary videos by default", () => {
     JSON.parse(strict.body).data.relates.map((item) => item.title),
     [
       "普通 UP 主视频",
-      "旧版普通视频",
       "普通 UP 主拍了一部纪录片",
     ],
   );
@@ -961,9 +961,15 @@ test("gRPC View v1 keeps only explicit AV relations by default", () => {
 });
 
 test("gRPC ViewUnite keeps only AV cards and filters promotion modules", () => {
-  const card = (type, title, extra) =>
+  const card = (type, title, payloadField, extra) =>
     bytes(
       varintField(1, type),
+      ...(payloadField
+        ? [messageField(
+            payloadField,
+            stringField(1, `${title}-payload`),
+          )]
+        : []),
       messageField(
         12,
         bytes(
@@ -978,20 +984,23 @@ test("gRPC ViewUnite keeps only AV cards and filters promotion modules", () => {
         : []),
     );
   const relates = bytes(
-    messageField(1, card(1, "normal-av")),
+    messageField(1, card(1, "normal-av", 2)),
     messageField(1, card(0, "unknown-card")),
-    messageField(1, card(2, "bangumi-card")),
-    messageField(1, card(3, "resource-card")),
-    messageField(1, card(4, "game-promotion")),
-    messageField(1, card(5, "cm-promotion")),
-    messageField(1, card(6, "live-card")),
-    messageField(1, card(7, "ai-recommend-card")),
-    messageField(1, card(8, "bangumi-av-card")),
-    messageField(1, card(9, "bangumi-ugc-card")),
-    messageField(1, card(10, "special-card")),
+    messageField(1, card(2, "bangumi-card", 3)),
+    messageField(1, card(3, "resource-card", 4)),
+    messageField(1, card(4, "game-promotion", 5)),
+    messageField(1, card(5, "cm-promotion", 6)),
+    messageField(1, card(6, "live-card", 7)),
+    messageField(1, card(7, "ai-recommend-card", 9)),
+    messageField(1, card(8, "bangumi-av-card", 8)),
+    messageField(1, card(9, "bangumi-ugc-card", 13)),
+    messageField(1, card(10, "special-card", 14)),
     messageField(1, card(11, "course-promotion")),
-    messageField(1, card(1, "stock-promotion", "stock")),
-    messageField(1, card(1, "unique-promotion", "unique")),
+    messageField(1, card(1, "stock-promotion", 2, "stock")),
+    messageField(1, card(1, "unique-promotion", 2, "unique")),
+    messageField(1, card(1, "disguised-documentary", 3)),
+    messageField(1, card(1, "disguised-live", 7)),
+    messageField(1, card(1, "disguised-game-ad", 5)),
   );
   const module = bytes(
     varintField(1, 28),
@@ -1036,7 +1045,7 @@ test("gRPC ViewUnite keeps only AV cards and filters promotion modules", () => {
   );
 
   assert.equal(result.valid, true);
-  assert.equal(result.changed, 17);
+  assert.equal(result.changed, 20);
   assert.match(outputText, /normal-av/);
   assert.match(outputText, /unknown-report/);
   assert.match(outputText, /future-module/);
@@ -1053,6 +1062,9 @@ test("gRPC ViewUnite keeps only AV cards and filters promotion modules", () => {
   assert.doesNotMatch(outputText, /special-card/);
   assert.doesNotMatch(outputText, /stock-promotion/);
   assert.doesNotMatch(outputText, /unique-promotion/);
+  assert.doesNotMatch(outputText, /disguised-documentary/);
+  assert.doesNotMatch(outputText, /disguised-live/);
+  assert.doesNotMatch(outputText, /disguised-game-ad/);
   assert.doesNotMatch(outputText, /activity-banner/);
   assert.doesNotMatch(outputText, /vip-banner/);
   assert.doesNotMatch(outputText, /up-goods/);
@@ -1077,11 +1089,14 @@ test("gRPC ViewUnite keeps only AV cards and filters promotion modules", () => {
   assert.match(relaxedText, /resource-card/);
   assert.match(relaxedText, /live-card/);
   assert.match(relaxedText, /special-card/);
+  assert.match(relaxedText, /disguised-documentary/);
+  assert.match(relaxedText, /disguised-live/);
   assert.doesNotMatch(relaxedText, /game-promotion/);
   assert.doesNotMatch(relaxedText, /cm-promotion/);
   assert.doesNotMatch(relaxedText, /course-promotion/);
   assert.doesNotMatch(relaxedText, /stock-promotion/);
   assert.doesNotMatch(relaxedText, /unique-promotion/);
+  assert.doesNotMatch(relaxedText, /disguised-game-ad/);
 
   const vipDisabled = enhance.transformGrpcBody(
     grpcFrame(reply),
@@ -1120,6 +1135,9 @@ test("gRPC RelatesFeed endpoints use the same ordinary-video allowlist", () => {
   const uniteCard = (type, title) =>
     bytes(
       varintField(1, type),
+      ...(type === 1
+        ? [messageField(2, stringField(1, `${title}-payload`))]
+        : [messageField(3, stringField(1, `${title}-payload`))]),
       messageField(12, stringField(1, title)),
     );
   const unite = enhance.transformGrpcBody(
@@ -1137,6 +1155,60 @@ test("gRPC RelatesFeed endpoints use the same ordinary-video allowlist", () => {
   ).toString("latin1");
   assert.match(uniteText, /unite-av/);
   assert.doesNotMatch(uniteText, /unite-bangumi/);
+});
+
+test("compressed first ViewUnite response removes the under-player ad and disguised cards", async () => {
+  const card = (type, title, payloadField) =>
+    bytes(
+      varintField(1, type),
+      messageField(payloadField, stringField(1, `${title}-payload`)),
+      messageField(12, stringField(1, title)),
+    );
+  const relates = bytes(
+    messageField(1, card(1, "ordinary-ugc-video", 2)),
+    messageField(1, card(1, "documentary-disguised-as-av", 3)),
+    messageField(1, card(1, "live-disguised-as-av", 7)),
+    messageField(1, card(1, "game-ad-disguised-as-av", 5)),
+  );
+  const reply = bytes(
+    messageField(
+      5,
+      messageField(
+        1,
+        bytes(
+          varintField(1, 1),
+          messageField(
+            2,
+            messageField(
+              2,
+              bytes(varintField(1, 28), messageField(22, relates)),
+            ),
+          ),
+        ),
+      ),
+    ),
+    messageField(7, stringField(1, "jd-under-player-ad")),
+  );
+  const compressedFrame = grpcFrame(
+    new Uint8Array(gzipSync(reply)),
+    1,
+  );
+  const result = await enhance.transformGrpcBodyAsync(
+    compressedFrame,
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/View",
+    enhance.parseArgument(""),
+  );
+  const outputText = Buffer.from(grpcPayload(result.body)).toString(
+    "latin1",
+  );
+
+  assert.equal(result.valid, true);
+  assert.equal(result.body[0], 0);
+  assert.match(outputText, /ordinary-ugc-video/);
+  assert.doesNotMatch(outputText, /jd-under-player-ad/);
+  assert.doesNotMatch(outputText, /documentary-disguised-as-av/);
+  assert.doesNotMatch(outputText, /live-disguised-as-av/);
+  assert.doesNotMatch(outputText, /game-ad-disguised-as-av/);
 });
 
 test("gRPC dynamic, search, and reply filters use endpoint-specific fields", () => {
@@ -1243,6 +1315,47 @@ test("gRPC compressed, disabled, and malformed responses fail open", () => {
     Buffer.from(malformedResult.body),
     Buffer.from(malformed),
   );
+});
+
+test("View v1 and TFInfo remove every known under-player marketing field", () => {
+  const view = enhance.transformGrpcBody(
+    grpcFrame(
+      bytes(
+        messageField(30, stringField(1, "cms")),
+        messageField(31, stringField(1, "cm-config")),
+        messageField(34, stringField(1, "carrier-panel")),
+        messageField(41, stringField(1, "cm-ipad")),
+        messageField(48, stringField(1, "legacy-under-player-cm")),
+        stringField(99, "keep-view-field"),
+      ),
+    ),
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/View",
+    enhance.parseArgument(""),
+  );
+  const tfInfo = enhance.transformGrpcBody(
+    grpcFrame(
+      bytes(
+        varintField(1, 123),
+        messageField(2, stringField(1, "carrier-toast")),
+        messageField(3, stringField(1, "carrier-custom-panel")),
+        varintField(4, 1),
+      ),
+    ),
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/TFInfo",
+    enhance.parseArgument(""),
+  );
+  const viewText = Buffer.from(grpcPayload(view.body)).toString(
+    "latin1",
+  );
+  const tfInfoText = Buffer.from(grpcPayload(tfInfo.body)).toString(
+    "latin1",
+  );
+
+  assert.match(viewText, /keep-view-field/);
+  assert.doesNotMatch(viewText, /cms|cm-config|carrier-panel|cm-ipad|legacy-under-player-cm/);
+  assert.doesNotMatch(tfInfoText, /carrier-toast|carrier-custom-panel/);
+  assert.equal(protoFields(grpcPayload(tfInfo.body), 1, 0).length, 1);
+  assert.equal(protoFields(grpcPayload(tfInfo.body), 4, 0).length, 1);
 });
 
 test("unknown endpoints, malformed JSON, and disabled UI fail open", () => {
@@ -1359,4 +1472,60 @@ test("Shadowrocket binary entrypoint returns a valid rewritten gRPC frame", () =
   ).toString("latin1");
   assert.match(outputText, /keep-unknown/);
   assert.doesNotMatch(outputText, /cm-body/);
+});
+
+test("Shadowrocket first binary response reads bodyBytes and decodes gzip before completion", async () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "src", "bilibili-enhance.js"),
+    "utf8",
+  );
+  const input = grpcFrame(
+    new Uint8Array(
+      gzipSync(
+        bytes(
+          messageField(30, stringField(1, "first-open-cm")),
+          stringField(99, "first-open-content"),
+        ),
+      ),
+    ),
+    1,
+  );
+  let resolveCompletion;
+  const completionPromise = new Promise((resolve) => {
+    resolveCompletion = resolve;
+  });
+  const context = {
+    $argument: JSON.stringify({ ads: true, debug: false }),
+    $done(value) {
+      resolveCompletion(value);
+    },
+    $request: {
+      url: "https://grpc.biliapi.net/bilibili.app.view.v1.View/View",
+    },
+    $response: {
+      bodyBytes: input.buffer.slice(
+        input.byteOffset,
+        input.byteOffset + input.byteLength,
+      ),
+    },
+    ArrayBuffer,
+    console,
+    DecompressionStream,
+    Promise,
+    ReadableStream,
+    Uint8Array,
+  };
+
+  vm.runInNewContext(source, context, {
+    filename: "bilibili-enhance.js",
+  });
+  const completion = await completionPromise;
+
+  assert.ok(completion && completion.body instanceof Uint8Array);
+  assert.equal(completion.body[0], 0);
+  const outputText = Buffer.from(
+    grpcPayload(completion.body),
+  ).toString("latin1");
+  assert.match(outputText, /first-open-content/);
+  assert.doesNotMatch(outputText, /first-open-cm/);
 });

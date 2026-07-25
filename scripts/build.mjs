@@ -20,6 +20,7 @@ async function readJson(relativePath) {
 }
 
 const packageJson = await readJson("package.json");
+const assetVersion = encodeURIComponent(packageJson.version);
 const domains = await readJson("config/domains.json");
 const candidateConfig = await readJson("config/cdn-candidates.json");
 const moduleOptions = await readJson("config/module-options.json");
@@ -324,7 +325,11 @@ const grpcPattern =
 const enhancePattern =
   String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index(?:\/story)?|search(?:\/square|\/type)?|view|account\/mine(?:\/ipad)?)|x\/resource\/show\/tab\/v2)|(?:api\.bilibili\.com|api\.biliapi\.net)\/(?:pgc\/page\/(?:bangumi|cinema\/tab)|x\/(?:vip\/web\/vip_center\/combine|web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd|v2\/reply\/main))|api\.live\.bilibili\.com\/xlive\/app-room\/v1\/index\/getInfoByRoom)(?:\?|$)`;
 const enhanceGrpcPattern =
-  String.raw`^https?:\/\/(?:(?:grpc|app)\.bilibili\.com|(?:grpc|app)\.biliapi\.net)\/(?:bilibili\.app\.(?:view\.v1\.View\/(?:View|RelatesFeed)|viewunite\.v1\.View\/(?:View|RelatesFeed)|dynamic\.v2\.Dynamic\/DynAll)|bilibili\.polymer\.app\.search\.v1\.Search\/SearchAll|bilibili\.main\.community\.reply\.v1\.Reply\/MainList)(?:\?|$)`;
+  String.raw`^https?:\/\/(?:(?:grpc|app)\.bilibili\.com|(?:grpc|app)\.biliapi\.net)\/(?:bilibili\.app\.(?:view\.v1\.View\/(?:View|RelatesFeed|TFInfo)|viewunite\.v1\.View\/(?:View|RelatesFeed)|dynamic\.v2\.Dynamic\/DynAll)|bilibili\.polymer\.app\.search\.v1\.Search\/SearchAll|bilibili\.main\.community\.reply\.v1\.Reply\/MainList)(?:\?|$)`;
+
+function versionedRaw(relativePath) {
+  return `${rawRoot}/${relativePath}?v=${assetVersion}`;
+}
 
 function ruleSection() {
   return [
@@ -332,7 +337,7 @@ function ruleSection() {
     `DOMAIN-WILDCARD,*pcdn*.biliapi.net,${argumentPlaceholder(
       "pcdnPolicy",
     )}`,
-    `RULE-SET,${rawRoot}/dist/Bilibili.list,${argumentPlaceholder(
+    `RULE-SET,${versionedRaw("dist/Bilibili.list")},${argumentPlaceholder(
       "routingPolicy",
     )}`,
   ];
@@ -340,15 +345,15 @@ function ruleSection() {
 
 function cdnScriptLines() {
   return [
-    `Bilibili CDN JSON = type=http-response,pattern=${jsonPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="${cdnScriptArgument}"`,
-    `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="${cdnScriptArgument}"`,
+    `Bilibili CDN JSON = type=http-response,pattern=${jsonPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${cdnScriptArgument}"`,
+    `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${cdnScriptArgument}"`,
   ];
 }
 
 function enhanceScriptLines() {
   return [
-    `Bilibili Enhance JSON = type=http-response,pattern=${enhancePattern},requires-body=1,max-size=4194304,timeout=8,engine=jsc,script-path=${rawRoot}/dist/bilibili-enhance.js,argument="${enhanceScriptArgument}"`,
-    `Bilibili Enhance gRPC = type=http-response,pattern=${enhanceGrpcPattern},requires-body=1,binary-body-mode=1,max-size=1048576,timeout=8,engine=webview,script-path=${rawRoot}/dist/bilibili-enhance.js,argument="${enhanceScriptArgument}"`,
+    `Bilibili Enhance JSON = type=http-response,pattern=${enhancePattern},requires-body=1,max-size=4194304,timeout=8,engine=jsc,script-path=${versionedRaw("dist/bilibili-enhance.js")},argument="${enhanceScriptArgument}"`,
+    `Bilibili Enhance gRPC = type=http-response,pattern=${enhanceGrpcPattern},requires-body=1,binary-body-mode=1,max-size=1048576,timeout=8,engine=webview,script-path=${versionedRaw("dist/bilibili-enhance.js")},argument="${enhanceScriptArgument}"`,
   ];
 }
 

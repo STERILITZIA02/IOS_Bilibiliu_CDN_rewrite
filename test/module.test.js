@@ -122,6 +122,7 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
 
   for (const url of [
     "https://grpc.biliapi.net/bilibili.app.view.v1.View/View",
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/TFInfo",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/RelatesFeed",
     "https://grpc.biliapi.net/bilibili.app.dynamic.v2.Dynamic/DynAll",
     "https://grpc.biliapi.net/bilibili.polymer.app.search.v1.Search/SearchAll",
@@ -139,6 +140,28 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
   }
   assert.match(scriptLine, /max-size=1048576/);
   assert.match(scriptLine, /engine=webview/);
+  assert.match(
+    scriptLine,
+    new RegExp(
+      `script-path=https://raw\\.githubusercontent\\.com/.+/bilibili-enhance\\.js\\?v=${packageJson.version.replaceAll(".", "\\.")}`,
+    ),
+  );
+});
+
+test("every generated remote runtime URL is version-keyed for module updates", () => {
+  for (const generatedModule of [enhancedModule, cdnOnlyModule]) {
+    const runtimeLines = generatedModule
+      .split(/\r?\n/)
+      .filter(
+        (line) =>
+          line.includes("script-path=") ||
+          line.startsWith("RULE-SET,"),
+      );
+    assert.ok(runtimeLines.length >= 3);
+    for (const line of runtimeLines) {
+      assert.match(line, new RegExp(`\\?v=${packageJson.version.replaceAll(".", "\\.")}`));
+    }
+  }
 });
 
 test("generated response patterns compile and cover current playback APIs", () => {
