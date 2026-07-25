@@ -26,10 +26,11 @@
 | [BiliUniverse/Redirect](https://github.com/BiliUniverse/Redirect) | `7e4462847909` | Apache-2.0 | 参考 CDN 家族、海外内容和 MCDN 兼容边界 |
 | [BiliUniverse/Universe](https://github.com/BiliUniverse/Universe) | 调研日默认分支 | Apache-2.0 | 交叉核对模块结构与许可证 |
 | [Maasea/sgmodule](https://github.com/Maasea/sgmodule) | `65075cdb388f` | Apache-2.0 | 参考 Shadowrocket 模块端点和保守 PCDN 规则 |
-| [app2smile/rules](https://github.com/app2smile/rules) | 调研日默认分支 | MIT | 交叉核对 JSON 广告卡片特征 |
-| [blackmatrix7/ios_rule_script](https://github.com/blackmatrix7/ios_rule_script) | 仅交叉核对 | GPL-2.0 | 不复制代码或规则集合 |
+| [app2smile/rules](https://github.com/app2smile/rules) | `df6366a7024e` | MIT | 交叉核对 JSON/Protobuf 广告卡片特征 |
+| [blackmatrix7/ios_rule_script](https://github.com/blackmatrix7/ios_rule_script) | `8f67b6419fe1` | GPL-2.0 | Bilibili 文件当前已归档；不复制代码或引用归档脚本 |
 | [Shadowrocket 使用手册](https://github.com/LOWERTOP/Shadowrocket/blob/main/README.md) | 调研日默认分支 | 文档仓库声明为准 | 核对模块、脚本、MITM、规则、安装和自动更新能力 |
 | [`bilibili-API-collect` 公开镜像](https://gitea.s1f.ren/shiran/bilibili-API-collect) | `cfc5fddcc8a94b74d91970bb5b4eaeb349addc47` | CC BY-NC 4.0 | 只交叉核对互操作字段号与语义事实，不复制 schema 或实现 |
+| [`pskdje/bilibili-API-collect`](https://github.com/pskdje/bilibili-API-collect) | `271b123a0836` | 仓库未声明标准 SPDX 许可证 | 只核对公开大会员中心 JSON 字段事实，不复制文档或实现 |
 
 最终发行版会在 `THIRD_PARTY_NOTICES.md` 中保留实际采用来源的许可证说明。若后续复制任何上游代码片段，必须先记录文件、提交和许可证；当前设计不需要复制。
 
@@ -66,6 +67,16 @@ PCDN 网络规则只采用 Maasea 模块中可交叉核实的窄匹配
 ### “我的”页面
 
 已确认的服务项包括“我的课程”“看视频免流量”“能量加油站”。其余目标项采用“精确中文名 + 商业 URI/稳定 ID”匹配。登录、账号、设置、历史、收藏、下载、真实大会员状态与付费权益不得更改。
+
+### 播放页与大会员中心
+
+- 当前 `ViewUnite` 实现确认关联卡类型 `4` 为游戏、`5` 为广告、
+  `11` 为课程推广；`cm_stock` 和非空 `unique_id` 也是明确推广特征。
+- 详情介绍模块类型 `18` 为活动横幅、`29` 为大会员横幅、
+  `55` 为 UP 主分享好物；仅在精确 `ViewUnite` 结构中按类型删除。
+- 大会员中心组合接口为 `/x/vip/web/vip_center/combine`。营销
+  `banners` 与 `user.vip`、`wallet`、`privileges` 等权益数据分离，
+  因而只清空 `banners`，不遍历或修改会员、支付和账户对象。
 
 ## 已知风险证据
 

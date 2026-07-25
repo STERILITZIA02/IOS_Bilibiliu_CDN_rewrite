@@ -58,6 +58,16 @@ their source code is not incorporated into this repository.
   interoperability review. No `.proto` schema or generated implementation is
   distributed by this repository.
 
+## pskdje/bilibili-API-collect
+
+- Repository: https://github.com/pskdje/bilibili-API-collect
+- Reviewed commit: `271b123a083698bf576101c21f534b3418768a43`
+- License: no standard SPDX license was declared by the repository at review
+  time.
+- Use: the public JSON field separation for the VIP-center combine endpoint was
+  inspected as an interoperability fact. No documentation text, example data,
+  schema, or implementation is incorporated.
+
 ## Shadowrocket documentation
 
 - Repository: https://github.com/LOWERTOP/Shadowrocket
