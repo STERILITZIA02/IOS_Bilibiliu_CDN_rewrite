@@ -29,6 +29,10 @@ const sourceScript = await readFile(
   path.join(rootDirectory, "src", "bilibili-cdn.js"),
   "utf8",
 );
+const enhanceScript = await readFile(
+  path.join(rootDirectory, "src", "bilibili-enhance.js"),
+  "utf8",
+);
 
 function validateDomainList(name, values, requireSorted = true) {
   if (!Array.isArray(values) || values.length === 0) {
@@ -99,6 +103,10 @@ const jsonPattern =
   String.raw`^https?:\/\/(?:(?:api|app)\.(?:bilibili\.com|biliapi\.net)|interface\.bilibili\.com)\/(?:x\/(?:player\/(?:wbi\/)?playurl(?:v2)?|v2\/playurl)|pgc\/player\/(?:api\/playurl(?:proj)?|web\/(?:v2\/)?playurl(?:\/html5)?)|pugv\/player\/(?:api|web)\/playurl|v2\/playurl)(?:\?|$)`;
 const grpcPattern =
   String.raw`^https?:\/\/(?:grpc\.biliapi\.net|app\.(?:bilibili\.com|biliapi\.net))\/(?:bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite|bilibili\.app\.playurl\.v1\.PlayURL\/PlayView|bilibili\.pgc\.gateway\.player\.v2\.PlayURL\/PlayView)(?:\?|$)`;
+const enhancePattern =
+  String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index(?:\/story)?|search(?:\/square|\/type)?|view|account\/mine(?:\/ipad)?)|x\/resource\/show\/tab\/v2)|(?:api\.bilibili\.com|api\.biliapi\.net)\/(?:pgc\/page\/(?:bangumi|cinema\/tab)|x\/web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd|x\/v2\/reply\/main)|api\.live\.bilibili\.com\/xlive\/app-room\/v1\/index\/getInfoByRoom)(?:\?|$)`;
+const enhanceGrpcPattern =
+  String.raw`^https?:\/\/(?:(?:grpc|app)\.bilibili\.com|(?:grpc|app)\.biliapi\.net)\/(?:bilibili\.app\.(?:view\.v1\.View\/(?:View|RelatesFeed)|viewunite\.v1\.View\/(?:View|RelatesFeed)|dynamic\.v2\.Dynamic\/DynAll)|bilibili\.polymer\.app\.search\.v1\.Search\/SearchAll|bilibili\.main\.community\.reply\.v1\.Reply\/MainList)(?:\?|$)`;
 
 const moduleText = [
   "#!name=Bilibili CDN Switcher",
@@ -108,19 +116,21 @@ const moduleText = [
   `#!homepage=${homepage}`,
   "#!icon=https://i0.hdslb.com/bfs/static/jinkela/long/images/512.png",
   "#!category=Bilibili",
-  "#!arguments=CDN:auto,分流策略:DIRECT,测速间隔:12,切换阈值:20,调试日志:false",
-  "#!arguments-desc=CDN：auto 为自动测速选择；也可填写固定点播主机，或填写 off 仅保留分流。\\n\\n分流策略：DIRECT、PROXY 或现有策略组名称。\\n\\n测速间隔：6-72 小时，默认 12；每轮最多测试 6 个候选。\\n\\n切换阈值：新线路至少快多少百分比才切换，默认 20；正常线路至少保持 24 小时。\\n\\n调试日志：排错时临时设为 true。",
+  "#!arguments=广告过滤:true,界面精简:true,搜索推广:true,直播带货:true,CDN:auto,分流策略:DIRECT,测速间隔:12,切换阈值:20,调试日志:false",
+  "#!arguments-desc=广告过滤：处理明确广告字段与卡片，未知结构保留。\\n\\n界面精简：移除指定首页导航和“我的”营销入口，不修改账号或会员状态。\\n\\n搜索推广：移除搜索推广词；关闭后保留。\\n\\n直播带货：隐藏直播购物卡片；关闭后保留。\\n\\nCDN：auto 为自动测速选择；也可填写固定点播主机，或填写 off 仅保留分流。\\n\\n分流策略：DIRECT、PROXY 或现有策略组名称。\\n\\n测速间隔：6-72 小时，默认 12；每轮最多测试 6 个候选。\\n\\n切换阈值：新线路至少快多少百分比才切换，默认 20；正常线路至少保持 24 小时。\\n\\n调试日志：排错时临时设为 true。",
   "",
   "[Rule]",
   `RULE-SET,${rawRoot}/dist/Bilibili.list,{{{分流策略}}}`,
   "",
   "[Script]",
+  `Bilibili Enhance JSON = type=http-response,pattern=${enhancePattern},requires-body=1,max-size=4194304,timeout=8,engine=jsc,script-path=${rawRoot}/dist/bilibili-enhance.js,argument="{"ads":{{{广告过滤}}},"ui":{{{界面精简}}},"searchPromotions":{{{搜索推广}}},"liveShopping":{{{直播带货}}},"debug":{{{调试日志}}}}"`,
+  `Bilibili Enhance gRPC = type=http-response,pattern=${enhanceGrpcPattern},requires-body=1,binary-body-mode=1,max-size=1048576,timeout=8,engine=webview,script-path=${rawRoot}/dist/bilibili-enhance.js,argument="{"ads":{{{广告过滤}}},"ui":{{{界面精简}}},"searchPromotions":{{{搜索推广}}},"liveShopping":{{{直播带货}}},"debug":{{{调试日志}}}}"`,
   `Bilibili CDN JSON = type=http-response,pattern=${jsonPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="{"cdn":"{{{CDN}}}","intervalHours":{{{测速间隔}}},"switchThreshold":{{{切换阈值}}},"debug":{{{调试日志}}}}"`,
   `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${rawRoot}/dist/bilibili-cdn.js,argument="{"cdn":"{{{CDN}}}","intervalHours":{{{测速间隔}}},"switchThreshold":{{{切换阈值}}},"debug":{{{调试日志}}}}"`,
   "",
   "[MITM]",
   "h2 = true",
-  "hostname = %APPEND% api.bilibili.com, app.bilibili.com, interface.bilibili.com, api.biliapi.net, app.biliapi.net, grpc.biliapi.net",
+  "hostname = %APPEND% api.bilibili.com, app.bilibili.com, interface.bilibili.com, api.biliapi.net, app.biliapi.net, grpc.bilibili.com, grpc.biliapi.net, api.live.bilibili.com",
   "",
 ].join("\n");
 
@@ -132,6 +142,7 @@ const outputs = new Map([
   ["dist/Bilibili.CDN.sgmodule", moduleText],
   ["dist/Bilibili.list", ruleList],
   ["dist/bilibili-cdn.js", sourceScript],
+  ["dist/bilibili-enhance.js", enhanceScript],
 ]);
 
 const checksums = [...outputs.entries()]

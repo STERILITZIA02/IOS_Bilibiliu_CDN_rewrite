@@ -29,6 +29,7 @@
 | [app2smile/rules](https://github.com/app2smile/rules) | 调研日默认分支 | MIT | 交叉核对 JSON 广告卡片特征 |
 | [blackmatrix7/ios_rule_script](https://github.com/blackmatrix7/ios_rule_script) | 仅交叉核对 | GPL-2.0 | 不复制代码或规则集合 |
 | [Shadowrocket 使用手册](https://github.com/LOWERTOP/Shadowrocket/blob/main/README.md) | 调研日默认分支 | 文档仓库声明为准 | 核对模块、脚本、MITM、规则、安装和自动更新能力 |
+| [`bilibili-API-collect` 公开镜像](https://gitea.s1f.ren/shiran/bilibili-API-collect) | `cfc5fddcc8a94b74d91970bb5b4eaeb349addc47` | CC BY-NC 4.0 | 只交叉核对互操作字段号与语义事实，不复制 schema 或实现 |
 
 最终发行版会在 `THIRD_PARTY_NOTICES.md` 中保留实际采用来源的许可证说明。若后续复制任何上游代码片段，必须先记录文件、提交和许可证；当前设计不需要复制。
 
