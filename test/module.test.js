@@ -21,6 +21,10 @@ const candidateConfig = JSON.parse(
     "utf8",
   ),
 );
+const cdnSource = fs.readFileSync(
+  path.join(root, "src", "bilibili-cdn.js"),
+  "utf8",
+);
 
 test("generated module has routing, enhancement, CDN, and scoped MITM sections", () => {
   assert.match(moduleText, /\[Rule\]/);
@@ -45,6 +49,14 @@ test("generated module has routing, enhancement, CDN, and scoped MITM sections",
   assert.match(moduleText, /界面精简:true/);
   assert.match(moduleText, /搜索推广:true/);
   assert.match(moduleText, /直播带货:true/);
+  assert.match(moduleText, /PCDN策略:DIRECT/);
+  assert.match(moduleText, /网络档案:auto/);
+  assert.match(
+    moduleText,
+    /DOMAIN-WILDCARD,\*pcdn\*\.biliapi\.net,\{\{\{PCDN策略\}\}\}/,
+  );
+  assert.doesNotMatch(moduleText, /DOMAIN-SUFFIX,mcdn\.bilivideo\.cn,REJECT/);
+  assert.match(moduleText, /"networkProfile":"\{\{\{网络档案\}\}\}"/);
   assert.match(moduleText, /"intervalHours":\{\{\{测速间隔\}\}\}/);
   assert.match(moduleText, /"switchThreshold":\{\{\{切换阈值\}\}\}/);
 });
@@ -155,7 +167,7 @@ test("rule set covers main, API, VOD CDN, live CDN, and static domains", () => {
   }
 });
 
-test("automatic CDN candidates match the reviewed configuration", () => {
+test("fixed-mode CDN guidance matches the reviewed configuration", () => {
   const configured = [
     ...candidateConfig.maintained,
     ...candidateConfig.supplemental,
@@ -167,6 +179,16 @@ test("automatic CDN candidates match the reviewed configuration", () => {
     assert.equal(cdn.normalizeCdnHost(hostname), hostname);
     assert.equal(cdn.isBilibiliMediaHost(hostname), true);
   }
+});
+
+test("safe auto uses server-provided URLs, GET Range validation, and bounded state", () => {
+  assert.doesNotMatch(cdnSource, /function selectAutoCdn|\.benchmark\(/);
+  assert.match(cdnSource, /Range: "bytes=0-" \+ AUTO_RANGE_END/);
+  assert.match(cdnSource, /status !== 206/);
+  assert.match(cdnSource, /AUTO_CACHE_CAPACITY = 64/);
+  assert.match(cdnSource, /AUTO_GLOBAL_PROBE_GAP_MS = 2 \* 60 \* 1000/);
+  assert.match(cdnSource, /descriptor\.candidates\.slice\(1\)/);
+  assert.match(cdnSource, /queryFreeCandidateFingerprint/);
 });
 
 test("all remote module resources use HTTPS", () => {

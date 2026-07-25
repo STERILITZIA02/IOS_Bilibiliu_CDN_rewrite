@@ -6,47 +6,89 @@ const cdn = require("../src/bilibili-cdn.js");
 const playUrl =
   "https://api.bilibili.com/x/player/playurl" +
   "?bvid=BV1xx411c7mD&cid=62131&fnval=16&qn=80";
-const headers = {
+const requestHeaders = {
   Referer: "https://www.bilibili.com/",
   "User-Agent": "Mozilla/5.0",
 };
 
-const response = await fetch(playUrl, { headers });
+const response = await fetch(playUrl, { headers: requestHeaders });
 if (!response.ok) {
   throw new Error(`Bilibili play API returned HTTP ${response.status}`);
 }
 const payload = await response.json();
-const sampleUrl = cdn.findFirstJsonVodUrl(JSON.stringify(payload));
-if (!sampleUrl) {
-  throw new Error("Bilibili play API returned no recognized VOD URL");
+const input = JSON.stringify(payload);
+const config = cdn.parseArgument(
+  JSON.stringify({
+    cdn: "auto",
+    intervalHours: 12,
+    networkProfile: "smoke",
+    switchThreshold: 20,
+  }),
+);
+const discovered = cdn.prepareSafeJson(
+  input,
+  config,
+  cdn.createEmptyAutoState(),
+  Date.now(),
+);
+if (!discovered.valid || discovered.descriptors.length === 0) {
+  throw new Error("Bilibili play API returned no safe-auto media descriptors");
 }
 
 const storage = new Map();
+const probeResults = [];
 const services = {
-  benchmark(host, url, timeoutMs, callback) {
-    const started = performance.now();
-    fetch(url, {
-      headers,
-      method: "HEAD",
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-      .then((result) => {
-        callback({
-          elapsedMs: performance.now() - started,
-          ok: result.ok,
-          status: result.status,
-        });
-      })
-      .catch(() => {
-        callback({
-          elapsedMs: timeoutMs,
-          ok: false,
-          status: 0,
-        });
-      });
-  },
   now: Date.now,
   persistent: true,
+  probe(candidate, timeoutMs, callback) {
+    const started = performance.now();
+    fetch(candidate.url, {
+      headers: {
+        ...requestHeaders,
+        "Accept-Encoding": "identity",
+        Range: `bytes=0-${cdn.AUTO_RANGE_END}`,
+      },
+      redirect: "manual",
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+      .then(async (result) => {
+        const raw = {
+          body: new Uint8Array(await result.arrayBuffer()),
+          elapsedMs: performance.now() - started,
+          error: false,
+          headers: Object.fromEntries(result.headers.entries()),
+          status: result.status,
+          url: result.url,
+        };
+        const validation = cdn.validateProbeResponse(raw, candidate.url);
+        probeResults.push({
+          elapsedMs: Math.round(raw.elapsedMs),
+          host: new URL(candidate.url).hostname,
+          ok: validation.ok,
+          reason: validation.reason,
+          status: raw.status,
+        });
+        callback(raw);
+      })
+      .catch(() => {
+        const raw = {
+          body: new Uint8Array(),
+          elapsedMs: timeoutMs,
+          error: true,
+          headers: {},
+          status: 0,
+          url: "",
+        };
+        probeResults.push({
+          elapsedMs: timeoutMs,
+          host: new URL(candidate.url).hostname,
+          ok: false,
+          reason: "request-error",
+          status: 0,
+        });
+        callback(raw);
+      });
+  },
   read(key) {
     return storage.get(key) || null;
   },
@@ -55,28 +97,22 @@ const services = {
     return true;
   },
 };
-const config = cdn.parseArgument(
-  JSON.stringify({
-    cdn: "auto",
-    intervalHours: 12,
-    switchThreshold: 20,
-  }),
-);
 
-const selection = await new Promise((resolve) => {
-  cdn.selectAutoCdn(sampleUrl, config, services, resolve);
+const outcome = await new Promise((resolve) => {
+  cdn.processSafeAutoResponse(input, false, config, services, resolve);
 });
 
-console.table(
-  selection.results.map(({ host, status, elapsedMs, ok }) => ({
-    host,
-    status,
-    milliseconds: elapsedMs,
-    reachable: ok,
-  })),
+console.table(probeResults);
+console.log(
+  `Safe-auto outcome: ${outcome.reason}; descriptors=${outcome.descriptors}`,
 );
-console.log(`Selected: ${selection.host} (${selection.reason})`);
 
-if (!selection.host || selection.results.every((result) => !result.ok)) {
-  throw new Error("Automatic CDN smoke test found no reachable candidate");
+if (probeResults.length !== 2 || probeResults.some((result) => !result.ok)) {
+  throw new Error("Strict Range validation did not pass for both candidates");
+}
+if (outcome.changed !== 0) {
+  throw new Error("A newly learned result changed the current response");
+}
+if (!storage.has(cdn.AUTO_STATE_KEY)) {
+  throw new Error("Safe-auto state was not persisted");
 }
