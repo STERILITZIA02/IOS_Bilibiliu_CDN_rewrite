@@ -8,9 +8,11 @@ option, and generating a stable Shadowrocket install URL.
 ## Safety model
 
 - The option catalog comes from the fixed repository `main` branch and is
-  validated before use. A reviewed bundled catalog is the read-only fallback.
-- Module templates are fetched only from two fixed `raw.githubusercontent.com`
-  paths. The request cannot supply another source URL.
+  validated before use. A reviewed catalog and module snapshot from the exact
+  deployed commit is the bounded fallback.
+- Online module templates are fetched only from two fixed
+  `raw.githubusercontent.com` paths. The request cannot supply another source
+  URL, and an egress outage can only select the build-time reviewed snapshot.
 - Every query key, value type, numeric range, policy name, and fixed CDN host is
   allowlisted before the `#!arguments` line is replaced.
 - The route verifies the module header, version, size, sections, variant, and
@@ -30,10 +32,9 @@ npm test
 ```
 
 `npm test` performs a production build and checks server rendering, both module
-variants, latest-repository sourcing, customization persistence, and
-injection-style request rejection. The generation route requires the latest
-repository catalog and an exact catalog/module argument match; the bundled
-catalog is only a display fallback.
+variants, latest-repository sourcing, safe snapshot fallback, customization
+persistence, and injection-style request rejection. The generation route
+requires an exact catalog/module argument match regardless of source.
 
 ## Main routes
 

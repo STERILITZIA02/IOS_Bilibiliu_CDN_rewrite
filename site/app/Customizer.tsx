@@ -462,7 +462,8 @@ export function Customizer({
             </h1>
             <p>
               选择 CDN-only 或 Enhanced，逐项决定首页和“我的”
-              显示什么。生成的链接会在每次更新时重新获取仓库最新模块。
+              显示什么。生成链接优先读取仓库最新模块，网络异常时使用本站
+              同版本的已审核快照。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
@@ -887,7 +888,7 @@ export function Customizer({
                       ? "CDN + Enhanced"
                       : "仅 CDN Switcher"}
                   </strong>
-                  <small>跟随 GitHub main 最新代码</small>
+                  <small>优先跟随 GitHub main · 含安全快照</small>
                 </span>
               </div>
               {variant === "enhanced" && (
@@ -935,7 +936,7 @@ export function Customizer({
               </button>
               <p className="install-note">
                 安装后仍可在 Shadowrocket
-                内更新；同一链接会保留本页选择并获取最新脚本。
+                内更新；同一链接会保留本页选择，并优先获取最新脚本。
               </p>
             </div>
             <div className="safety-card">

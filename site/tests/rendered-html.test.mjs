@@ -157,7 +157,7 @@ test("custom module route rejects unknown and injection-style parameters", async
   }
 });
 
-test("custom module generation fails closed on repository drift or outage", async () => {
+test("custom module generation uses the reviewed bundle during repository outage and fails closed on drift", async () => {
   const originalFetch = globalThis.fetch;
   const catalog = await readFile(
     new URL("../../dist/module-options.json", import.meta.url),
@@ -174,7 +174,12 @@ test("custom module generation fails closed on repository drift or outage", asyn
         ? new Response("Unavailable", { status: 503 })
         : new Response(enhanced);
     const outage = await request("/module.sgmodule?variant=enhanced");
-    assert.equal(outage.status, 502);
+    assert.equal(outage.status, 200);
+    assert.equal(
+      outage.headers.get("x-bilibili-module-snapshot"),
+      "bundled",
+    );
+    assert.match(await outage.text(), /Bilibili Enhance JSON/);
 
     globalThis.fetch = async (input) => {
       const url = String(input);

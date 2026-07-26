@@ -220,11 +220,15 @@ export async function GET(request: Request) {
     const variant = parseVariant(url.searchParams.get("variant"));
     const { catalog, source: catalogSource } =
       await loadLatestCatalog();
-    if (catalogSource !== "repository") {
-      throw new Error("Latest repository catalog is unavailable");
-    }
     const values = resolveArguments(url, catalog, variant);
-    const { text, sourceUrl } = await loadLatestModule(variant);
+    const {
+      text,
+      sourceUrl,
+      source: moduleSource,
+    } = await loadLatestModule(
+      variant,
+      catalogSource === "bundled",
+    );
     const customized = customizeModule(
       text,
       catalog,
@@ -242,6 +246,7 @@ export async function GET(request: Request) {
         "Content-Disposition": `inline; filename="${filename}"`,
         "Content-Type": "text/plain; charset=utf-8",
         "X-Bilibili-Module-Source": sourceUrl,
+        "X-Bilibili-Module-Snapshot": moduleSource,
         "X-Content-Type-Options": "nosniff",
       },
     });
@@ -250,7 +255,7 @@ export async function GET(request: Request) {
       return errorResponse(error.message, 400);
     }
     return errorResponse(
-      "暂时无法从 GitHub 获取并校验最新模块，请稍后重试。",
+      "暂时无法生成经过校验的模块，请稍后重试。",
       502,
     );
   }
