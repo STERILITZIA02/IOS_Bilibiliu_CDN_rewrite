@@ -248,7 +248,11 @@ test("homepage refresh keeps exactly the first six verified ordinary AV cards", 
             { type: "activity", title: "活动横幅" },
           ],
         },
-        ordinary(2),
+        {
+          ...ordinary(2),
+          business_info: null,
+          cm_mark: 0,
+        },
         { card_type: "cm_v2", card_goto: "ad_inline_live" },
         {
           ...ordinary(20, "官方纪录片"),
@@ -383,6 +387,13 @@ test("homepage refresh keeps exactly the first six verified ordinary AV cards", 
       (item) => item.card_goto === "ad_inline_live",
     ),
   );
+
+  const disabled = transform(
+    `${appRoot}/x/v2/feed/index?device=phone`,
+    fixture,
+    '{"ads":false}',
+  );
+  assert.deepEqual(JSON.parse(disabled.body), fixture);
 });
 
 test("strict Story filtering keeps only ordinary vertical videos", () => {

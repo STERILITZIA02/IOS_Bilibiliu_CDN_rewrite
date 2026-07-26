@@ -2,8 +2,9 @@
 
 The production website for this repository. It provides an iPhone/iPad-first
 interface for choosing the CDN-only or Enhanced module, enabling the ordinary-
-video-only recommendation filter, changing each reviewed Home/Mine visibility
-option, and generating a stable Shadowrocket install URL.
+video-only playback filter and the six-item ordinary-AV home feed, changing
+each reviewed Home/Mine visibility option, and generating a stable
+Shadowrocket install URL.
 
 ## Safety model
 

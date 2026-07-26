@@ -83,7 +83,7 @@ test("catalog and custom module routes use only fixed repository sources", async
     assert.equal(catalogPayload.catalog.schemaVersion, 1);
 
     const enhancedResponse = await request(
-      "/module.sgmodule?variant=enhanced&videoOnlyRecommendations=true&hideMineWallet=true&hideMoreSettings=true&intervalHours=24",
+      "/module.sgmodule?variant=enhanced&homeFeedVideoOnly=true&videoOnlyRecommendations=true&hideMineWallet=true&hideMoreSettings=true&intervalHours=24",
     );
     assert.equal(enhancedResponse.status, 200);
     assert.match(
@@ -97,6 +97,7 @@ test("catalog and custom module routes use only fixed repository sources", async
     const enhancedText = await enhancedResponse.text();
     assert.match(enhancedText, /隐藏我的钱包:true/);
     assert.match(enhancedText, /隐藏设置:true/);
+    assert.match(enhancedText, /首页推荐6个普通视频:true/);
     assert.match(enhancedText, /推荐仅普通视频:true/);
     assert.match(enhancedText, /测速间隔:24/);
     assert.match(enhancedText, /Bilibili Enhance JSON/);

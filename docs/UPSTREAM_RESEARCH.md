@@ -22,7 +22,7 @@
 
 | 项目 | 调研提交 | 许可证 | 本项目采用方式 |
 | --- | --- | --- | --- |
-| [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock) | `v0.6.24` 与调研日 `main` | Apache-2.0 | 参考当前 View/TFInfo/ViewUnite 接口覆盖范围与高置信广告特征，重新实现 |
+| [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock) | `43b07841fa55ba77e29d478cab0be44c8b49a3c2`（2026-07-26 读取 `main`） | Apache-2.0 | 参考当前 Feed/Story/View/TFInfo/ViewUnite 接口覆盖范围与高置信广告特征，重新实现 |
 | [BiliUniverse/Enhanced](https://github.com/BiliUniverse/Enhanced) | `6fcb1be0fb6d` | Apache-2.0 | 参考导航字段含义；不采用其覆盖服务端数组的方式 |
 | [BiliUniverse/Redirect](https://github.com/BiliUniverse/Redirect) | `7e4462847909` | Apache-2.0 | 参考 CDN 家族、海外内容和 MCDN 兼容边界 |
 | [BiliUniverse/Universe](https://github.com/BiliUniverse/Universe) | 调研日默认分支 | Apache-2.0 | 交叉核对模块结构与许可证 |
@@ -51,11 +51,36 @@ PCDN 网络规则只采用 Maasea 模块中可交叉核实的窄匹配
 
 - 开屏响应中的明确广告容器：`account`、`event_list`、`preload`、`show`。
 - 推荐流广告：广告卡片类型与 `goto`/`card_goto` 广告类型同时命中。
-- Story 广告：存在 `ad_info`，或 `card_goto` 为明确的竖屏广告类型。
+- 商业伪装卡：非空 `business_info`、`cm_mark`、广告/创意 ID 或明确商业动作与
+  跟踪字段。
+- Story 广告：存在 `ad_info`，或 `card_goto` 为明确的竖屏广告类型；
+  `vertical_pgc` 是当前维护规则标记的大会员专享卡。
 - Web 推荐：`goto === "ad"`。
 - 直播间：`activity_banner_info`，以及业务编号明确为广告位的外部标签。
 
 仅名字类似、仅 URL 含模糊关键词或只命中单一弱特征时不删除。
+
+### 首页与推荐流普通视频边界
+
+[`bilibili-API-collect` 的首页推荐接口记录](https://github.com/pskdje/bilibili-API-collect/blob/main/docs/video/recommend.md)
+显示，普通 App 首页视频同时具有 `card_goto:"av"`、`goto:"av"`、视频
+`param`/`player_args` 和 `bilibili://video/...`；同一响应还可能出现
+`banner_v8`、`banner_ipad_v8`、直播、OGV 和广告卡。Web 首页同样用
+`goto:"av"` 区分普通视频，用 `goto:"live"`/`"ogv"` 区分非普通视频，并以
+`business_info` 承载商业推广信息。
+
+BiliUniverse/ADBlock 固定提交
+[`43b0784`](https://github.com/BiliUniverse/ADBlock/blob/43b07841fa55ba77e29d478cab0be44c8b49a3c2/src/process/Response.dev.mjs)
+进一步确认当前首页广告组合：`cm_v1/cm_v2` 的 `ad_web_s`、`ad_av`、
+`ad_web_gif`，`cm_v2` 的 `ad_player`、`ad_inline_3d`、`ad_inline_eggs`、
+`ad_inline_live`，`small_cover_v10/game`，以及
+`cm_double_v9/ad_inline_av`。该实现还会再次请求首页接口来补空位；本项目明确
+不采用该行为，因为响应脚本内递归补位会增加额外网络请求、重入和刷新抖动风险。
+
+本项目的严格模式因此使用正向白名单：必须有明确 AV/video 类型和具体视频身份，
+按服务端顺序最多保留 6 条。每一份新响应都独立过滤；若不足 6 条则保留实际数量，
+不伪造、不跨响应复用，也不修改 `auto_refresh_time`。标题文本不参与类型判定，
+避免把标题含“广告”“纪录片”的普通 UP 视频误删。
 
 ### 首页导航
 
@@ -95,8 +120,8 @@ PCDN 网络规则只采用 Maasea 模块中可交叉核实的窄匹配
 - 详情介绍模块类型 `18` 为活动横幅、`29` 为大会员横幅、
   `55` 为 UP 主分享好物；仅在精确 `ViewUnite` 结构中按类型删除。
 - 大会员中心组合接口为 `/x/vip/web/vip_center/combine`。营销
-  `banners` 与 `user.vip`、`wallet`、`privileges` 等权益数据分离，
-  因而只清空 `banners`，不遍历或修改会员、支付和账户对象。
+  `banners`/横幅列表变体与 `user.vip`、`wallet`、`privileges` 等权益数据分离，
+  因而只清空已审核横幅数组，不遍历或修改会员、支付和账户对象。
 
 ## 已知风险证据
 
@@ -115,8 +140,8 @@ PCDN 网络规则只采用 Maasea 模块中可交叉核实的窄匹配
 - 不以 `HEAD`、TCP 连接成功或最低延迟作为唯一 CDN 判据。
 - 不把静态 CDN 主机列表当作自动模式的首选来源。
 - 不把视频候选用于音频，或把一个清晰度/编码的缓存用于另一个清晰度/编码。
-- 除播放页“推荐仅普通视频”的明确白名单外，不删除未知对象，也不以空数组替换
-  无法解析的响应。
+- 除首页/推荐流与播放页两个用户可关闭的普通视频白名单外，不删除未知对象，也
+  不以空数组替换无法解析的响应。
 - 不通过请求头伪装运营商、网络类型、地区或会员状态。
 
 ## 实现与验收原则

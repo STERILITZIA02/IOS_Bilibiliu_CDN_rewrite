@@ -461,9 +461,9 @@ export function Customizer({
               <span>只保留真正需要的。</span>
             </h1>
             <p>
-              选择 CDN-only 或 Enhanced，逐项决定首页和“我的”
-              显示什么。生成链接优先读取仓库最新模块，网络异常时使用本站
-              同版本的已审核快照。
+              选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
+              首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
+              使用本站同版本的已审核快照。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
@@ -509,7 +509,7 @@ export function Customizer({
                 </strong>
                 <small>
                   {variant === "enhanced"
-                    ? "CDN、广告/推荐过滤与界面精简"
+                    ? "CDN、首页六条 AV、广告/推荐过滤"
                     : "仅 CDN 与流量分流"}
                 </small>
               </div>
@@ -586,7 +586,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>CDN + Enhanced</strong>
-                    <small>推荐 · CDN、去广告、普通视频推荐、界面精简</small>
+                    <small>推荐 · 首页六条 AV、去广告、CDN 与界面精简</small>
                   </span>
                   <span className="radio-dot">
                     {variant === "enhanced" && <span />}

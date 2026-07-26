@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented here.
 
+## [3.1.0] - 2026-07-26
+
+- Add a default-on `首页推荐6个普通视频` switch for the app and Web home
+  recommendation feeds. Each response keeps, in server order, at most the
+  first six cards that carry both an explicit AV/video type and a concrete
+  video identity.
+- Reject homepage banners, ads, mini-games/apps, PGC/OGV, documentary,
+  variety, movie/TV, live, activity, unknown, and commercially disguised
+  cards without using title text as a classifier.
+- Apply the strict check to every fresh recommendation response and make the
+  transform idempotent, while intentionally avoiding recursive refill
+  requests, synthetic cards, or refresh-timer changes.
+- Remove Story `vertical_pgc` cards and, in strict mode, retain only
+  `vertical_av`; recognize `business_info` and `cm_mark` as explicit
+  commercial markers.
+- Cover current and alternate VIP banner-list keys plus structurally explicit
+  Mine-page VIP marketing banners while preserving member state, expiry,
+  wallet, orders, payment, privileges, and unknown account fields.
+- Record the 2026-07-26 upstream audit at BiliUniverse/ADBlock commit
+  `43b07841fa55ba77e29d478cab0be44c8b49a3c2` and add refresh, false-positive,
+  exact-six, Web-feed, Story, disguised-ad, and VIP-banner regressions.
+
 ## [3.0.1] - 2026-07-26
 
 - Fix first-open video pages by reading Shadowrocket binary `bodyBytes` and
