@@ -28,8 +28,10 @@
   var STORY_AD_TYPES = [
     "vertical_ad_av",
     "vertical_ad_picture",
-    "vertical_ad_live"
+    "vertical_ad_live",
+    "vertical_pgc"
   ];
+  var HOME_FEED_VIDEO_LIMIT = 6;
   var UI_OPTION_DEFAULTS = {
     hideHomeGame: true,
     hideHomeJourney: true,
@@ -194,6 +196,17 @@
     "marketing_dialog",
     "marketing_dialogs"
   ];
+  var VIP_BANNER_KEYS = [
+    "banners",
+    "banner_list",
+    "bannerList",
+    "marketing_banners",
+    "marketingBanners",
+    "vip_banners",
+    "vipBanners",
+    "promotion_banners",
+    "promotionBanners"
+  ];
   var MAX_GRPC_DECOMPRESSED_BYTES = 4 * 1024 * 1024;
 
   function isObject(value) {
@@ -257,6 +270,7 @@
     var config = {
       ads: true,
       debug: false,
+      homeFeedVideoOnly: true,
       liveShopping: true,
       searchPromotions: true,
       ui: true,
@@ -293,6 +307,10 @@
     }
 
     config.ads = parseBoolean(parsed.ads, config.ads);
+    config.homeFeedVideoOnly = parseBoolean(
+      parsed.homeFeedVideoOnly,
+      config.homeFeedVideoOnly
+    );
     config.videoOnlyRecommendations = parseBoolean(
       parsed.videoOnlyRecommendations,
       config.videoOnlyRecommendations
@@ -570,7 +588,11 @@
       "creative_id",
       "creativeId",
       "ad_id",
-      "adId"
+      "adId",
+      "cm_mark",
+      "cmMark",
+      "business_info",
+      "businessInfo"
     ];
     var index;
     if (!isPlainObject(item)) {
@@ -721,7 +743,7 @@
     return changes;
   }
 
-  function handleFeed(body) {
+  function handleFeed(body, config) {
     var data = body.data;
     var source;
     var kept = [];
@@ -740,6 +762,17 @@
       item = source[index];
       if (isHighConfidencePromotion(item)) {
         changes += 1;
+        continue;
+      }
+      if (config.homeFeedVideoOnly !== false) {
+        if (
+          !isPlainHomeFeedVideo(item) ||
+          kept.length >= HOME_FEED_VIDEO_LIMIT
+        ) {
+          changes += 1;
+          continue;
+        }
+        kept.push(item);
         continue;
       }
 
@@ -774,7 +807,7 @@
     return changes;
   }
 
-  function handleStory(body) {
+  function handleStory(body, config) {
     if (!isPlainObject(body.data)) {
       return 0;
     }
@@ -784,7 +817,11 @@
       }
       return (
         isHighConfidencePromotion(item) ||
-        includes(STORY_AD_TYPES, String(item.card_goto || ""))
+        includes(STORY_AD_TYPES, String(item.card_goto || "")) ||
+        (
+          config.homeFeedVideoOnly !== false &&
+          String(item.card_goto || "") !== "vertical_av"
+        )
       );
     });
   }
@@ -1085,6 +1122,7 @@
     var link;
     var type;
     var marketingLabel;
+    var bannerContext;
     if (!isPlainObject(item)) {
       return false;
     }
@@ -1103,21 +1141,35 @@
       /(?:大会员|会员中心).*(?:特惠|优惠|券包|年卡|折扣|促销|营销|活动)|会员中心营销横幅/.test(
         labels
       );
+    bannerContext =
+      /(?:^|[_-])(?:marketing|promotion|campaign|activity|vip|member)(?:[_-])?banner(?:s)?(?:$|[_-])/i.test(
+        String(contextKey || "")
+      ) ||
+      /^(?:marketing|promotion|activity|vip|member)[_-]?banner$/i.test(
+        type
+      );
     return (
-      marketingLabel &&
+      hasExplicitAdMarker(item) ||
       (
-        hasExplicitAdMarker(item) ||
+        marketingLabel &&
         (
-          /(?:vip|member|summer|blackboard|activity|promotion|coupon)/i.test(
-            link
-          ) &&
+          bannerContext ||
           (
-            hasBannerVisual(item) ||
-            /(?:banner|marketing|promotion|activity)/i.test(type) ||
-            /^(?:marketing_?banner|vip_?banner)$/i.test(
-              String(contextKey || "")
+            /(?:vip|member|summer|blackboard|activity|promotion|coupon|account\/big)/i.test(
+              link
+            ) &&
+            (
+              hasBannerVisual(item) ||
+              /(?:banner|marketing|promotion|activity)/i.test(type)
             )
           )
+        )
+      ) ||
+      (
+        bannerContext &&
+        hasBannerVisual(item) &&
+        /(?:vip|member|big[_-]?point|coupon|privilege|promotion|blackboard\/activity|account\/big)/i.test(
+          link
         )
       )
     );
@@ -1245,9 +1297,12 @@
     ) {
       return 0;
     }
-    if (Array.isArray(data.banners) && data.banners.length > 0) {
-      data.banners = [];
-      changes += 1;
+    for (index = 0; index < VIP_BANNER_KEYS.length; index += 1) {
+      key = VIP_BANNER_KEYS[index];
+      if (Array.isArray(data[key]) && data[key].length > 0) {
+        data[key] = [];
+        changes += 1;
+      }
     }
     for (index = 0; index < VIP_OVERLAY_KEYS.length; index += 1) {
       key = VIP_OVERLAY_KEYS[index];
@@ -1448,6 +1503,58 @@
     return false;
   }
 
+  function hasOrdinaryVideoIdentity(item) {
+    var playerArgs;
+    var param;
+    var uri;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    uri = objectLink(item);
+    if (
+      /^(?:bilibili:\/\/video\/|https?:\/\/(?:www\.)?bilibili\.com\/video\/)/i.test(
+        uri
+      )
+    ) {
+      return true;
+    }
+    if (
+      hasAnyMarker(item, ["aid", "avid", "bvid", "cid"])
+    ) {
+      return true;
+    }
+    param = String(item.param || "").trim();
+    if (/^(?:\d+|BV[0-9A-Za-z]+)$/.test(param)) {
+      return true;
+    }
+    playerArgs = isPlainObject(item.player_args)
+      ? item.player_args
+      : isPlainObject(item.playerArgs)
+        ? item.playerArgs
+        : null;
+    return (
+      isPlainObject(playerArgs) &&
+      hasAnyMarker(playerArgs, ["aid", "avid", "bvid", "cid"])
+    );
+  }
+
+  function isPlainHomeFeedVideo(item) {
+    var cardGoto;
+    var gotoValue;
+    if (
+      !isPlainVideoRecommendation(item) ||
+      !hasOrdinaryVideoIdentity(item)
+    ) {
+      return false;
+    }
+    cardGoto = String(item.card_goto || "").toLowerCase();
+    gotoValue = String(item.goto || "").toLowerCase();
+    return (
+      includes(["av", "video"], cardGoto) ||
+      includes(["av", "video"], gotoValue)
+    );
+  }
+
   function handleView(body, config) {
     var data = body.data;
     var changes = 0;
@@ -1550,13 +1657,41 @@
     return changes;
   }
 
-  function handleWebFeed(body) {
+  function handleWebFeed(body, config) {
+    var data = body.data;
+    var source;
+    var kept = [];
+    var changes = 0;
+    var index;
+    var item;
     if (!isPlainObject(body.data)) {
       return 0;
     }
-    return replaceFilteredArray(body.data, "item", function (item) {
-      return isHighConfidencePromotion(item);
-    });
+    if (!Array.isArray(data.item)) {
+      return 0;
+    }
+    source = data.item;
+    for (index = 0; index < source.length; index += 1) {
+      item = source[index];
+      if (
+        isHighConfidencePromotion(item) ||
+        (
+          config.homeFeedVideoOnly !== false &&
+          (
+            !isPlainHomeFeedVideo(item) ||
+            kept.length >= HOME_FEED_VIDEO_LIMIT
+          )
+        )
+      ) {
+        changes += 1;
+        continue;
+      }
+      kept.push(item);
+    }
+    if (kept.length !== source.length) {
+      data.item = kept;
+    }
+    return changes;
   }
 
   function handleLive(body, config) {
@@ -1616,9 +1751,9 @@
       case "splash":
         return handleSplash(body);
       case "feed":
-        return handleFeed(body);
+        return handleFeed(body, config);
       case "story":
-        return handleStory(body);
+        return handleStory(body, config);
       case "search-results":
         return handleSearchResults(body);
       case "view":
@@ -1628,7 +1763,7 @@
       case "pgc":
         return handlePgc(body);
       case "web-feed":
-        return handleWebFeed(body);
+        return handleWebFeed(body, config);
       case "live":
         return handleLive(body, config);
       default:

@@ -103,6 +103,7 @@ test("parses independent enhancement switches and rejects malformed arguments", 
   assert.deepEqual(enhance.parseArgument(""), {
     ads: true,
     debug: false,
+    homeFeedVideoOnly: true,
     liveShopping: true,
     searchPromotions: true,
     ui: true,
@@ -113,11 +114,12 @@ test("parses independent enhancement switches and rejects malformed arguments", 
   });
   assert.deepEqual(
     enhance.parseArgument(
-      "ads=false&videoOnlyRecommendations=0&ui=0&searchPromotions=off&liveShopping=no&vipPromotions=0&hideMineWallet=1&debug=1",
+      "ads=false&homeFeedVideoOnly=0&videoOnlyRecommendations=0&ui=0&searchPromotions=off&liveShopping=no&vipPromotions=0&hideMineWallet=1&debug=1",
     ),
     {
       ads: false,
       debug: true,
+      homeFeedVideoOnly: false,
       liveShopping: false,
       searchPromotions: false,
       ui: false,
@@ -211,6 +213,7 @@ test("removes only high-confidence splash and feed advertisements", () => {
         ],
       },
     },
+    '{"homeFeedVideoOnly":false}',
   );
   const feedBody = JSON.parse(feed.body);
 
@@ -222,7 +225,167 @@ test("removes only high-confidence splash and feed advertisements", () => {
   assert.equal(feedBody.data.items[1].card_goto, "av");
 });
 
-test("filters Story advertisements while preserving unknown and premium cards", () => {
+test("homepage refresh keeps exactly the first six verified ordinary AV cards", () => {
+  const ordinary = (id, title = `普通视频 ${id}`) => ({
+    card_type: "small_cover_v2",
+    card_goto: "av",
+    goto: "av",
+    param: String(id),
+    uri: `bilibili://video/${id}`,
+    player_args: { aid: id, cid: id + 1000, type: "av" },
+    title,
+  });
+  const fixture = {
+    code: 0,
+    data: {
+      items: [
+        ordinary(1),
+        {
+          card_type: "banner_v8",
+          card_goto: "banner",
+          banner_item: [
+            { type: "ad", title: "广告横幅" },
+            { type: "activity", title: "活动横幅" },
+          ],
+        },
+        ordinary(2),
+        { card_type: "cm_v2", card_goto: "ad_inline_live" },
+        {
+          ...ordinary(20, "官方纪录片"),
+          badge_info: { text: "纪录片" },
+        },
+        {
+          ...ordinary(21, "官方综艺"),
+          rcmd_reason_style: { text: "综艺" },
+        },
+        {
+          card_type: "small_cover_v10",
+          card_goto: "game",
+          goto: "game",
+          uri: "bilibili://game_center/home",
+          title: "小游戏",
+        },
+        {
+          ...ordinary(22, "应用下载"),
+          uri: "bilibili://game_center/detail/22",
+          desc_button: { text: "立即下载" },
+        },
+        {
+          card_type: "small_cover_v2",
+          card_goto: "ogv",
+          goto: "ogv",
+          season_id: 23,
+          title: "影视",
+        },
+        {
+          card_type: "small_cover_v9",
+          card_goto: "live",
+          goto: "live",
+          room_id: 24,
+          title: "直播",
+        },
+        ordinary(3, "广告人的一天"),
+        {
+          ...ordinary(25, "伪装成普通视频的商业卡"),
+          business_info: { creative_id: 25 },
+        },
+        {
+          card_type: "future_card",
+          title: "未知推荐模块",
+        },
+        ordinary(4),
+        ordinary(5),
+        ordinary(6),
+        ordinary(7),
+        ordinary(8),
+      ],
+      config: {
+        auto_refresh_time: 1200,
+      },
+      interest_choose: { keep: true },
+    },
+  };
+  const result = transform(
+    `${appRoot}/x/v2/feed/index?device=phone&pull=1`,
+    fixture,
+  );
+  const output = JSON.parse(result.body);
+
+  assert.equal(
+    result.changed,
+    fixture.data.items.length - 6,
+  );
+  assert.deepEqual(
+    output.data.items.map((item) => item.title),
+    [
+      "普通视频 1",
+      "普通视频 2",
+      "广告人的一天",
+      "普通视频 4",
+      "普通视频 5",
+      "普通视频 6",
+    ],
+  );
+  assert.ok(
+    output.data.items.every(
+      (item) =>
+        item.goto === "av" &&
+        item.card_goto === "av" &&
+        item.uri.startsWith("bilibili://video/"),
+    ),
+  );
+  assert.deepEqual(output.data.config, { auto_refresh_time: 1200 });
+  assert.deepEqual(output.data.interest_choose, { keep: true });
+
+  const repeated = enhance.transformJsonText(
+    result.body,
+    `${appRoot}/x/v2/feed/index?device=phone&pull=1`,
+    enhance.parseArgument(""),
+  );
+  assert.equal(repeated.changed, 0);
+  assert.equal(repeated.body, result.body);
+
+  const nextRefresh = transform(
+    `${appRoot}/x/v2/feed/index?device=phone&pull=1&idx=2`,
+    {
+      code: 0,
+      data: {
+        items: [
+          { card_type: "cm_double_v9", card_goto: "ad_inline_av" },
+          ...Array.from(
+            { length: 9 },
+            (_, index) => ordinary(index + 101),
+          ),
+        ],
+      },
+    },
+  );
+  assert.deepEqual(
+    JSON.parse(nextRefresh.body).data.items.map((item) => item.param),
+    ["101", "102", "103", "104", "105", "106"],
+  );
+
+  const relaxed = transform(
+    `${appRoot}/x/v2/feed/index?device=phone`,
+    fixture,
+    '{"homeFeedVideoOnly":false}',
+  );
+  const relaxedItems = JSON.parse(relaxed.body).data.items;
+  assert.ok(relaxedItems.length > 6);
+  assert.ok(
+    relaxedItems.some((item) => item.title === "官方纪录片"),
+  );
+  assert.ok(
+    relaxedItems.some((item) => item.title === "未知推荐模块"),
+  );
+  assert.ok(
+    !relaxedItems.some(
+      (item) => item.card_goto === "ad_inline_live",
+    ),
+  );
+});
+
+test("strict Story filtering keeps only ordinary vertical videos", () => {
   const result = transform(
     `${appRoot}/x/v2/feed/index/story`,
     {
@@ -240,11 +403,81 @@ test("filters Story advertisements while preserving unknown and premium cards", 
   );
   const output = JSON.parse(result.body);
 
-  assert.equal(result.changed, 2);
+  assert.equal(result.changed, 4);
   assert.deepEqual(
     output.data.items.map((item) => item.title),
-    ["正常视频", "正常番剧内容", "未知结构"],
+    ["正常视频"],
   );
+
+  const relaxed = transform(
+    `${appRoot}/x/v2/feed/index/story`,
+    {
+      code: 0,
+      data: {
+        items: [
+          { card_goto: "vertical_av", title: "正常视频" },
+          { card_goto: "vertical_ad_picture" },
+          { card_goto: "vertical_pgc", title: "大会员番剧" },
+          { card_goto: "future_type", title: "未知结构" },
+        ],
+      },
+    },
+    '{"homeFeedVideoOnly":false}',
+  );
+  assert.deepEqual(
+    JSON.parse(relaxed.body).data.items.map((item) => item.title),
+    ["正常视频", "未知结构"],
+  );
+});
+
+test("web homepage refresh uses the same six-video allowlist", () => {
+  const video = (id) => ({
+    goto: "av",
+    bvid: `BV${id}xx`,
+    cid: id + 100,
+    uri: `https://www.bilibili.com/video/BV${id}xx`,
+    title: `Web 视频 ${id}`,
+  });
+  const result = transform(
+    `${apiRoot}/x/web-interface/wbi/index/top/feed/rcmd?ps=12`,
+    {
+      code: 0,
+      data: {
+        item: [
+          video(1),
+          { goto: "live", room_info: { room_id: 2 } },
+          { goto: "ogv", ogv_info: { season_id: 3 } },
+          {
+            ...video(20),
+            business_info: { creative_id: 20 },
+          },
+          video(2),
+          video(3),
+          video(4),
+          video(5),
+          video(6),
+          video(7),
+        ],
+        side_bar_column: [{ goto: "ogv", title: "边栏" }],
+      },
+    },
+  );
+  const data = JSON.parse(result.body).data;
+
+  assert.deepEqual(
+    data.item.map((item) => item.title),
+    [
+      "Web 视频 1",
+      "Web 视频 2",
+      "Web 视频 3",
+      "Web 视频 4",
+      "Web 视频 5",
+      "Web 视频 6",
+    ],
+  );
+  assert.deepEqual(data.side_bar_column, [
+    { goto: "ogv", title: "边栏" },
+  ]);
 });
 
 test("search promotion and advertisement switches remain independent", () => {
@@ -422,6 +655,10 @@ test("mine cleanup preserves account, membership, history, and unknown entries",
           title: "大会员暑期特惠",
           uri: "https://www.bilibili.com/blackboard/activity-vip",
         },
+        vip_banner: {
+          image_url: "https://i0.hdslb.com/vip-banner.png",
+          uri: "https://account.bilibili.com/account/big",
+        },
         sections_v2: [
           {
             title: "常用功能",
@@ -478,6 +715,7 @@ test("mine cleanup preserves account, membership, history, and unknown entries",
     vip: { status: 1, due_date: 1893456000 },
   });
   assert.equal("marketing_banner" in data, false);
+  assert.equal("vip_banner" in data, false);
   assert.equal(data.sections_v2.length, 1);
   assert.deepEqual(
     data.sections_v2[0].items.map((item) => item.title),
@@ -585,6 +823,14 @@ test("VIP center cleanup removes only marketing overlays and banners", () => {
         title: "大会员限时特惠",
         uri: "https://www.bilibili.com/blackboard/activity-vip",
       }],
+      banner_list: [{
+        title: "续费领券",
+        uri: "https://account.bilibili.com/account/big",
+      }],
+      marketingBanners: [{
+        title: "年度大会员",
+        uri: "https://www.bilibili.com/blackboard/activity-vip",
+      }],
       popup: {
         creative_id: 42,
         title: "续费优惠",
@@ -603,6 +849,8 @@ test("VIP center cleanup removes only marketing overlays and banners", () => {
   const data = JSON.parse(result.body).data;
 
   assert.deepEqual(data.banners, []);
+  assert.deepEqual(data.banner_list, []);
+  assert.deepEqual(data.marketingBanners, []);
   assert.equal("popup" in data, false);
   assert.deepEqual(data.dialog, fixture.data.dialog);
   assert.deepEqual(data.user, fixture.data.user);
@@ -611,6 +859,14 @@ test("VIP center cleanup removes only marketing overlays and banners", () => {
   assert.deepEqual(data.orders, fixture.data.orders);
   assert.deepEqual(data.payment, fixture.data.payment);
   assert.deepEqual(data.future_payload, { keep: true });
+
+  const repeated = enhance.transformJsonText(
+    result.body,
+    `${apiRoot}/x/vip/web/vip_center/combine`,
+    enhance.parseArgument(""),
+  );
+  assert.equal(repeated.changed, 0);
+  assert.equal(repeated.body, result.body);
 
   const disabled = transform(
     `${apiRoot}/x/vip/web/vip_center/combine`,
@@ -723,7 +979,12 @@ test("handles view, reply, PGC, web feed, and live ads conservatively", () => {
       code: 0,
       data: {
         item: [
-          { goto: "av", title: "正常视频" },
+          {
+            goto: "av",
+            bvid: "BV1xx411c7mD",
+            uri: "https://www.bilibili.com/video/BV1xx411c7mD",
+            title: "正常视频",
+          },
           { goto: "ad", title: "广告" },
         ],
       },
@@ -1418,7 +1679,13 @@ test("Shadowrocket entrypoint returns a changed body without leaking response da
         data: {
           items: [
             { card_type: "cm_v2", card_goto: "ad_player" },
-            { card_type: "small_cover_v2", card_goto: "av" },
+            {
+              card_type: "small_cover_v2",
+              card_goto: "av",
+              goto: "av",
+              param: "1",
+              uri: "bilibili://video/1",
+            },
           ],
         },
       }),

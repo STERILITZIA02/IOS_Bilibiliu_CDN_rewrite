@@ -296,6 +296,7 @@ const networkArgumentKeys = [
 ];
 const enhanceArgumentKeys = [
   "ads",
+  "homeFeedVideoOnly",
   "videoOnlyRecommendations",
   "ui",
   "searchPromotions",
@@ -410,7 +411,7 @@ const cdnOnlyModule = buildModule({
 const enhancedModule = buildModule({
   name: "Bilibili CDN Enhanced",
   description:
-    "CDN 自动选择 + 广告过滤 + 播放页普通视频推荐白名单 + 首页/我的逐项精简；不修改账号、会员、订单与付费权益（iPhone / iPad）",
+    "CDN 自动选择 + 广告过滤 + 首页六条普通视频流 + 播放页普通视频推荐白名单 + 首页/我的逐项精简；不修改账号、会员、订单与付费权益（iPhone / iPad）",
   variant: "enhanced",
   includeEnhancements: true,
 });

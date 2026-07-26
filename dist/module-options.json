@@ -41,6 +41,18 @@
       ]
     },
     {
+      "key": "homeFeedVideoOnly",
+      "argument": "首页推荐6个普通视频",
+      "group": "features",
+      "label": "首页推荐仅 6 个普通视频",
+      "description": "广告过滤开启时，每次首页、推荐页和短视频流刷新都只接受明确的普通 AV 视频；首页响应按原顺序最多保留前 6 个，不为补位重复请求服务器",
+      "type": "boolean",
+      "default": true,
+      "variants": [
+        "enhanced"
+      ]
+    },
+    {
       "key": "videoOnlyRecommendations",
       "argument": "推荐仅普通视频",
       "group": "features",

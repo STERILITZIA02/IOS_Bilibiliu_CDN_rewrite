@@ -71,6 +71,7 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.ok(mitmHostnameLine);
   assert.doesNotMatch(mitmHostnameLine, /bilivideo|acgvideo|akamaized/);
   assert.match(moduleText, /#!arguments=广告过滤:true,/);
+  assert.match(moduleText, /首页推荐6个普通视频:true/);
   assert.match(moduleText, /推荐仅普通视频:true/);
   assert.match(moduleText, /界面精简:true/);
   assert.match(moduleText, /搜索推广:true/);
@@ -86,6 +87,10 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   );
   assert.doesNotMatch(moduleText, /DOMAIN-SUFFIX,mcdn\.bilivideo\.cn,REJECT/);
   assert.match(moduleText, /"networkProfile":"\{\{\{网络档案\}\}\}"/);
+  assert.match(
+    moduleText,
+    /"homeFeedVideoOnly":\{\{\{首页推荐6个普通视频\}\}\}/,
+  );
   assert.match(
     moduleText,
     /"videoOnlyRecommendations":\{\{\{推荐仅普通视频\}\}\}/,
