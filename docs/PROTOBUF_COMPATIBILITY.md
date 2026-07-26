@@ -1,6 +1,6 @@
 # Protobuf/gRPC 兼容性记录
 
-> 字段核对日期：2026-07-26
+> 字段核对日期：2026-07-27
 > 过滤器实现：`src/bilibili-enhance.js`
 >
 > 播放地址实现：`src/bilibili-cdn.js`
@@ -11,16 +11,23 @@
 压缩帧先在有界 WebView 流中解压，播放页关系卡的未知类型在
 `推荐仅普通视频=true` 时删除。
 
-字段语义主要与 [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock) 当前 Apache-2.0 实现交叉核对；字段号再通过 `bilibili-API-collect` 的公开镜像提交 `cfc5fddcc8a94b74d91970bb5b4eaeb349addc47` 核对。后者采用 CC BY-NC 4.0；本仓库没有复制其 schema、注释或实现，只记录用于互操作所需的字段号与语义事实。
+字段语义主要与 [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock)
+和 [kokoryh/Sparkle](https://github.com/kokoryh/Sparkle) 的当前实现交叉核对；
+字段号再通过 `bilibili-API-collect` 的公开镜像提交
+`cfc5fddcc8a94b74d91970bb5b4eaeb349addc47` 核对。该镜像在核对时未声明
+标准 SPDX 许可证；本仓库没有复制其 schema、注释或实现，只记录用于互操作所需
+的字段号与语义事实。
 
 ## 当前处理表
 
 | gRPC 方法 | 高置信处理 |
 | --- | --- |
 | `bilibili.app.view.v1.View/View` | 删除 `ViewReply` 的 `cms(30)`、`cm_config(31)`、`tf_panel_customized(34)`、`cm_ipad(41)`、兼容字段 `cm_under_player(48)`；始终移除含 `Relate.cm(28)` 的关联卡；严格模式下只保留 `Relate.goto(7) == "av"` |
+| `bilibili.app.view.v1.View/ViewProgress` | 删除每次播放进度响应重新下发的 `video_guide(1)` 运营容器；保留 `chronos(2)`、视频快照/进度点及未知顶层字段 |
 | `bilibili.app.view.v1.View/RelatesFeed` | 使用与上项相同的关系卡判据 |
 | `bilibili.app.view.v1.View/TFInfo` | 删除运营商免流营销 `tf_toast(2)` 与 `tf_panel_customized(3)`；保留 `tips_id(1)`、`user_flag_new(4)` 和未知字段 |
 | `bilibili.app.viewunite.v1.View/View` | 删除顶层 `cm(7)`；始终移除类型 `4`（游戏推广）、`5`（广告）、`11`（课程推广）、`game(5)`/`cm(6)` 载荷、非空 `cm_stock(11)` 或 `BasicInfo.unique_id(6)` 卡；严格模式下仅保留同时满足类型 `1 (AV)` 与 oneof `av(2)` 且不存在非 AV oneof `3/4/5/6/7/8/9/13/14` 的卡；移除介绍模块类型 `18`（活动横幅）、`55`（UP 主商品分享）以及受 `会员营销` 控制的 `29`（大会员横幅） |
+| `bilibili.app.viewunite.v1.View/ViewProgress` | 删除每次播放进度响应重新下发的 `dm(4)` 运营/命令卡容器；保留 `video_guide(1)`、`chronos(2)`、视频快照及未知顶层字段 |
 | `bilibili.app.viewunite.v1.View/RelatesFeed` | 使用与上项相同的关系卡判据；不处理介绍模块 |
 | `bilibili.app.dynamic.v2.Dynamic/DynAll` | 仅移除 `DynamicItem.card_type == 15 (ad)` |
 | `bilibili.polymer.app.search.v1.Search/SearchAll` | 仅移除 oneof 为 `game(11)` 或 `cm(25)` 的搜索卡 |

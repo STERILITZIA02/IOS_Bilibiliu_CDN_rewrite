@@ -207,6 +207,14 @@
     "promotion_banners",
     "promotionBanners"
   ];
+  var MINE_VIP_PROMOTION_KEYS = [
+    "vip_section",
+    "vip_section_v2",
+    "modular_vip_section",
+    "vipSection",
+    "vipSectionV2",
+    "modularVipSection"
+  ];
   var MAX_GRPC_DECOMPRESSED_BYTES = 4 * 1024 * 1024;
 
   function isObject(value) {
@@ -361,6 +369,16 @@
     }
     path = parsed.path;
 
+    if (
+      (
+        includes(APP_HOSTS, parsed.host) ||
+        includes(API_HOSTS, parsed.host)
+      ) &&
+      path === "/x/vip/ads/materials"
+    ) {
+      return "vip-materials";
+    }
+
     if (includes(APP_HOSTS, parsed.host)) {
       if (
         /^\/x\/v2\/splash\/(?:brand\/list|event\/list2|list|show)$/.test(
@@ -444,12 +462,16 @@
     switch (parsed.path) {
       case "/bilibili.app.view.v1.View/View":
         return "grpc-view-v1";
+      case "/bilibili.app.view.v1.View/ViewProgress":
+        return "grpc-view-v1-progress";
       case "/bilibili.app.view.v1.View/RelatesFeed":
         return "grpc-view-v1-relates";
       case "/bilibili.app.view.v1.View/TFInfo":
         return "grpc-view-v1-tfinfo";
       case "/bilibili.app.viewunite.v1.View/View":
         return "grpc-view-unite";
+      case "/bilibili.app.viewunite.v1.View/ViewProgress":
+        return "grpc-view-unite-progress";
       case "/bilibili.app.viewunite.v1.View/RelatesFeed":
         return "grpc-view-unite-relates";
       case "/bilibili.app.dynamic.v2.Dynamic/DynAll":
@@ -1211,7 +1233,7 @@
     );
   }
 
-  function filterMineNode(node, depth, config) {
+  function filterMineNode(node, depth, config, contextKey) {
     var changes = 0;
     var kept;
     var index;
@@ -1226,11 +1248,16 @@
       kept = [];
       for (index = 0; index < node.length; index += 1) {
         value = node[index];
-        if (shouldRemoveMineItem(value, config)) {
+        if (shouldRemoveMineItem(value, config, contextKey)) {
           changes += 1;
           continue;
         }
-        changes += filterMineNode(value, depth + 1, config);
+        changes += filterMineNode(
+          value,
+          depth + 1,
+          config,
+          contextKey
+        );
         if (isEmptyMineGroup(value)) {
           changes += 1;
           continue;
@@ -1250,20 +1277,42 @@
     for (index = 0; index < keys.length; index += 1) {
       key = keys[index];
       value = node[key];
+      if (
+        config.ads &&
+        config.vipPromotions &&
+        includes(MINE_VIP_PROMOTION_KEYS, key)
+      ) {
+        delete node[key];
+        changes += 1;
+        continue;
+      }
       if (shouldRemoveMineItem(value, config, key)) {
         delete node[key];
         changes += 1;
         continue;
       }
-      changes += filterMineNode(value, depth + 1, config);
+      changes += filterMineNode(value, depth + 1, config, key);
     }
     return changes;
   }
 
   function handleMine(body, config) {
     return isPlainObject(body.data)
-      ? filterMineNode(body.data, 0, config)
+      ? filterMineNode(body.data, 0, config, "")
       : 0;
+  }
+
+  function handleVipMaterials(body, config) {
+    if (
+      !config.ads ||
+      !config.vipPromotions ||
+      !hasOwn.call(body, "data") ||
+      body.data === null
+    ) {
+      return 0;
+    }
+    body.data = null;
+    return 1;
   }
 
   function vipOverlayHasMarketingMarker(value) {
@@ -1740,6 +1789,9 @@
     }
     if (endpoint === "vip-center") {
       return handleVipCenter(body, config);
+    }
+    if (endpoint === "vip-materials") {
+      return handleVipMaterials(body, config);
     }
     if (endpoint === "search-square") {
       return handleSearchSquare(body, config);
@@ -2245,6 +2297,14 @@
     });
   }
 
+  function transformViewV1Progress(input) {
+    return rewriteProtoMessage(input, function (field) {
+      return field.fieldNumber === 1 && field.wireType === 2
+        ? { changed: 1, remove: true }
+        : null;
+    });
+  }
+
   function transformViewV1TfInfo(input) {
     return rewriteProtoMessage(input, function (field) {
       if (
@@ -2254,6 +2314,14 @@
         return { changed: 1, remove: true };
       }
       return null;
+    });
+  }
+
+  function transformViewUniteProgress(input) {
+    return rewriteProtoMessage(input, function (field) {
+      return field.fieldNumber === 4 && field.wireType === 2
+        ? { changed: 1, remove: true }
+        : null;
     });
   }
 
@@ -2550,12 +2618,16 @@
     switch (endpoint) {
       case "grpc-view-v1":
         return transformViewV1(input, false, config);
+      case "grpc-view-v1-progress":
+        return transformViewV1Progress(input);
       case "grpc-view-v1-relates":
         return transformViewV1(input, true, config);
       case "grpc-view-v1-tfinfo":
         return transformViewV1TfInfo(input);
       case "grpc-view-unite":
         return transformViewUnite(input, false, config);
+      case "grpc-view-unite-progress":
+        return transformViewUniteProgress(input);
       case "grpc-view-unite-relates":
         return transformViewUnite(input, true, config);
       case "grpc-dynamic":
@@ -3027,6 +3099,7 @@
     handleMine: handleMine,
     handleNavigation: handleNavigation,
     handleVipCenter: handleVipCenter,
+    handleVipMaterials: handleVipMaterials,
     hasExplicitAdMarker: hasExplicitAdMarker,
     isHighConfidencePromotion: isHighConfidencePromotion,
     isMineMarketingBanner: isMineMarketingBanner,

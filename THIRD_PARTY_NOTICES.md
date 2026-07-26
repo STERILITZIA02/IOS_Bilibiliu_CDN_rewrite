@@ -61,12 +61,31 @@ their source code is not incorporated into this repository.
 ## pskdje/bilibili-API-collect
 
 - Repository: https://github.com/pskdje/bilibili-API-collect
-- Reviewed commit: `271b123a083698bf576101c21f534b3418768a43`
+- Reviewed commit: `cfc5fddcc8a94b74d91970bb5b4eaeb349addc47`
 - License: no standard SPDX license was declared by the repository at review
   time.
-- Use: the public JSON field separation for the VIP-center combine endpoint was
-  inspected as an interoperability fact. No documentation text, example data,
-  schema, or implementation is incorporated.
+- Use: public JSON and Protobuf field meanings for the VIP center, ViewProgress,
+  video-guide, and playback-operation containers were inspected only as
+  interoperability facts. No documentation text, example data, schema, or
+  generated implementation is incorporated.
+
+## kokoryh/Sparkle
+
+- Repository: https://github.com/kokoryh/Sparkle
+- Reviewed commit: `a26c3412a760fb8d7d4d1bcc124d126e19d630e5`
+- License: GNU General Public License v3.0
+- Use: current Bilibili response-route coverage and ViewProgress/Mine endpoint
+  behavior were cross-checked. No source or generated Protobuf code was copied;
+  the byte-preserving implementation in this repository remains independent.
+
+## fmz200/wool_scripts
+
+- Repository: https://github.com/fmz200/wool_scripts
+- Reviewed commit: `edbfac44522ef7f05718122ba95919bf2a1bdecc`
+- License: GNU General Public License v3.0
+- Use: current Shadowrocket/Surge endpoint coverage for ViewProgress, Mine, and
+  VIP ad-material responses was cross-checked. No module, script, or jq
+  implementation was incorporated.
 
 ## Shadowrocket documentation
 

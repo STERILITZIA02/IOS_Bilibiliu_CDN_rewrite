@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented here.
 
+## [3.1.1] - 2026-07-27
+
+- Intercept both legacy `view.v1.View/ViewProgress` and current
+  `viewunite.v1.View/ViewProgress` gRPC responses so pause-time operation
+  containers are removed on every fresh foreground/background-resume response,
+  including bounded gzip frames.
+- Remove the reviewed `vip_section`, `vip_section_v2`, and
+  `modular_vip_section` Mine-page containers (plus their JSON camel-case
+  equivalents) while preserving real membership status, expiry, labels, and
+  account data.
+- Propagate parent banner context through nested Mine-page arrays so a member
+  marketing card cannot reappear merely because it moved into a banner list.
+- Neutralize the dedicated `/x/vip/ads/materials` response on both app and API
+  hosts when member-marketing filtering is enabled.
+- Add independent fresh-response, background-resume, compressed gRPC,
+  idempotence, disabled-option, host-coverage, and account-preservation
+  regressions.
+- Record the 2026-07-27 interoperability audit at `kokoryh/Sparkle` commit
+  `a26c3412a760fb8d7d4d1bcc124d126e19d630e5`, `fmz200/wool_scripts`
+  commit `edbfac44522ef7f05718122ba95919bf2a1bdecc`, and
+  `pskdje/bilibili-API-collect` commit
+  `cfc5fddcc8a94b74d91970bb5b4eaeb349addc47`.
+
 ## [3.1.0] - 2026-07-26
 
 - Add a default-on `首页推荐6个普通视频` switch for the app and Web home

@@ -127,7 +127,9 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
 
   for (const url of [
     "https://grpc.biliapi.net/bilibili.app.view.v1.View/View",
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
     "https://grpc.biliapi.net/bilibili.app.view.v1.View/TFInfo",
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/ViewProgress",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/RelatesFeed",
     "https://grpc.biliapi.net/bilibili.app.dynamic.v2.Dynamic/DynAll",
     "https://grpc.biliapi.net/bilibili.polymer.app.search.v1.Search/SearchAll",
@@ -219,6 +221,8 @@ test("enhancement response pattern covers only reviewed API endpoints", () => {
     "https://app.biliapi.net/x/v2/feed/index/story?device=phone",
     "https://app.bilibili.com/x/resource/show/tab/v2",
     "https://app.bilibili.com/x/v2/account/mine",
+    "https://app.bilibili.com/x/vip/ads/materials?position=mine",
+    "https://api.biliapi.net/x/vip/ads/materials?position=mine",
     "https://api.bilibili.com/x/v2/reply/main?oid=1",
     "https://api.bilibili.com/x/vip/web/vip_center/combine",
     "https://api.bilibili.com/pgc/page/cinema/tab",

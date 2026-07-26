@@ -662,6 +662,27 @@ test("mine cleanup preserves account, membership, history, and unknown entries",
           name: "用户",
           vip: { status: 1, due_date: 1893456000 },
         },
+        vip: {
+          status: 1,
+          due_date: 1893456000,
+          label: { text: "年度大会员" },
+        },
+        vip_section: {
+          title: "大会员",
+          items: [{ title: "续费特惠" }],
+        },
+        vip_section_v2: {
+          title: "大会员限时福利",
+        },
+        modular_vip_section: {
+          modules: [{ title: "会员专享优惠" }],
+        },
+        vip_banners: [
+          {
+            image_url: "https://i0.hdslb.com/member-banner.png",
+            uri: "https://account.bilibili.com/account/big",
+          },
+        ],
         marketing_banner: {
           title: "大会员暑期特惠",
           uri: "https://www.bilibili.com/blackboard/activity-vip",
@@ -725,6 +746,15 @@ test("mine cleanup preserves account, membership, history, and unknown entries",
     name: "用户",
     vip: { status: 1, due_date: 1893456000 },
   });
+  assert.deepEqual(data.vip, {
+    status: 1,
+    due_date: 1893456000,
+    label: { text: "年度大会员" },
+  });
+  assert.equal("vip_section" in data, false);
+  assert.equal("vip_section_v2" in data, false);
+  assert.equal("modular_vip_section" in data, false);
+  assert.deepEqual(data.vip_banners, []);
   assert.equal("marketing_banner" in data, false);
   assert.equal("vip_banner" in data, false);
   assert.equal(data.sections_v2.length, 1);
@@ -817,6 +847,97 @@ test("Mine and More service toggles are independent and default-visible", () => 
   assert.deepEqual(JSON.parse(uiDisabled.body), fixture);
 });
 
+test("fresh Mine responses stay filtered after background resume", () => {
+  const fixture = {
+    code: 0,
+    data: {
+      mid: 123,
+      vip: {
+        status: 1,
+        due_date: 1893456000,
+      },
+      vip_section: {
+        title: "大会员",
+        items: [{ title: "首月特惠" }],
+      },
+      vipSectionV2: {
+        title: "会员福利横幅",
+      },
+      modularVipSection: {
+        modules: [{ title: "续费领券" }],
+      },
+      sections_v2: [{
+        title: "我的服务",
+        items: [
+          {
+            id: 400,
+            title: "我的课程",
+            uri: "https://m.bilibili.com/cheese/mine",
+          },
+          {
+            id: 397,
+            title: "历史记录",
+            uri: "bilibili://user_center/history",
+          },
+        ],
+      }],
+    },
+  };
+
+  for (let refresh = 0; refresh < 2; refresh += 1) {
+    const result = transform(
+      `${appRoot}/x/v2/account/mine?refresh=${refresh}`,
+      fixture,
+    );
+    const data = JSON.parse(result.body).data;
+
+    assert.ok(result.changed >= 4);
+    assert.deepEqual(data.vip, fixture.data.vip);
+    assert.equal("vip_section" in data, false);
+    assert.equal("vipSectionV2" in data, false);
+    assert.equal("modularVipSection" in data, false);
+    assert.deepEqual(
+      data.sections_v2[0].items.map((item) => item.title),
+      ["历史记录"],
+    );
+  }
+
+  const vipOnly = transform(
+    `${appRoot}/x/v2/account/mine`,
+    fixture,
+    '{"ui":false}',
+  );
+  const vipOnlyData = JSON.parse(vipOnly.body).data;
+  assert.equal("vip_section" in vipOnlyData, false);
+  assert.equal("vipSectionV2" in vipOnlyData, false);
+  assert.equal("modularVipSection" in vipOnlyData, false);
+  assert.deepEqual(
+    vipOnlyData.sections_v2[0].items.map((item) => item.title),
+    ["我的课程", "历史记录"],
+  );
+
+  const uiOnly = transform(
+    `${appRoot}/x/v2/account/mine`,
+    fixture,
+    '{"ads":false}',
+  );
+  const uiOnlyData = JSON.parse(uiOnly.body).data;
+  assert.equal("vip_section" in uiOnlyData, true);
+  assert.equal("vipSectionV2" in uiOnlyData, true);
+  assert.equal("modularVipSection" in uiOnlyData, true);
+  assert.deepEqual(
+    uiOnlyData.sections_v2[0].items.map((item) => item.title),
+    ["历史记录"],
+  );
+
+  const disabled = transform(
+    `${appRoot}/x/v2/account/mine`,
+    fixture,
+    '{"ui":false,"vipPromotions":false}',
+  );
+  assert.deepEqual(JSON.parse(disabled.body), fixture);
+});
+
 test("VIP center cleanup removes only marketing overlays and banners", () => {
   const fixture = {
     code: 0,
@@ -885,6 +1006,57 @@ test("VIP center cleanup removes only marketing overlays and banners", () => {
     '{"vipPromotions":false}',
   );
   assert.deepEqual(JSON.parse(disabled.body), fixture);
+});
+
+test("VIP ad-material responses are neutralized on every host", () => {
+  const fixture = {
+    code: 0,
+    message: "0",
+    ttl: 1,
+    data: {
+      materials: [{
+        id: 42,
+        title: "大会员限时优惠",
+        image: "https://i0.hdslb.com/vip-ad.png",
+      }],
+    },
+    trace_id: "keep-trace",
+  };
+
+  for (const url of [
+    `${appRoot}/x/vip/ads/materials?position=mine`,
+    "https://api.biliapi.net/x/vip/ads/materials?position=mine",
+  ]) {
+    const first = transform(url, fixture);
+    const firstBody = JSON.parse(first.body);
+    assert.equal(first.endpoint, "vip-materials");
+    assert.equal(first.changed, 1);
+    assert.equal(firstBody.data, null);
+    assert.equal(firstBody.code, 0);
+    assert.equal(firstBody.trace_id, "keep-trace");
+
+    const repeated = enhance.transformJsonText(
+      first.body,
+      url,
+      enhance.parseArgument(""),
+    );
+    assert.equal(repeated.changed, 0);
+    assert.equal(repeated.body, first.body);
+  }
+
+  const disabled = transform(
+    `${appRoot}/x/vip/ads/materials`,
+    fixture,
+    '{"vipPromotions":false}',
+  );
+  assert.deepEqual(JSON.parse(disabled.body), fixture);
+
+  const adsDisabled = transform(
+    `${appRoot}/x/vip/ads/materials`,
+    fixture,
+    '{"ads":false}',
+  );
+  assert.deepEqual(JSON.parse(adsDisabled.body), fixture);
 });
 
 test("JSON cleanup is idempotent across repeated refresh responses", () => {
@@ -1427,6 +1599,90 @@ test("gRPC RelatesFeed endpoints use the same ordinary-video allowlist", () => {
   ).toString("latin1");
   assert.match(uniteText, /unite-av/);
   assert.doesNotMatch(uniteText, /unite-bangumi/);
+});
+
+test("ViewProgress removes pause-time promotion containers after every resume", async () => {
+  const legacyReply = bytes(
+    messageField(
+      1,
+      bytes(
+        messageField(1, stringField(1, "normal-attention-card")),
+        messageField(3, stringField(1, "legacy-pause-ad")),
+      ),
+    ),
+    messageField(2, stringField(1, "keep-legacy-chronos")),
+    messageField(3, stringField(1, "keep-legacy-shot")),
+    stringField(99, "keep-legacy-future-field"),
+  );
+
+  for (let resume = 0; resume < 2; resume += 1) {
+    const legacy = enhance.transformGrpcBody(
+      grpcFrame(legacyReply),
+      "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
+      enhance.parseArgument(""),
+    );
+    const output = grpcPayload(legacy.body);
+    const outputText = Buffer.from(output).toString("latin1");
+
+    assert.equal(legacy.endpoint, "grpc-view-v1-progress");
+    assert.equal(legacy.changed, 1);
+    assert.equal(protoFields(output, 1, 2).length, 0);
+    assert.match(outputText, /keep-legacy-chronos/);
+    assert.match(outputText, /keep-legacy-shot/);
+    assert.match(outputText, /keep-legacy-future-field/);
+    assert.doesNotMatch(outputText, /legacy-pause-ad/);
+  }
+
+  const currentReply = bytes(
+    messageField(1, stringField(1, "keep-current-video-guide")),
+    messageField(2, stringField(1, "keep-current-chronos")),
+    messageField(3, stringField(1, "keep-current-shot")),
+    messageField(
+      4,
+      bytes(
+        messageField(1, stringField(1, "normal-command-dm")),
+        messageField(3, stringField(1, "current-pause-ad")),
+      ),
+    ),
+    stringField(99, "keep-current-future-field"),
+  );
+  const current = await enhance.transformGrpcBodyAsync(
+    grpcFrame(new Uint8Array(gzipSync(currentReply)), 1),
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/ViewProgress",
+    enhance.parseArgument(""),
+  );
+  const currentOutput = grpcPayload(current.body);
+  const currentText = Buffer.from(currentOutput).toString("latin1");
+
+  assert.equal(current.endpoint, "grpc-view-unite-progress");
+  assert.equal(current.valid, true);
+  assert.equal(current.changed, 1);
+  assert.equal(current.body[0], 0);
+  assert.equal(protoFields(currentOutput, 4, 2).length, 0);
+  assert.match(currentText, /keep-current-video-guide/);
+  assert.match(currentText, /keep-current-chronos/);
+  assert.match(currentText, /keep-current-shot/);
+  assert.match(currentText, /keep-current-future-field/);
+  assert.doesNotMatch(currentText, /current-pause-ad/);
+
+  const repeated = enhance.transformGrpcBody(
+    current.body,
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/ViewProgress",
+    enhance.parseArgument(""),
+  );
+  assert.equal(repeated.changed, 0);
+  assert.deepEqual(Buffer.from(repeated.body), Buffer.from(current.body));
+
+  const disabled = enhance.transformGrpcBody(
+    grpcFrame(legacyReply),
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
+    enhance.parseArgument('{"ads":false}'),
+  );
+  assert.equal(disabled.changed, 0);
+  assert.deepEqual(
+    Buffer.from(disabled.body),
+    Buffer.from(grpcFrame(legacyReply)),
+  );
 });
 
 test("compressed first ViewUnite response removes the under-player ad and disguised cards", async () => {
