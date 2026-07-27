@@ -1,8 +1,10 @@
 # v3 架构、数据流与安全边界
 
-> 适用版本：`3.1.1`
+> 适用版本：`3.2.0`
 >
 > 本文描述仓库当前实现，不代表所有 Bilibili App/iOS 组合已完成真机验证。
+> 9.4.0 专项入口以用户报告构建
+> `58ece148439d6782b1e6f9a9a37e82a1fd0db236` 为验收基线。
 
 ## 设计目标
 
@@ -34,7 +36,8 @@ flowchart LR
   A[config/module-options.json] --> B[scripts/build.mjs]
   C[src/bilibili-cdn.js] --> B
   D[src/bilibili-enhance.js] --> B
-  E[config/domains.json] --> B
+  E[src/bilibili-refresh.js] --> B
+  K[config/domains.json] --> B
   B --> F[CDN-only sgmodule]
   B --> G[Enhanced sgmodule]
   B --> H[module-options.json]
@@ -69,7 +72,7 @@ flowchart LR
    生成不含签名 query 的固定长度摘要；
 2. 只在相同普通 CDN、MCDN 或 PCDN 家族内比较；
 3. 每次响应最多选择一个媒体对象，同时验证主路线和一个备用路线；
-4. 使用 `GET` 与 `Range: bytes=0-16383`，只接受与请求 URL 一致、没有重定向、
+4. 使用 `GET` 与 `Range: bytes=0-65535`，只接受与请求 URL 一致、没有重定向、
    没有内容编码、状态为 `206` 且长度合理的媒体响应；
 5. 备用路线需至少间隔 10 分钟成功两次，并达到 `切换阈值`；
 6. 学习请求本身不改写，只有后续重新获取的播放地址可以使用已确认选择；
@@ -78,6 +81,9 @@ flowchart LR
 9. 状态最多 64 项；只保存摘要、候选 ID、计数和时间戳。
 
 存储、HTTP、解析、超时或持久化任一环节异常时，脚本返回原始响应。
+JSON 和 gRPC 入口都优先使用 Shadowrocket 提供的二进制正文；受支持的 gzip
+gRPC 消息在 4 MiB 上限内解压，修改后封装为标准未压缩消息。固定主机模式只接受
+Bilibili 媒体域，任意第三方主机参数会失败关闭。
 
 ### 3. Enhanced 响应过滤
 
@@ -103,16 +109,29 @@ flowchart LR
 - `界面精简=false` 时保留各逐项选择，但不执行首页/“我的”入口删除。
 
 播放过程会再次请求旧版与新版 `ViewProgress`。Enhanced 分别移除旧版
-`video_guide(1)` 与新版 `dm(4)` 运营容器，保留 Chronos、视频快照、进度点和
-未知顶层字段；因此后台恢复或暂停后重新下发的运营卡不会绕过首次 View 过滤。
+`video_guide(1)` 与新版 `dm(4)` 运营容器；9.4.0 的
+`View/PlayPause` 与 `View/ViewEndPage` 专用运营响应在进入渲染层前中和为空
+gRPC 消息。Chronos、视频快照、进度点和播放地址不在删除目标中。
 “我的”页另对明确的 `vip_section`、`vip_section_v2`、
 `modular_vip_section` 容器及 `/x/vip/ads/materials` 专用响应做独立处理，
-但不修改 `vip` 会员状态对象。
+但不修改 `vip` 会员状态对象。后台恢复时异步返回的
+`bilibili.app.mine.v1.Mine/PubModule` 只移除 `PubGuide`，保留 UGC、动态及
+未知卡。
 
 首页 App/Web JSON 白名单要求明确 AV/video 类型和视频身份，拒绝横幅、CM、
 游戏/应用、PGC/OGV、纪录片、影视、综艺、直播、活动、未知与商业伪装卡；Story
 严格模式只保留 `vertical_av`。过滤只处理当前响应，不再次请求推荐接口、不合成
 或跨响应补位，也不修改刷新计时，因此每次刷新都重复生效而不会形成重入循环。
+9.4.0 使用的 `bilibili.app.show.v1.Popular/Index` 备用流执行相同边界：只接受
+标准小/大封面 AV oneof、明确 `av/video` 类型且带视频身份的卡，最多保留 6 条。
+
+`src/bilibili-refresh.js` 只在 Home/Story/Mine 三条易变请求上移除 ETag/时间
+条件校验头并设置 `no-cache`。它不改 URL、查询参数、正文或签名；目标是让后台
+恢复后的新服务端响应再次进入过滤链，而不是依赖可能绕过响应脚本的旧缓存。
+
+专用广告素材接口使用与其协议匹配的空安全响应，包括资源顶部/补丁活动、
+PGC 活动物料、直播购物信息和 Biligame 直播大卡素材；精确主机和路径以外的请求
+不匹配。
 
 播放页普通视频白名单在 JSON、View v1 和 ViewUnite 三条路径一致执行。JSON 需要
 明确普通视频类型或 `/video/` 地址，单独 AVID/BVID 不作为类型证据；View v1

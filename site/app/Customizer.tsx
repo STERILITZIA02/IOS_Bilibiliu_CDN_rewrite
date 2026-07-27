@@ -374,6 +374,12 @@ export function Customizer({
   const repoSynced = catalogSource === "repository";
   const uiEnabled =
     variant === "enhanced" && Boolean(values.ui);
+  const intervalOption = catalog.options.find(
+    (option) => option.key === "intervalHours",
+  );
+  const thresholdOption = catalog.options.find(
+    (option) => option.key === "switchThreshold",
+  );
 
   const visibilityOptions = useMemo(
     () =>
@@ -463,7 +469,8 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。
+              使用本站同版本的已审核快照。Enhanced 3.2.0 已覆盖 Bilibili iOS
+              9.4.0 的后台恢复、暂停/结束页广告与备用推荐流。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
@@ -509,7 +516,7 @@ export function Customizer({
                 </strong>
                 <small>
                   {variant === "enhanced"
-                    ? "CDN、首页六条 AV、广告/推荐过滤"
+                    ? "CDN、9.4.0 暂停广告、六条 AV 与界面过滤"
                     : "仅 CDN 与流量分流"}
                 </small>
               </div>
@@ -586,7 +593,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>CDN + Enhanced</strong>
-                    <small>推荐 · 首页六条 AV、去广告、CDN 与界面精简</small>
+                    <small>推荐 · 9.4.0 后台/暂停去广告、六条 AV 与 CDN</small>
                   </span>
                   <span className="radio-dot">
                     {variant === "enhanced" && <span />}
@@ -819,8 +826,8 @@ export function Customizer({
                       <strong>{Number(values.intervalHours)} 小时</strong>
                     </span>
                     <input
-                      max={72}
-                      min={6}
+                      max={intervalOption?.maximum ?? 72}
+                      min={intervalOption?.minimum ?? 6}
                       onChange={(event) =>
                         setValue(
                           "intervalHours",
@@ -837,8 +844,8 @@ export function Customizer({
                       <strong>{Number(values.switchThreshold)}%</strong>
                     </span>
                     <input
-                      max={90}
-                      min={0}
+                      max={thresholdOption?.maximum ?? 80}
+                      min={thresholdOption?.minimum ?? 10}
                       onChange={(event) =>
                         setValue(
                           "switchThreshold",

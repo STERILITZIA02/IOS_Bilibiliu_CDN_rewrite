@@ -20,14 +20,27 @@
   var AUTO_STATE_KEY = "BiliCDN.safeAuto.v2";
   var DEFAULT_AUTO_INTERVAL_HOURS = 12;
   var DEFAULT_SWITCH_THRESHOLD = 20;
+  var RUNTIME_OPTION_LIMITS = {
+    intervalHours: {
+      defaultValue: DEFAULT_AUTO_INTERVAL_HOURS,
+      maximum: 72,
+      minimum: 6
+    },
+    switchThreshold: {
+      defaultValue: DEFAULT_SWITCH_THRESHOLD,
+      maximum: 80,
+      minimum: 10
+    }
+  };
   var AUTO_CACHE_CAPACITY = 64;
   var AUTO_CONFIRM_DELAY_MS = 10 * 60 * 1000;
   var AUTO_EXPLORE_DELAY_MS = 30 * 60 * 1000;
   var AUTO_GLOBAL_PROBE_GAP_MS = 2 * 60 * 1000;
   var AUTO_LOCK_MS = 10 * 1000;
-  var AUTO_PROBE_TIMEOUT_MS = 2200;
-  var AUTO_RANGE_END = 16383;
+  var AUTO_PROBE_TIMEOUT_MS = 2500;
+  var AUTO_RANGE_END = 65535;
   var AUTO_RETRY_MS = 30 * 60 * 1000;
+  var MAX_GRPC_DECOMPRESSED_BYTES = 4 * 1024 * 1024;
   var MAX_PROTO_DEPTH = 32;
   var MAX_URL_BYTES = 65536;
   var MAX_JSON_DEPTH = 64;
@@ -66,6 +79,7 @@
     backup_url: true
   };
   var MEDIA_SUFFIXES = [
+    "acgvideo.com",
     "bilivideo.com",
     "bilivideo.cn",
     "bilivideo.net",
@@ -73,6 +87,13 @@
     "ourdvsss.com",
     "ksyungslb.com",
     "00cdn.com"
+  ];
+  var FIXED_MEDIA_SUFFIXES = [
+    "acgvideo.com",
+    "bilivideo.com",
+    "bilivideo.cn",
+    "bilivideo.net",
+    "bilibilivideo.com"
   ];
   var JSON_METADATA_KEYS = [
     "id",
@@ -189,7 +210,12 @@
     }
 
     host = match[1].replace(/\.$/, "");
-    return isValidHostname(host) ? host : null;
+    return (
+      isValidHostname(host) &&
+      isAllowedFixedCdnHost(host)
+    )
+      ? host
+      : null;
   }
 
   function applyCdnSetting(config, value) {
@@ -273,14 +299,14 @@
       config.intervalHours = boundedNumber(
         parsed.intervalHours,
         DEFAULT_AUTO_INTERVAL_HOURS,
-        6,
-        72
+        RUNTIME_OPTION_LIMITS.intervalHours.minimum,
+        RUNTIME_OPTION_LIMITS.intervalHours.maximum
       );
       config.switchThreshold = boundedNumber(
         parsed.switchThreshold,
         DEFAULT_SWITCH_THRESHOLD,
-        10,
-        80
+        RUNTIME_OPTION_LIMITS.switchThreshold.minimum,
+        RUNTIME_OPTION_LIMITS.switchThreshold.maximum
       );
       return config;
     }
@@ -311,15 +337,15 @@
         config.intervalHours = boundedNumber(
           value,
           DEFAULT_AUTO_INTERVAL_HOURS,
-          6,
-          72
+          RUNTIME_OPTION_LIMITS.intervalHours.minimum,
+          RUNTIME_OPTION_LIMITS.intervalHours.maximum
         );
       } else if (key === "switchthreshold" || key === "threshold") {
         config.switchThreshold = boundedNumber(
           value,
           DEFAULT_SWITCH_THRESHOLD,
-          10,
-          80
+          RUNTIME_OPTION_LIMITS.switchThreshold.minimum,
+          RUNTIME_OPTION_LIMITS.switchThreshold.maximum
         );
       }
     }
@@ -346,6 +372,21 @@
       /^upos-[a-z0-9-]+\.akamaized\.net$/i.test(hostname) ||
       /^uposdash-[a-z0-9-]+\.yfcdn\.net$/i.test(hostname)
     );
+  }
+
+  function isAllowedFixedCdnHost(hostname) {
+    var index;
+
+    hostname = String(hostname || "").toLowerCase();
+    if (FIXED_CDN_CANDIDATES.indexOf(hostname) !== -1) {
+      return true;
+    }
+    for (index = 0; index < FIXED_MEDIA_SUFFIXES.length; index += 1) {
+      if (hostnameMatchesSuffix(hostname, FIXED_MEDIA_SUFFIXES[index])) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function parseHttpUrl(value) {
@@ -746,6 +787,192 @@
     header[3] = Math.floor(length / 0x100) & 0xff;
     header[4] = length & 0xff;
     return header;
+  }
+
+  function parseGrpcFrames(input) {
+    var bytes = toUint8Array(input);
+    var frames = [];
+    var offset = 0;
+    var flag;
+    var length;
+    var end;
+    if (!bytes || bytes.length < 5) {
+      return {
+        body: bytes || new Uint8Array(),
+        frames: frames,
+        valid: false
+      };
+    }
+    while (offset < bytes.length) {
+      if (offset + 5 > bytes.length) {
+        return { body: bytes, frames: [], valid: false };
+      }
+      flag = bytes[offset];
+      length = readUint32Be(bytes, offset + 1);
+      end = offset + 5 + length;
+      if (
+        (flag !== 0 && flag !== 1) ||
+        end > bytes.length ||
+        end < offset + 5
+      ) {
+        return { body: bytes, frames: [], valid: false };
+      }
+      frames.push({
+        end: end,
+        flag: flag,
+        payloadStart: offset + 5,
+        start: offset
+      });
+      offset = end;
+    }
+    return { body: bytes, frames: frames, valid: true };
+  }
+
+  function hasCompressedGrpcFrame(input) {
+    var parsed = parseGrpcFrames(input);
+    var index;
+    if (!parsed.valid) {
+      return false;
+    }
+    for (index = 0; index < parsed.frames.length; index += 1) {
+      if (parsed.frames[index].flag === 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function decompressGzip(input) {
+    var bytes = toUint8Array(input);
+    var output;
+    var stream;
+    var reader;
+    var chunks = [];
+    var total = 0;
+
+    if (!bytes) {
+      return Promise.reject(new Error("invalid gzip input"));
+    }
+    if (
+      typeof $utils !== "undefined" &&
+      $utils &&
+      typeof $utils.ungzip === "function"
+    ) {
+      try {
+        output = toUint8Array($utils.ungzip(bytes));
+        if (
+          !output ||
+          output.length > MAX_GRPC_DECOMPRESSED_BYTES
+        ) {
+          throw new Error("decompressed gRPC message is too large");
+        }
+        return Promise.resolve(output);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
+    if (
+      typeof DecompressionStream !== "function" ||
+      typeof ReadableStream !== "function"
+    ) {
+      return Promise.reject(
+        new Error("gzip decompression is unavailable")
+      );
+    }
+    try {
+      stream = new ReadableStream({
+        start: function (controller) {
+          controller.enqueue(bytes);
+          controller.close();
+        }
+      }).pipeThrough(new DecompressionStream("gzip"));
+      reader = stream.getReader();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    function readNext() {
+      return reader.read().then(function (entry) {
+        var chunk;
+        if (entry.done) {
+          return concatBytes(chunks);
+        }
+        chunk = toUint8Array(entry.value);
+        if (!chunk) {
+          throw new Error("invalid decompressed gRPC chunk");
+        }
+        total += chunk.length;
+        if (total > MAX_GRPC_DECOMPRESSED_BYTES) {
+          try {
+            reader.cancel();
+          } catch (error) {
+            // The size guard is authoritative even if cancellation fails.
+          }
+          throw new Error("decompressed gRPC message is too large");
+        }
+        chunks.push(chunk);
+        return readNext();
+      });
+    }
+
+    return readNext();
+  }
+
+  function decompressGrpcFrames(input) {
+    var parsed = parseGrpcFrames(input);
+    var original = parsed.body;
+    var total = 0;
+    var tasks;
+    if (!parsed.valid) {
+      return Promise.resolve({
+        body: original,
+        changed: false,
+        valid: false
+      });
+    }
+    if (!hasCompressedGrpcFrame(original)) {
+      return Promise.resolve({
+        body: original,
+        changed: false,
+        valid: true
+      });
+    }
+    tasks = parsed.frames.map(function (frame) {
+      var payload = original.slice(frame.payloadStart, frame.end);
+      return (
+        frame.flag === 1
+          ? decompressGzip(payload)
+          : Promise.resolve(payload)
+      ).then(function (decoded) {
+        total += decoded.length;
+        if (total > MAX_GRPC_DECOMPRESSED_BYTES) {
+          throw new Error("decompressed gRPC response is too large");
+        }
+        return decoded;
+      });
+    });
+    return Promise.all(tasks).then(
+      function (payloads) {
+        var chunks = [];
+        var index;
+        for (index = 0; index < payloads.length; index += 1) {
+          chunks.push(grpcHeader(0, payloads[index].length));
+          chunks.push(payloads[index]);
+        }
+        return {
+          body: concatBytes(chunks),
+          changed: true,
+          valid: true
+        };
+      },
+      function () {
+        return {
+          body: original,
+          changed: false,
+          valid: false
+        };
+      }
+    );
   }
 
   function transformGrpcBody(input, config) {
@@ -2171,8 +2398,8 @@
     var threshold = boundedNumber(
       config && config.switchThreshold,
       DEFAULT_SWITCH_THRESHOLD,
-      10,
-      80
+      RUNTIME_OPTION_LIMITS.switchThreshold.minimum,
+      RUNTIME_OPTION_LIMITS.switchThreshold.maximum
     );
 
     if (!alternativeResult.ok) {
@@ -2623,12 +2850,66 @@
     }
   }
 
+  function finishAutoShadowrocketResponse(
+    config,
+    body,
+    binary,
+    services
+  ) {
+    processSafeAutoResponse(
+      body,
+      binary,
+      config,
+      services,
+      function (result) {
+        try {
+          if (config.debug) {
+            safeLog(
+              "safe auto: " +
+                result.reason +
+                ", descriptors=" +
+                result.descriptors +
+                ", changed=" +
+                result.changed
+            );
+          }
+          if (result.valid && result.changed > 0) {
+            $done({ body: result.body });
+          } else {
+            $done({});
+          }
+        } catch (error) {
+          safeLog(
+            "safe auto callback error; response left unchanged: " +
+              (error && error.message
+                ? error.message
+                : String(error))
+          );
+          $done({});
+        }
+      }
+    );
+  }
+
+  function processShadowrocketBody(config, body, binary) {
+    if (!config.auto) {
+      finishManualShadowrocketResponse(config, body, binary);
+      return;
+    }
+    finishAutoShadowrocketResponse(
+      config,
+      body,
+      binary,
+      createShadowrocketServices()
+    );
+  }
+
   function runShadowrocket() {
     var config;
     var requestUrl;
     var body;
     var binary;
-    var services;
+    var grpcResponse;
 
     try {
       config = parseArgument(
@@ -2651,55 +2932,50 @@
         typeof $request !== "undefined" && $request && $request.url
           ? String($request.url)
           : "";
-      body =
-        typeof $response !== "undefined" && $response
-          ? $response.body
-          : null;
-      binary =
-        isByteView(body) ||
+      grpcResponse =
         /\/bilibili\.[a-z0-9.]+\/(?:PlayView|PlayViewUnite)(?:\?|$)/i.test(
           requestUrl
         );
+      body =
+        typeof $response !== "undefined" && $response
+          ? (
+              grpcResponse &&
+              $response.bodyBytes !== undefined &&
+              $response.bodyBytes !== null
+                ? $response.bodyBytes
+                : $response.body
+            )
+          : null;
+      binary = isByteView(body) || grpcResponse;
 
-      if (!config.auto) {
-        finishManualShadowrocketResponse(config, body, binary);
-        return;
-      }
-
-      services = createShadowrocketServices();
-      processSafeAutoResponse(
-        body,
-        binary,
-        config,
-        services,
-        function (result) {
-          try {
+      if (binary && hasCompressedGrpcFrame(body)) {
+        decompressGrpcFrames(body).then(function (decoded) {
+          if (!decoded.valid) {
             if (config.debug) {
               safeLog(
-                "safe auto: " +
-                  result.reason +
-                  ", descriptors=" +
-                  result.descriptors +
-                  ", changed=" +
-                  result.changed
+                "compressed gRPC response could not be decoded; left unchanged"
               );
             }
-            if (result.valid && result.changed > 0) {
-              $done({ body: result.body });
-            } else {
-              $done({});
-            }
-          } catch (error) {
-            safeLog(
-              "safe auto callback error; response left unchanged: " +
-                (error && error.message
-                  ? error.message
-                  : String(error))
-            );
             $done({});
+            return;
           }
-        }
-      );
+          processShadowrocketBody(config, decoded.body, true);
+        }, function (error) {
+          if (config.debug) {
+            safeLog(
+              "compressed gRPC error; response left unchanged: " +
+                (
+                  error && error.message
+                    ? error.message
+                    : String(error)
+                )
+            );
+          }
+          $done({});
+        });
+        return;
+      }
+      processShadowrocketBody(config, body, binary);
     } catch (error) {
       safeLog(
         "error; response left unchanged: " +
@@ -2717,6 +2993,7 @@
     AUTO_RANGE_END: AUTO_RANGE_END,
     AUTO_STATE_KEY: AUTO_STATE_KEY,
     DEFAULT_CDN: DEFAULT_CDN,
+    RUNTIME_OPTION_LIMITS: RUNTIME_OPTION_LIMITS,
     asciiBytesToString: asciiBytesToString,
     asciiStringToBytes: asciiStringToBytes,
     buildMediaDescriptor: buildMediaDescriptor,
@@ -2725,11 +3002,14 @@
     concatBytes: concatBytes,
     createEmptyAutoState: createEmptyAutoState,
     descriptorResourceKey: descriptorResourceKey,
+    decompressGrpcFrames: decompressGrpcFrames,
     encodeVarint: encodeVarint,
     findFirstGrpcVodUrl: findFirstGrpcVodUrl,
     findFirstJsonVodUrl: findFirstJsonVodUrl,
     isBilibiliMediaHost: isBilibiliMediaHost,
+    isAllowedFixedCdnHost: isAllowedFixedCdnHost,
     isVodMediaUrl: isVodMediaUrl,
+    hasCompressedGrpcFrame: hasCompressedGrpcFrame,
     loadAutoState: loadAutoState,
     normalizeCdnHost: normalizeCdnHost,
     normalizeNetworkProfile: normalizeNetworkProfile,

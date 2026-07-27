@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { gunzipSync, gzipSync } = require("node:zlib");
 
 const cdn = require("../src/bilibili-cdn.js");
 
@@ -209,6 +210,14 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
   assert.equal(cdn.normalizeCdnHost("off"), "");
   assert.equal(cdn.normalizeCdnHost("https://bad host/"), null);
   assert.equal(cdn.normalizeCdnHost("127.0.0.1"), null);
+  assert.equal(cdn.normalizeCdnHost("cdn.attacker.example"), null);
+  assert.equal(cdn.normalizeCdnHost("evil.ksyungslb.com"), null);
+  assert.equal(cdn.normalizeCdnHost("upos-unknown.akamaized.net"), null);
+  assert.equal(cdn.normalizeCdnHost(backupHost), backupHost);
+  assert.equal(
+    cdn.normalizeCdnHost("upos-sz-mirrorali.acgvideo.com"),
+    "upos-sz-mirrorali.acgvideo.com",
+  );
   assert.deepEqual(cdn.parseArgument(""), {
     auto: true,
     cdnHost: null,
@@ -241,6 +250,12 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
   );
   assert.equal(cdn.parseArgument("cdn=%").valid, false);
   assert.equal(cdn.normalizeNetworkProfile("../../secret"), "auto");
+  assert.deepEqual(cdn.RUNTIME_OPTION_LIMITS, {
+    intervalHours: { defaultValue: 12, maximum: 72, minimum: 6 },
+    switchThreshold: { defaultValue: 20, maximum: 80, minimum: 10 },
+  });
+  assert.equal(cdn.isBilibiliMediaHost("edge.ksyungslb.com"), true);
+  assert.equal(cdn.isAllowedFixedCdnHost("edge.ksyungslb.com"), false);
 });
 
 test("fixed mode rewrites only Bilibili VOD URLs and preserves signed live URLs", () => {
@@ -328,6 +343,45 @@ test("fixed mode leaves compressed frames, malformed bodies, and live URLs uncha
   const liveResult = cdn.transformGrpcBody(live, fixedConfig);
   assert.equal(liveResult.changed, 0);
   assert.deepEqual(Buffer.from(liveResult.body), Buffer.from(live));
+});
+
+test("bounded gzip normalization enables fixed CDN rewriting for compressed gRPC", async () => {
+  const payload = bytes(
+    stringField(4, originalUrl),
+    stringField(5, backupUrl),
+  );
+  const compressed = grpcFrame(
+    new Uint8Array(gzipSync(payload)),
+    1,
+  );
+  const decoded = await cdn.decompressGrpcFrames(compressed);
+
+  assert.equal(decoded.valid, true);
+  assert.equal(decoded.changed, true);
+  assert.equal(decoded.body[0], 0);
+
+  const discovered = cdn.prepareSafeGrpc(
+    decoded.body,
+    autoConfig,
+    cdn.createEmptyAutoState(),
+    0,
+  );
+  assert.equal(discovered.valid, true);
+  assert.equal(discovered.descriptors.length, 1);
+
+  const result = cdn.transformGrpcBody(decoded.body, fixedConfig);
+  assert.equal(result.valid, true);
+  assert.ok(result.changed >= 1);
+  assert.match(asciiFromBinary(result.body), new RegExp(targetHost));
+  assert.doesNotMatch(
+    asciiFromBinary(result.body),
+    new RegExp(originalHost),
+  );
+
+  const malformed = grpcFrame(new Uint8Array([1, 2, 3, 4]), 1);
+  const failed = await cdn.decompressGrpcFrames(malformed);
+  assert.equal(failed.valid, false);
+  assert.deepEqual(Buffer.from(failed.body), Buffer.from(malformed));
 });
 
 test("safe auto requires two separated successful probes and never switches the learning response", async () => {
@@ -815,6 +869,73 @@ test("Shadowrocket fixed entrypoint returns only the changed JSON body", () => {
   vm.runInNewContext(source, context, { filename: "bilibili-cdn.js" });
   assert.ok(completion && typeof completion.body === "string");
   assert.match(completion.body, new RegExp(targetHost));
+});
+
+test("Shadowrocket gRPC entrypoint prefers bodyBytes and decodes gzip", async () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "src", "bilibili-cdn.js"),
+    "utf8",
+  );
+  const payload = bytes(
+    stringField(4, originalUrl),
+    stringField(5, backupUrl),
+  );
+  const input = grpcFrame(
+    new Uint8Array(gzipSync(payload)),
+    1,
+  );
+  let completion;
+  const completed = new Promise((resolve) => {
+    const context = {
+      $argument: JSON.stringify({ cdn: targetHost, debug: false }),
+      $done(value) {
+        completion = value;
+        resolve();
+      },
+      $request: {
+        url: "https://grpc.biliapi.net/bilibili.app.playurl.v1.PlayURL/PlayView",
+      },
+      $response: {
+        body: "text-body-must-not-win",
+        bodyBytes: input.buffer.slice(
+          input.byteOffset,
+          input.byteOffset + input.byteLength,
+        ),
+      },
+      $utils: {
+        ungzip(value) {
+          return new Uint8Array(gunzipSync(new Uint8Array(value)));
+        },
+      },
+      ArrayBuffer,
+      Boolean,
+      console,
+      decodeURIComponent,
+      JSON,
+      Math,
+      Number,
+      Object,
+      Promise,
+      RegExp,
+      String,
+      Uint8Array,
+    };
+    vm.runInNewContext(source, context, {
+      filename: "bilibili-cdn.js",
+    });
+  });
+
+  await completed;
+  assert.ok(completion && completion.body);
+  assert.equal(new Uint8Array(completion.body)[0], 0);
+  assert.match(
+    asciiFromBinary(completion.body),
+    new RegExp(targetHost),
+  );
+  assert.doesNotMatch(
+    asciiFromBinary(completion.body),
+    /text-body-must-not-win/,
+  );
 });
 
 test("Shadowrocket auto entrypoint persists validation, then uses a fresh signed backup", () => {

@@ -8,9 +8,14 @@ import {
   loadLatestCatalog,
   loadLatestModule,
 } from "@/lib/repository";
+import candidateConfig from "../../../config/cdn-candidates.json";
 
-const SAFE_CDN_HOST =
-  /^(?:(?:[a-z0-9-]+\.)+(?:bilivideo\.(?:com|cn)|acgvideo\.com)|upos-[a-z0-9-]+\.akamaized\.net)$/i;
+const SAFE_FIXED_CDN_HOSTS = new Set<string>([
+  ...candidateConfig.maintained,
+  ...candidateConfig.supplemental,
+]);
+const SAFE_OWNED_CDN_HOST =
+  /^(?:[a-z0-9-]+\.)+(?:acgvideo\.com|bilivideo\.(?:com|cn|net)|bilibilivideo\.com)$/i;
 const SAFE_POLICY = /^[\p{L}\p{N}_.+ -]{1,64}$/u;
 const SAFE_PROFILE = /^[A-Za-z0-9._-]{1,40}$/;
 
@@ -67,7 +72,8 @@ function parseString(value: string, option: ModuleOption): string {
     option.key === "cdn" &&
     value !== "auto" &&
     value !== "off" &&
-    !SAFE_CDN_HOST.test(value)
+    !SAFE_OWNED_CDN_HOST.test(value) &&
+    !SAFE_FIXED_CDN_HOSTS.has(value.toLowerCase())
   ) {
     throw new RequestError(
       "CDN 只能是 auto、off 或受支持的 Bilibili 媒体主机",

@@ -2,6 +2,49 @@
 
 All notable changes to this project are documented here.
 
+## [3.2.0] - 2026-07-28
+
+- Target Bilibili iOS 9.4.0 build
+  `58ece148439d6782b1e6f9a9a37e82a1fd0db236` and neutralize the dedicated
+  `viewunite.v1.View/PlayPause` and `ViewEndPage` gRPC responses before their
+  pause/end-page commercial cards can render.
+- Filter asynchronous `mine.v1.Mine/PubModule` publishing guides while
+  preserving real UGC and opus cards, and add an exact request-side cache guard
+  for Home Feed, Story, and Mine so background resume cannot reuse a
+  conditional unfiltered response.
+- Add the `show.v1.Popular/Index` fallback stream to the strict Home allowlist,
+  retaining at most the first six cards that have both an explicit AV type and
+  a concrete video identity.
+- Neutralize the reviewed dedicated top/patch activity, PGC material, live
+  shopping, and Biligame live-card APIs with endpoint-specific empty response
+  shapes instead of broad domain blocking.
+- Read CDN gRPC responses from Shadowrocket `bodyBytes`, decode bounded
+  gzip-compressed frames, and cover legacy PGC v1 plus Cheese/PUGV `PlayView`
+  services in addition to PlayerUnite, app PlayURL, and PGC v2.
+- Increase the globally throttled validation sample from 16 KiB to 64 KiB for a
+  less RTT-dominated comparison while retaining the two-confirmation,
+  ten-minute separation, per-resource stickiness, and fail-open behavior.
+- Reject fixed-mode hosts outside reviewed Bilibili media suffixes, add
+  `acgvideo.com` media compatibility, and keep live URLs and signed query
+  strings untouched.
+- Permit shared-provider hosts in fixed mode only when they are an exact
+  reviewed candidate; arbitrary Akamai/Kingsoft/other shared-CDN subdomains
+  cannot receive signed playback URLs.
+- Make the published switch-threshold range match the runtime safety bound
+  (10–80%) and fail the build if numeric catalog defaults or limits drift from
+  the CDN script.
+- Record the 2026-07-28 interoperability audit at `kokoryh/Sparkle` commit
+  `a26c3412a760fb8d7d4d1bcc124d126e19d630e5`, `fmz200/wool_scripts`
+  commit `edbfac44522ef7f05718122ba95919bf2a1bdecc`,
+  `app2smile/rules` commit
+  `df6366a7024e0b3f0aa3510c5b791eea6f3cba89`,
+  `BiliUniverse/ADBlock` commit
+  `43b07841fa55ba77e29d478cab0be44c8b49a3c2`,
+  `BiliUniverse/Redirect` commit
+  `7e446284790953ad690fee5fa21afe78f00232f5`, and
+  `pskdje/bilibili-API-collect` commit
+  `271b123a083698bf576101c21f534b3418768a43`.
+
 ## [3.1.1] - 2026-07-27
 
 - Intercept both legacy `view.v1.View/ViewProgress` and current

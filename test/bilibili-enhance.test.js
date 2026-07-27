@@ -1059,6 +1059,71 @@ test("VIP ad-material responses are neutralized on every host", () => {
   assert.deepEqual(JSON.parse(adsDisabled.body), fixture);
 });
 
+test("dedicated activity, shopping, and game material APIs return empty safe shapes", () => {
+  const fixtures = [
+    {
+      endpoint: `${appRoot}/x/resource/top/activity`,
+      expected: { code: -404, data: null, message: "-404", ttl: 1 },
+    },
+    {
+      endpoint: `${apiRoot}/x/resource/patch/tab/v2`,
+      expected: { code: -404, data: null, message: "-404", ttl: 1 },
+    },
+    {
+      endpoint: `${apiRoot}/pgc/activity/deliver/material/receive`,
+      expected: {
+        code: 0,
+        data: {
+          closeType: "close_win",
+          container: [],
+          showTime: "",
+        },
+        message: "success",
+      },
+    },
+    {
+      endpoint:
+        "https://api.live.bilibili.com/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info",
+      expected: {},
+    },
+    {
+      endpoint:
+        "https://line3-h5-mobile-api.biligame.com/game/live/large_card_material",
+      expected: { code: 0, message: "success" },
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    const result = transform(
+      fixture.endpoint,
+      {
+        code: 0,
+        data: {
+          creative_id: 123,
+          image: "https://i0.hdslb.com/promotion.png",
+          url: "bilibili://mall/activity",
+        },
+      },
+    );
+    assert.deepEqual(JSON.parse(result.body), fixture.expected);
+    assert.equal(result.changed, 1);
+
+    const repeated = enhance.transformJsonText(
+      result.body,
+      fixture.endpoint,
+      enhance.parseArgument(""),
+    );
+    assert.equal(repeated.changed, 0);
+  }
+
+  const shoppingDisabled = transform(
+    "https://api.live.bilibili.com/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info",
+    { code: 0, data: { shopping: true } },
+    '{"liveShopping":false}',
+  );
+  assert.equal(shoppingDisabled.changed, 0);
+});
+
 test("JSON cleanup is idempotent across repeated refresh responses", () => {
   const url = `${appRoot}/x/v2/account/mine`;
   const first = enhance.transformJsonText(
@@ -1683,6 +1748,153 @@ test("ViewProgress removes pause-time promotion containers after every resume", 
     Buffer.from(disabled.body),
     Buffer.from(grpcFrame(legacyReply)),
   );
+});
+
+test("9.4.0 PlayPause and ViewEndPage responses are neutralized before rendering", async () => {
+  const pausePayload = bytes(
+    messageField(1, stringField(1, "taobao-flash-sale-app")),
+    messageField(2, stringField(1, "pause-commerce-card")),
+  );
+  for (const method of ["PlayPause", "ViewEndPage"]) {
+    const result = await enhance.transformGrpcBodyAsync(
+      grpcFrame(new Uint8Array(gzipSync(pausePayload)), 1),
+      `https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/${method}`,
+      enhance.parseArgument(""),
+    );
+    assert.equal(result.valid, true);
+    assert.equal(result.changed, 1);
+    assert.equal(result.body.length, 5);
+    assert.deepEqual(
+      Array.from(result.body),
+      [0, 0, 0, 0, 0],
+    );
+
+    const disabled = enhance.transformGrpcBody(
+      grpcFrame(pausePayload),
+      `https://app.bilibili.com/bilibili.app.viewunite.v1.View/${method}`,
+      enhance.parseArgument('{"ads":false}'),
+    );
+    assert.equal(disabled.changed, 0);
+    assert.match(
+      Buffer.from(disabled.body).toString("latin1"),
+      /taobao-flash-sale-app/,
+    );
+  }
+});
+
+test("Mine PubModule removes only asynchronous publishing guides after resume", () => {
+  const publishingGuide = bytes(
+    messageField(1, stringField(1, "first-video-and-reward-guide")),
+    varintField(5, 1),
+  );
+  const ordinaryUgc = bytes(
+    messageField(2, stringField(1, "published-video-card")),
+    varintField(5, 2),
+  );
+  const reply = bytes(
+    messageField(1, publishingGuide),
+    messageField(1, ordinaryUgc),
+  );
+  const result = enhance.transformGrpcBody(
+    grpcFrame(reply),
+    "https://app.bilibili.com/bilibili.app.mine.v1.Mine/PubModule",
+    enhance.parseArgument(""),
+  );
+  const output = grpcPayload(result.body);
+  const text = Buffer.from(output).toString("latin1");
+
+  assert.equal(result.endpoint, "grpc-mine-pub-module");
+  assert.equal(result.changed, 1);
+  assert.equal(protoFields(output, 1, 2).length, 1);
+  assert.doesNotMatch(text, /first-video-and-reward-guide/);
+  assert.match(text, /published-video-card/);
+
+  const disabled = enhance.transformGrpcBody(
+    grpcFrame(reply),
+    "https://grpc.biliapi.net/bilibili.app.mine.v1.Mine/PubModule",
+    enhance.parseArgument(
+      '{"hideMineFirstVideo":false,"hideMineRewardPublish":false}',
+    ),
+  );
+  assert.equal(disabled.changed, 0);
+});
+
+test("Popular fallback feed keeps exactly six explicit ordinary AV cards", () => {
+  function popularCard(oneofField, gotoValue, aid, title, ad) {
+    const base = bytes(
+      stringField(2, gotoValue),
+      stringField(3, gotoValue),
+      stringField(4, String(aid)),
+      messageField(10, varintField(2, aid)),
+      ...(ad
+        ? [messageField(12, stringField(1, "commercial"))]
+        : []),
+    );
+    const container = bytes(
+      messageField(1, base),
+      stringField(5, title),
+    );
+    return messageField(oneofField, container);
+  }
+
+  const cards = [];
+  for (let index = 1; index <= 8; index += 1) {
+    cards.push(
+      messageField(
+        1,
+        popularCard(
+          index % 2 === 0 ? 2 : 1,
+          "av",
+          1000 + index,
+          `ordinary-${index}`,
+          false,
+        ),
+      ),
+    );
+  }
+  cards.splice(
+    1,
+    0,
+    messageField(
+      1,
+      popularCard(11, "av", 9001, "explicit-ad", true),
+    ),
+    messageField(
+      1,
+      popularCard(1, "live", 9002, "live-card", false),
+    ),
+    messageField(
+      1,
+      popularCard(1, "game", 9003, "game-card", false),
+    ),
+  );
+
+  const input = grpcFrame(bytes(...cards));
+  const result = enhance.transformGrpcBody(
+    input,
+    "https://grpc.biliapi.net/bilibili.app.show.v1.Popular/Index",
+    enhance.parseArgument(""),
+  );
+  const output = grpcPayload(result.body);
+  const text = Buffer.from(output).toString("latin1");
+
+  assert.equal(result.endpoint, "grpc-popular");
+  assert.equal(protoFields(output, 1, 2).length, 6);
+  for (let index = 1; index <= 6; index += 1) {
+    assert.match(text, new RegExp(`ordinary-${index}`));
+  }
+  assert.doesNotMatch(text, /ordinary-7|ordinary-8/);
+  assert.doesNotMatch(text, /explicit-ad|live-card|game-card/);
+
+  const disabled = enhance.transformGrpcBody(
+    input,
+    "https://app.bilibili.com/bilibili.app.show.v1.Popular/Index",
+    enhance.parseArgument(
+      '{"ads":false,"homeFeedVideoOnly":false}',
+    ),
+  );
+  assert.equal(disabled.changed, 0);
+  assert.deepEqual(Buffer.from(disabled.body), Buffer.from(input));
 });
 
 test("compressed first ViewUnite response removes the under-player ad and disguised cards", async () => {

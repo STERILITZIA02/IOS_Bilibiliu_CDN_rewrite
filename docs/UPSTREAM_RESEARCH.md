@@ -1,6 +1,6 @@
 # Bilibili Shadowrocket 增强升级：上游调研基线
 
-> 调研日期：2026-07-26
+> 调研日期：2026-07-28
 > 用途：记录 v3 升级采用的来源、许可证和安全边界。本文不是功能完成声明。
 
 ## 调研结论
@@ -25,9 +25,11 @@
 | [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock) | `43b07841fa55ba77e29d478cab0be44c8b49a3c2`（2026-07-26 读取 `main`） | Apache-2.0 | 参考当前 Feed/Story/View/TFInfo/ViewUnite 接口覆盖范围与高置信广告特征，重新实现 |
 | [BiliUniverse/Enhanced](https://github.com/BiliUniverse/Enhanced) | `6fcb1be0fb6d` | Apache-2.0 | 参考导航字段含义；不采用其覆盖服务端数组的方式 |
 | [BiliUniverse/Redirect](https://github.com/BiliUniverse/Redirect) | `7e4462847909` | Apache-2.0 | 参考 CDN 家族、海外内容和 MCDN 兼容边界 |
-| [BiliUniverse/Universe](https://github.com/BiliUniverse/Universe) | 调研日默认分支 | Apache-2.0 | 交叉核对模块结构与许可证 |
+| [BiliUniverse/Universe](https://github.com/BiliUniverse/Universe) | `913bb91c5f4c` | Apache-2.0 | 交叉核对模块结构与许可证 |
 | [Maasea/sgmodule](https://github.com/Maasea/sgmodule) | `65075cdb388f` | Apache-2.0 | 参考 Shadowrocket 模块端点和保守 PCDN 规则 |
 | [app2smile/rules](https://github.com/app2smile/rules) | `df6366a7024e` | MIT | 交叉核对 JSON/Protobuf 广告卡片特征 |
+| [kokoryh/Sparkle](https://github.com/kokoryh/Sparkle) | `a26c3412a760` | GPL-3.0 | 只交叉核对 9.4.0 `PlayPause`/`ViewEndPage`、`PubModule`、`Popular` 与专用素材路由；不复制代码 |
+| [fmz200/wool_scripts](https://github.com/fmz200/wool_scripts) | `edbfac44522e` | GPL-3.0 | 只交叉核对当前 Shadowrocket/Surge 路由覆盖；不复制模块、脚本或 jq |
 | [blackmatrix7/ios_rule_script](https://github.com/blackmatrix7/ios_rule_script) | `8f67b6419fe1` | GPL-2.0 | Bilibili 文件当前已归档；不复制代码或引用归档脚本 |
 | [Shadowrocket 使用手册](https://github.com/LOWERTOP/Shadowrocket/blob/main/README.md) | 调研日默认分支 | 文档仓库声明为准 | 核对模块、脚本、MITM、规则、安装和自动更新能力 |
 | [`@nsnanocat/grpc`](https://www.npmjs.com/package/@nsnanocat/grpc) | `1.1.0` npm 发行包 | Apache-2.0 | 核对 Bilibili gRPC 压缩标志 `1` 的 gzip 互操作行为；不复制其 pako 实现 |
@@ -122,6 +124,20 @@ BiliUniverse/ADBlock 固定提交
 - 大会员中心组合接口为 `/x/vip/web/vip_center/combine`。营销
   `banners`/横幅列表变体与 `user.vip`、`wallet`、`privileges` 等权益数据分离，
   因而只清空已审核横幅数组，不遍历或修改会员、支付和账户对象。
+- Sparkle 固定提交中的当前模块把
+  `bilibili.app.viewunite.v1.View/PlayPause` 与
+  `bilibili.app.viewunite.v1.View/ViewEndPage` 作为独立广告响应中和；这与用户在
+  9.4.0 后台暂停后看到的全屏应用卡入口吻合。本项目据公开方法事实独立实现空
+  gRPC 响应，没有复制 GPL 实现。
+- `Mine/PubModule` 的 `PubCard` 是 oneof；只删除 `pub_guide(1)`，保留
+  `ugc(2)`、`opus(3)` 和未知字段，避免为修复后台回流而覆盖整个“我的”数据。
+- `Popular/Index` 的普通卡 oneof 与广告卡 oneof 可精确区分；严格首页开关下仍
+  要求 base 的 `goto/card_goto` 与视频身份同时成立，不能仅凭封面类型放行。
+- 当前维护项目共同覆盖的专用素材路由包括 `/x/resource/top/activity`、
+  `/x/resource/patch/tab(/v2)`、`/pgc/activity/deliver/material/receive`、
+  `/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info` 与
+  `line3-h5-mobile-api.biligame.com/game/live/large_card_material`。本项目只在
+  精确主机/路径上返回各接口约定的空安全形状。
 
 ## 已知风险证据
 

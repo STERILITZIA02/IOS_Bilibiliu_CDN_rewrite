@@ -55,6 +55,7 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(moduleText, /\[Rule\]/);
   assert.match(moduleText, /RULE-SET,https:\/\/raw\.githubusercontent\.com\//);
   assert.match(moduleText, /\[Script\]/);
+  assert.match(moduleText, /Bilibili Enhance Fresh UI = type=http-request/);
   assert.match(moduleText, /Bilibili Enhance JSON = type=http-response/);
   assert.match(moduleText, /Bilibili Enhance gRPC = type=http-response/);
   assert.match(moduleText, /Bilibili CDN JSON = type=http-response/);
@@ -65,6 +66,7 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(moduleText, /h2 = true/);
   assert.match(moduleText, /grpc\.biliapi\.net/);
   assert.match(moduleText, /api\.live\.bilibili\.com/);
+  assert.match(moduleText, /line3-h5-mobile-api\.biligame\.com/);
   const mitmHostnameLine = moduleText
     .split(/\r?\n/)
     .find((line) => line.startsWith("hostname = "));
@@ -117,6 +119,38 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   );
 });
 
+test("fresh UI request guard covers only Home and Mine cache-sensitive APIs", () => {
+  const scriptLine = moduleText
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("Bilibili Enhance Fresh UI = "));
+  assert.ok(scriptLine);
+  const match = scriptLine.match(/,pattern=(.+?),timeout=3,/);
+  assert.ok(match);
+  const pattern = new RegExp(match[1]);
+
+  for (const url of [
+    "https://app.bilibili.com/x/v2/feed/index?pull=1",
+    "https://app.biliapi.net/x/v2/feed/index/story?pull=1",
+    "https://app.bilibili.com/x/v2/account/mine?build=9400000",
+    "https://app.biliapi.net/x/v2/account/mine/ipad",
+  ]) {
+    assert.match(url, pattern);
+  }
+  for (const url of [
+    "https://api.bilibili.com/x/v2/feed/index",
+    "https://app.bilibili.com/x/v2/view",
+    "https://app.bilibili.com/x/v2/account/myinfo",
+  ]) {
+    assert.doesNotMatch(url, pattern);
+  }
+  assert.match(
+    scriptLine,
+    new RegExp(
+      `script-path=https://raw\\.githubusercontent\\.com/.+/bilibili-refresh\\.js\\?v=${packageJson.version.replaceAll(".", "\\.")}`,
+    ),
+  );
+});
+
 test("enhancement gRPC pattern is narrow and body processing is bounded", () => {
   const scriptLine = moduleText
     .split(/\r?\n/)
@@ -130,7 +164,11 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
     "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
     "https://grpc.biliapi.net/bilibili.app.view.v1.View/TFInfo",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/ViewProgress",
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
+    "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/ViewEndPage",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/RelatesFeed",
+    "https://grpc.biliapi.net/bilibili.app.mine.v1.Mine/PubModule",
+    "https://grpc.biliapi.net/bilibili.app.show.v1.Popular/Index",
     "https://grpc.biliapi.net/bilibili.app.dynamic.v2.Dynamic/DynAll",
     "https://grpc.biliapi.net/bilibili.polymer.app.search.v1.Search/SearchAll",
     "https://grpc.bilibili.com/bilibili.main.community.reply.v1.Reply/MainList",
@@ -198,6 +236,8 @@ test("generated response patterns compile and cover current playback APIs", () =
     "https://grpc.bilibili.com/bilibili.app.playurl.v1.PlayURL/PlayView",
     "https://app.bilibili.com/bilibili.app.playurl.v1.PlayURL/PlayView",
     "https://app.biliapi.net/bilibili.pgc.gateway.player.v2.PlayURL/PlayView",
+    "https://grpc.biliapi.net/bilibili.pgc.gateway.player.v1.PlayURL/PlayView",
+    "https://app.bilibili.com/bilibili.cheese.gateway.player.v1.PlayURL/PlayView",
   ]) {
     assert.match(url, grpcPattern);
   }
@@ -220,13 +260,18 @@ test("enhancement response pattern covers only reviewed API endpoints", () => {
     "https://app.bilibili.com/x/v2/splash/show",
     "https://app.biliapi.net/x/v2/feed/index/story?device=phone",
     "https://app.bilibili.com/x/resource/show/tab/v2",
+    "https://app.bilibili.com/x/resource/top/activity",
+    "https://api.biliapi.net/x/resource/patch/tab/v2",
     "https://app.bilibili.com/x/v2/account/mine",
     "https://app.bilibili.com/x/vip/ads/materials?position=mine",
     "https://api.biliapi.net/x/vip/ads/materials?position=mine",
     "https://api.bilibili.com/x/v2/reply/main?oid=1",
     "https://api.bilibili.com/x/vip/web/vip_center/combine",
     "https://api.bilibili.com/pgc/page/cinema/tab",
+    "https://api.bilibili.com/pgc/activity/deliver/material/receive",
     "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByRoom",
+    "https://api.live.bilibili.com/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info",
+    "https://line3-h5-mobile-api.biligame.com/game/live/large_card_material",
   ]) {
     assert.match(url, pattern);
   }
@@ -298,6 +343,7 @@ test("generated artifacts are local, non-empty, and checksummed", () => {
     "Bilibili.list",
     "bilibili-cdn.js",
     "bilibili-enhance.js",
+    "bilibili-refresh.js",
     "module-options.json",
   ]) {
     const content = fs.readFileSync(
@@ -353,6 +399,7 @@ test("release metadata and workflow publish every runtime artifact", () => {
     "Bilibili.list",
     "bilibili-cdn.js",
     "bilibili-enhance.js",
+    "bilibili-refresh.js",
     "module-options.json",
     "SHA256SUMS.txt",
   ]) {
