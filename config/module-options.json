@@ -398,8 +398,8 @@
       "description": "备用线路至少快多少百分比才进入第二次确认",
       "type": "number",
       "default": 20,
-      "minimum": 0,
-      "maximum": 90,
+      "minimum": 10,
+      "maximum": 80,
       "variants": ["cdn", "enhanced"]
     },
     {

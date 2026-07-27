@@ -1,6 +1,6 @@
 #!name=Bilibili CDN Switcher
 #!desc=仅包含保守 CDN 自动选择与视频、直播、API 分流；不改动页面内容或账号数据（iPhone / iPad）
-#!version=3.1.1
+#!version=3.2.0
 #!author=STERILITZIA02
 #!homepage=https://github.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite
 #!icon=https://i0.hdslb.com/bfs/static/jinkela/long/images/512.png
@@ -10,11 +10,11 @@
 
 [Rule]
 DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
-RULE-SET,https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.list?v=3.1.1,{{{分流策略}}}
+RULE-SET,https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.list?v=3.2.0,{{{分流策略}}}
 
 [Script]
-Bilibili CDN JSON = type=http-response,pattern=^https?:\/\/(?:(?:api|app)\.(?:bilibili\.com|biliapi\.net)|interface\.bilibili\.com)\/(?:x\/(?:player\/(?:wbi\/)?playurl(?:v2)?|v2\/playurl)|pgc\/player\/(?:api\/playurl(?:proj)?|web\/(?:v2\/)?playurl(?:\/html5)?)|pugv\/player\/(?:api|web)\/playurl|v2\/playurl)(?:\?|$),requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/bilibili-cdn.js?v=3.1.1,argument="{"cdn":"{{{CDN}}}","networkProfile":"{{{网络档案}}}","intervalHours":{{{测速间隔}}},"switchThreshold":{{{切换阈值}}},"debug":{{{调试日志}}}}"
-Bilibili CDN gRPC = type=http-response,pattern=^https?:\/\/(?:(?:grpc|app)\.(?:bilibili\.com|biliapi\.net))\/(?:bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite|bilibili\.app\.playurl\.v1\.PlayURL\/PlayView|bilibili\.pgc\.gateway\.player\.v2\.PlayURL\/PlayView)(?:\?|$),requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/bilibili-cdn.js?v=3.1.1,argument="{"cdn":"{{{CDN}}}","networkProfile":"{{{网络档案}}}","intervalHours":{{{测速间隔}}},"switchThreshold":{{{切换阈值}}},"debug":{{{调试日志}}}}"
+Bilibili CDN JSON = type=http-response,pattern=^https?:\/\/(?:(?:api|app)\.(?:bilibili\.com|biliapi\.net)|interface\.bilibili\.com)\/(?:x\/(?:player\/(?:wbi\/)?playurl(?:v2)?|v2\/playurl)|pgc\/player\/(?:api\/playurl(?:proj)?|web\/(?:v2\/)?playurl(?:\/html5)?)|pugv\/player\/(?:api|web)\/playurl|v2\/playurl)(?:\?|$),requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/bilibili-cdn.js?v=3.2.0,argument="{"cdn":"{{{CDN}}}","networkProfile":"{{{网络档案}}}","intervalHours":{{{测速间隔}}},"switchThreshold":{{{切换阈值}}},"debug":{{{调试日志}}}}"
+Bilibili CDN gRPC = type=http-response,pattern=^https?:\/\/(?:(?:grpc|app)\.(?:bilibili\.com|biliapi\.net))\/(?:bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite|bilibili\.app\.playurl\.v1\.PlayURL\/PlayView|bilibili\.(?:pgc\.gateway\.player\.(?:v1|v2)|cheese\.gateway\.player\.v1)\.PlayURL\/PlayView)(?:\?|$),requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/bilibili-cdn.js?v=3.2.0,argument="{"cdn":"{{{CDN}}}","networkProfile":"{{{网络档案}}}","intervalHours":{{{测速间隔}}},"switchThreshold":{{{切换阈值}}},"debug":{{{调试日志}}}}"
 
 [MITM]
 h2 = true

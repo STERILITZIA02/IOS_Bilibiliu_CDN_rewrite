@@ -1,6 +1,6 @@
 # Protobuf/gRPC 兼容性记录
 
-> 字段核对日期：2026-07-27
+> 字段核对日期：2026-07-28
 > 过滤器实现：`src/bilibili-enhance.js`
 >
 > 播放地址实现：`src/bilibili-cdn.js`
@@ -13,8 +13,8 @@
 
 字段语义主要与 [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock)
 和 [kokoryh/Sparkle](https://github.com/kokoryh/Sparkle) 的当前实现交叉核对；
-字段号再通过 `bilibili-API-collect` 的公开镜像提交
-`cfc5fddcc8a94b74d91970bb5b4eaeb349addc47` 核对。该镜像在核对时未声明
+字段号再通过 `pskdje/bilibili-API-collect` 的公开提交
+`271b123a083698bf576101c21f534b3418768a43` 核对。该仓库在核对时未声明
 标准 SPDX 许可证；本仓库没有复制其 schema、注释或实现，只记录用于互操作所需
 的字段号与语义事实。
 
@@ -28,7 +28,11 @@
 | `bilibili.app.view.v1.View/TFInfo` | 删除运营商免流营销 `tf_toast(2)` 与 `tf_panel_customized(3)`；保留 `tips_id(1)`、`user_flag_new(4)` 和未知字段 |
 | `bilibili.app.viewunite.v1.View/View` | 删除顶层 `cm(7)`；始终移除类型 `4`（游戏推广）、`5`（广告）、`11`（课程推广）、`game(5)`/`cm(6)` 载荷、非空 `cm_stock(11)` 或 `BasicInfo.unique_id(6)` 卡；严格模式下仅保留同时满足类型 `1 (AV)` 与 oneof `av(2)` 且不存在非 AV oneof `3/4/5/6/7/8/9/13/14` 的卡；移除介绍模块类型 `18`（活动横幅）、`55`（UP 主商品分享）以及受 `会员营销` 控制的 `29`（大会员横幅） |
 | `bilibili.app.viewunite.v1.View/ViewProgress` | 删除每次播放进度响应重新下发的 `dm(4)` 运营/命令卡容器；保留 `video_guide(1)`、`chronos(2)`、视频快照及未知顶层字段 |
+| `bilibili.app.viewunite.v1.View/PlayPause` | 9.4.0 专用暂停运营响应；在进入渲染层前返回空 gRPC 消息，音视频流与播放地址不由此方法承载 |
+| `bilibili.app.viewunite.v1.View/ViewEndPage` | 9.4.0 专用结束页运营响应；与 `PlayPause` 使用相同的精确方法级中和 |
 | `bilibili.app.viewunite.v1.View/RelatesFeed` | 使用与上项相同的关系卡判据；不处理介绍模块 |
+| `bilibili.app.mine.v1.Mine/PubModule` | 只删除 `PubCard.pub_guide(1)`，保留 `ugc(2)`、`opus(3)`、`more(4)`、`card_type(5)` 与未知字段 |
+| `bilibili.app.show.v1.Popular/Index` | 重复 `Card(1)` 最多保留前 6 个明确普通 AV；仅接受 `smallCoverV5(1)`/`largeCoverV1(2)`，拒绝 `rcmdOneItem(10)`、`smallCoverV5Ad(11)`、`ad_info(12)` 和非 AV/无视频身份卡 |
 | `bilibili.app.dynamic.v2.Dynamic/DynAll` | 仅移除 `DynamicItem.card_type == 15 (ad)` |
 | `bilibili.polymer.app.search.v1.Search/SearchAll` | 仅移除 oneof 为 `game(11)` 或 `cm(25)` 的搜索卡 |
 | `bilibili.main.community.reply.v1.Reply/MainList` | 删除顶层 `cm(11)`；仅移除正文或 URL map 明确含 `b23.tv/cm`、`b23.tv/mall` 的置顶评论 |
@@ -37,6 +41,11 @@
 
 CDN 脚本只在模块精确列出的播放 gRPC 方法中运行。它不依赖完整 schema，而在
 单个直接消息内同时存在主 URL 与备用 URL 时识别以下结构：
+
+当前方法覆盖 `bilibili.app.playerunite.v1.Player/PlayViewUnite`、
+`bilibili.app.playurl.v1.PlayURL/PlayView`、PGC gateway player `v1/v2` 与
+`bilibili.cheese.gateway.player.v1.PlayURL/PlayView`，用于普通/短视频/竖屏/
+稍后再看、番剧影视和课程等仍返回同类播放结构的入口。未知新方法不做猜测式匹配。
 
 | 结构 | 主 URL | 备用 URL | 隔离元数据 |
 | --- | --- | --- | --- |
@@ -60,7 +69,7 @@ CDN 脚本只在模块精确列出的播放 gRPC 方法中运行。它不依赖�
 - gRPC 压缩标志 `0` 直接处理；标志 `1` 按 Bilibili 当前 gzip 约定解压，最多
   4 MiB，修改后以标志 `0` 和新的消息长度输出。
 - 未知帧标志、gzip 解压不可用/失败或解压后超限时，整份响应原样返回。
-- 多帧响应逐帧处理并重算被修改帧的长度；未修改的压缩帧保持原字节。
+- 多帧响应逐帧处理并重算被修改帧的长度；整份响应无需修改时保持原字节。
 - 任一帧损坏、长度越界或嵌套消息无法解析时，整份响应原样返回。
 - 只有目标关系卡被清理后确实为空的嵌套容器才随之移除；其他字段与模块保留。
 - 不处理播放地址、弹幕会员效果、青少年模式、后台播放、真实会员状态或付费权益字段。

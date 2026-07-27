@@ -93,9 +93,11 @@ grpc.bilibili.com
 grpc.biliapi.net
 ```
 
-Enhanced 还会加入 `api.live.bilibili.com`，用于处理直播间明确的活动/购物卡片。
-点播和直播媒体 CDN 不会加入 MITM。HTTPS 解密页面中的 `google.cn`、
-`googlevideo.com` 等主机来自其他模块或原配置，不是本项目添加的范围。
+Enhanced 还会加入 `api.live.bilibili.com` 与
+`line3-h5-mobile-api.biligame.com`，分别用于处理直播间明确的活动/购物卡片与
+Bilibili 内嵌游戏推广素材。点播和直播媒体 CDN 不会加入 MITM。HTTPS 解密页面
+中的 `google.cn`、`googlevideo.com` 等主机来自其他模块或原配置，不是本项目
+添加的范围。
 
 只需要域名分流、不需要任何响应脚本时，可以不启用 HTTPS 解密；此时 `[Rule]`
 仍工作，但 CDN、广告和界面响应处理不会生效。
@@ -120,7 +122,7 @@ Enhanced 还会加入 `api.live.bilibili.com`，用于处理直播间明确的�
 
 | 参数 | 默认 | 行为 |
 | --- | --- | --- |
-| `广告过滤` | `true` | 过滤明确广告字段、已审核类型，以及播放进度接口重新下发的暂停运营容器 |
+| `广告过滤` | `true` | 过滤明确广告字段、已审核类型，以及播放进度、暂停页、结束页和专用素材接口重新下发的运营容器 |
 | `首页推荐6个普通视频` | `true` | 在`广告过滤`开启时，每次首页/推荐响应只保留按原顺序出现的前 6 个明确普通 AV；同时清理横幅、广告、小游戏/应用、纪录片、影视、综艺、直播、活动和未知卡片 |
 | `推荐仅普通视频` | `true` | 在`广告过滤`开启时，播放页推荐只保留明确普通 AV；移除番剧、综艺、纪录片、影视、直播、游戏、课程、活动、广告、必火推荐及未知类型卡片 |
 | `界面精简` | `true` | 启用下面的首页/“我的”逐项设置 |
@@ -149,10 +151,19 @@ ViewUnite 必须同时是关系卡类型 `1 (AV)` 且实际 oneof 为 `av(2)`。
 首个 gzip 压缩响应做 4 MiB 解压上限处理；因此播放器下广告和关系卡会在第一次
 渲染前完成过滤。损坏帧、未知压缩格式或解压能力不可用时仍原样放行，避免破坏播放。
 
-App 从后台恢复或在暂停时还会重新请求 `ViewProgress`。Enhanced 会对旧版
-`view.v1` 的 `video_guide` 和新版 `viewunite.v1` 的 `dm` 运营容器逐次处理，
-但保留 Chronos、视频快照、进度点和其他未知顶层字段；这会同时隐藏这些容器中的
-暂停广告与播放中运营卡片，不影响音视频流、进度保存或正常播放。
+针对 Bilibili iOS 9.4.0（用户报告构建
+`58ece148439d6782b1e6f9a9a37e82a1fd0db236`），App 从后台恢复或暂停时可能重新
+请求 `ViewProgress`、`PlayPause` 与 `ViewEndPage`。Enhanced 会逐次移除旧版
+`view.v1` 的 `video_guide`、新版 `viewunite.v1` 的 `dm`，并将两个专用暂停/
+结束运营响应中和为空 gRPC 消息；Chronos、视频快照、进度点和播放地址不在这些
+删除目标中。这样可在暂停广告进入渲染层前阻断，而不是等第二次进入视频才清理。
+
+首页/推荐页和“我的”页的易变请求另有精确请求侧缓存保护：只对
+`/x/v2/feed/index`、`/x/v2/feed/index/story` 与
+`/x/v2/account/mine(/ipad)` 移除条件缓存校验头并请求重新验证，不修改 URL、
+查询参数、请求体或签名。后台恢复后得到的新响应会再次经过同一过滤器。
+异步 `Mine/PubModule` 只删除发布引导 `PubGuide`，保留 UGC、动态及未知卡；
+`Popular/Index` 备用推荐流同样只保留最多 6 个有明确视频身份的普通 AV。
 
 大会员中心只处理营销 `banners`/已审核横幅列表变体和具有高置信营销标记的弹层；
 “我的”页还会删除协议中明确用于会员营销的 `vip_section`、`vip_section_v2`、
@@ -189,7 +200,7 @@ App 从后台恢复或在暂停时还会重新请求 `ViewProgress`。Enhanced �
 | `PCDN策略` | `DIRECT` | 只匹配 `*pcdn*.biliapi.net`；设为 `REJECT` 才阻断 |
 | `网络档案` | `auto` | 手动命名不同网络缓存，如 `home_wifi`、`cellular` |
 | `测速间隔` | `12` | 6–72 小时；所有资源探测仍至少间隔 2 分钟 |
-| `切换阈值` | `20` | 备用路线至少快多少百分比才进入二次确认，范围 0–90 |
+| `切换阈值` | `20` | 备用路线至少快多少百分比才进入二次确认，范围 10–80 |
 | `调试日志` | `false` | 排错时临时开启；不输出完整 URL、签名或正文 |
 
 `网络档案=auto` 不声称自动识别 Wi‑Fi/SSID。需要严格隔离家庭 Wi‑Fi 与蜂窝网络
@@ -203,7 +214,7 @@ App 从后台恢复或在暂停时还会重新请求 `ViewProgress`。Enhanced �
 1. 分离视频、音频、分段、清晰度、编码、带宽、网络档案和候选集合；
 2. 不跨普通 CDN、MCDN、PCDN 家族晋升；
 3. 每次播放地址响应最多验证一个对象的两条 URL；
-4. 固定使用 `GET Range: bytes=0-16383`，只接受严格一致的 `206` 媒体响应；
+4. 固定使用 `GET Range: bytes=0-65535`，只接受严格一致的 `206` 媒体响应；
 5. 新备用路线需至少间隔 10 分钟成功两次，并达到切换阈值；
 6. 探测结果只影响之后重新取得的播放地址，不中断当前播放；
 7. 使用当前响应中的完整签名 URL，不复用旧 query，不删除原始备用；
@@ -211,8 +222,10 @@ App 从后台恢复或在暂停时还会重新请求 `ViewProgress`。Enhanced �
 
 首次安装后，没有立即切换是正常现象。稳定性与正确性优先于“第一次就选最低延迟”。
 
-固定主机模式只替换受支持点播 URL 的 host，保留 path/query；目标主机能否接受该
-资源签名由用户承担。参考候选见
+固定主机模式只接受 Bilibili 自有媒体域或仓库明确审核的固定候选，并替换受支持
+点播 URL 的 host，保留 path/query；共享 CDN 服务商上的任意未审核子域和普通
+第三方主机都会被拒绝，避免把签名播放地址泄露给非目标服务器。目标主机能否接受
+该资源签名仍由用户承担。参考候选见
 [`config/cdn-candidates.json`](config/cdn-candidates.json)。直播签名 URL
 永远不做固定 CDN 替换，只按规则分流。
 
@@ -241,8 +254,8 @@ DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 Shadowrocket 会取得新的远程资源地址，不会继续复用上一版同名脚本缓存。
 
 如果原先安装的是 README 的固定 `main/dist/*.sgmodule` 地址、历史兼容地址或
-BiliFlow 生成的固定 URL，升级到 3.1.1 **不需要重新订阅**，只需执行上述“更新
-模块”。更新后模块详情应显示 `3.1.1`，脚本 URL 应含 `?v=3.1.1`。只有把 Release
+BiliFlow 生成的固定 URL，升级到 3.2.0 **不需要重新订阅**，只需执行上述“更新
+模块”。更新后模块详情应显示 `3.2.0`，脚本 URL 应含 `?v=3.2.0`。只有把 Release
 附件下载成本地文件、或使用不带远程 URL 的旧副本时，才需要重新安装固定地址。
 
 按影响最小顺序回滚：
@@ -297,8 +310,9 @@ npm run smoke:auto
 ```
 
 - `npm run check` 验证确定性生成物，并覆盖 JSON、gRPC/Protobuf、首次响应
-  `bodyBytes`/gzip、播放页普通视频白名单、逐项开关、双模块、严格 Range、
-  缓存隔离、阈值、锁、退避、容量和故障开放。
+  `bodyBytes`/gzip、9.4.0 暂停/结束页、后台恢复缓存保护、首页/播放页普通视频
+  白名单、逐项开关、双模块、严格 Range、缓存隔离、阈值、锁、退避、容量和
+  故障开放。
 - `npm run check:all` 在上述核心检查后继续执行网站 lint、生产构建和路由安全测试；
   CI 与 Release 均使用该命令。
 - `npm run smoke:auto` 是可选联网冒烟，只探测公共播放响应中的主/备用 URL。
@@ -311,7 +325,8 @@ npm run smoke:auto
 - `dist/Bilibili.CDN.Enhanced.sgmodule`：CDN + 广告/UI；
 - `dist/Bilibili.CDN.sgmodule`：Enhanced 历史兼容别名；
 - `dist/Bilibili.list`：可独立使用的分流规则；
-- `dist/bilibili-cdn.js`、`dist/bilibili-enhance.js`：运行脚本；
+- `dist/bilibili-cdn.js`、`dist/bilibili-enhance.js`、
+  `dist/bilibili-refresh.js`：播放地址、响应增强和易变页面请求缓存保护脚本；
 - `dist/module-options.json`：模块与网站共用的选项目录；
 - `dist/SHA256SUMS.txt`：发行资产 SHA-256。
 

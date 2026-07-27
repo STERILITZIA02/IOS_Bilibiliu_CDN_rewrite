@@ -32,6 +32,10 @@ const enhanceScript = await readFile(
   path.join(rootDirectory, "src", "bilibili-enhance.js"),
   "utf8",
 );
+const refreshScript = await readFile(
+  path.join(rootDirectory, "src", "bilibili-refresh.js"),
+  "utf8",
+);
 
 function validateDomainList(name, values, requireSorted = true) {
   if (!Array.isArray(values) || values.length === 0) {
@@ -178,6 +182,7 @@ function validateModuleOptions(schema, enhanceApi) {
 
   const requiredKeys = [
     "ads",
+    "homeFeedVideoOnly",
     "videoOnlyRecommendations",
     "ui",
     "searchPromotions",
@@ -232,6 +237,23 @@ if (
   );
 }
 validateModuleOptions(moduleOptions, enhanceApi);
+
+for (const [key, limits] of Object.entries(
+  sourceApi.RUNTIME_OPTION_LIMITS || {},
+)) {
+  const option = moduleOptions.options.find((entry) => entry.key === key);
+  if (
+    !option ||
+    option.type !== "number" ||
+    option.default !== limits.defaultValue ||
+    option.minimum !== limits.minimum ||
+    option.maximum !== limits.maximum
+  ) {
+    throw new Error(
+      `module-options ${key} default/range and bilibili-cdn.js are out of sync`,
+    );
+  }
+}
 
 const optionByKey = new Map(
   moduleOptions.options.map((option) => [option.key, option]),
@@ -322,11 +344,13 @@ const ruleList = [
 const jsonPattern =
   String.raw`^https?:\/\/(?:(?:api|app)\.(?:bilibili\.com|biliapi\.net)|interface\.bilibili\.com)\/(?:x\/(?:player\/(?:wbi\/)?playurl(?:v2)?|v2\/playurl)|pgc\/player\/(?:api\/playurl(?:proj)?|web\/(?:v2\/)?playurl(?:\/html5)?)|pugv\/player\/(?:api|web)\/playurl|v2\/playurl)(?:\?|$)`;
 const grpcPattern =
-  String.raw`^https?:\/\/(?:(?:grpc|app)\.(?:bilibili\.com|biliapi\.net))\/(?:bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite|bilibili\.app\.playurl\.v1\.PlayURL\/PlayView|bilibili\.pgc\.gateway\.player\.v2\.PlayURL\/PlayView)(?:\?|$)`;
+  String.raw`^https?:\/\/(?:(?:grpc|app)\.(?:bilibili\.com|biliapi\.net))\/(?:bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite|bilibili\.app\.playurl\.v1\.PlayURL\/PlayView|bilibili\.(?:pgc\.gateway\.player\.(?:v1|v2)|cheese\.gateway\.player\.v1)\.PlayURL\/PlayView)(?:\?|$)`;
 const enhancePattern =
-  String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index(?:\/story)?|search(?:\/square|\/type)?|view|account\/mine(?:\/ipad)?)|x\/(?:resource\/show\/tab\/v2|vip\/ads\/materials))|(?:api\.bilibili\.com|api\.biliapi\.net)\/(?:pgc\/page\/(?:bangumi|cinema\/tab)|x\/(?:vip\/(?:web\/vip_center\/combine|ads\/materials)|web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd|v2\/reply\/main))|api\.live\.bilibili\.com\/xlive\/app-room\/v1\/index\/getInfoByRoom)(?:\?|$)`;
+  String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index(?:\/story)?|search(?:\/square|\/type)?|view|account\/mine(?:\/ipad)?)|x\/(?:resource\/(?:show\/tab\/v2|top\/activity|patch\/tab(?:\/v2)?)|vip\/ads\/materials))|(?:api\.bilibili\.com|api\.biliapi\.net)\/(?:pgc\/(?:page\/(?:bangumi|cinema\/tab)|activity\/deliver\/material\/receive)|x\/(?:resource\/(?:top\/activity|patch\/tab(?:\/v2)?)|vip\/(?:web\/vip_center\/combine|ads\/materials)|web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd|v2\/reply\/main))|api\.live\.bilibili\.com\/xlive\/(?:app-room\/v1\/index\/getInfoByRoom|e-commerce-interface\/v1\/ecommerce-user\/get_shopping_info)|line3-h5-mobile-api\.biligame\.com\/game\/live\/large_card_material)(?:\?|$)`;
 const enhanceGrpcPattern =
-  String.raw`^https?:\/\/(?:(?:grpc|app)\.bilibili\.com|(?:grpc|app)\.biliapi\.net)\/(?:bilibili\.app\.(?:view\.v1\.View\/(?:View|ViewProgress|RelatesFeed|TFInfo)|viewunite\.v1\.View\/(?:View|ViewProgress|RelatesFeed)|dynamic\.v2\.Dynamic\/DynAll)|bilibili\.polymer\.app\.search\.v1\.Search\/SearchAll|bilibili\.main\.community\.reply\.v1\.Reply\/MainList)(?:\?|$)`;
+  String.raw`^https?:\/\/(?:(?:grpc|app)\.bilibili\.com|(?:grpc|app)\.biliapi\.net)\/(?:bilibili\.app\.(?:view\.v1\.View\/(?:View|ViewProgress|RelatesFeed|TFInfo)|viewunite\.v1\.View\/(?:View|ViewProgress|PlayPause|ViewEndPage|RelatesFeed)|mine\.v1\.Mine\/PubModule|show\.v1\.Popular\/Index|dynamic\.v2\.Dynamic\/DynAll)|bilibili\.polymer\.app\.search\.v1\.Search\/SearchAll|bilibili\.main\.community\.reply\.v1\.Reply\/MainList)(?:\?|$)`;
+const refreshPattern =
+  String.raw`^https?:\/\/(?:app\.bilibili\.com|app\.biliapi\.net)\/x\/v2\/(?:feed\/index(?:\/story)?|account\/mine(?:\/ipad)?)(?:\?|$)`;
 
 function versionedRaw(relativePath) {
   return `${rawRoot}/${relativePath}?v=${assetVersion}`;
@@ -353,6 +377,7 @@ function cdnScriptLines() {
 
 function enhanceScriptLines() {
   return [
+    `Bilibili Enhance Fresh UI = type=http-request,pattern=${refreshPattern},timeout=3,engine=jsc,script-path=${versionedRaw("dist/bilibili-refresh.js")}`,
     `Bilibili Enhance JSON = type=http-response,pattern=${enhancePattern},requires-body=1,max-size=4194304,timeout=8,engine=jsc,script-path=${versionedRaw("dist/bilibili-enhance.js")},argument="${enhanceScriptArgument}"`,
     `Bilibili Enhance gRPC = type=http-response,pattern=${enhanceGrpcPattern},requires-body=1,binary-body-mode=1,max-size=1048576,timeout=8,engine=webview,script-path=${versionedRaw("dist/bilibili-enhance.js")},argument="${enhanceScriptArgument}"`,
   ];
@@ -375,6 +400,7 @@ function buildModule({
   ];
   if (includeEnhancements) {
     mitmHosts.push("api.live.bilibili.com");
+    mitmHosts.push("line3-h5-mobile-api.biligame.com");
   }
 
   return [
@@ -429,6 +455,7 @@ const outputs = new Map([
   ["dist/Bilibili.list", ruleList],
   ["dist/bilibili-cdn.js", sourceScript],
   ["dist/bilibili-enhance.js", enhanceScript],
+  ["dist/bilibili-refresh.js", refreshScript],
   ["dist/module-options.json", publishedCatalog],
 ]);
 

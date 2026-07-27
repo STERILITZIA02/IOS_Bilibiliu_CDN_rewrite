@@ -111,7 +111,16 @@ test("catalog and custom module routes use only fixed repository sources", async
     assert.match(cdnText, /网络档案:cellular/);
     assert.doesNotMatch(cdnText, /Bilibili Enhance/);
 
-    assert.ok(fetchedUrls.length >= 5);
+    const reviewedFixedResponse = await request(
+      "/module.sgmodule?variant=cdn&cdn=upos-hz-mirrorakam.akamaized.net",
+    );
+    assert.equal(reviewedFixedResponse.status, 200);
+    assert.match(
+      await reviewedFixedResponse.text(),
+      /CDN:upos-hz-mirrorakam\.akamaized\.net/,
+    );
+
+    assert.ok(fetchedUrls.length >= 7);
     assert.ok(
       fetchedUrls.every((url) =>
         url.startsWith(
@@ -148,6 +157,16 @@ test("custom module route rejects unknown and injection-style parameters", async
       "/module.sgmodule?variant=cdn&cdn=unrelated.akamaized.net",
     );
     assert.equal(unrelatedAkamaiHost.status, 400);
+
+    const unreviewedAkamaiHost = await request(
+      "/module.sgmodule?variant=cdn&cdn=upos-unreviewed.akamaized.net",
+    );
+    assert.equal(unreviewedAkamaiHost.status, 400);
+
+    const sharedProviderHost = await request(
+      "/module.sgmodule?variant=cdn&cdn=evil.ksyungslb.com",
+    );
+    assert.equal(sharedProviderHost.status, 400);
 
     const duplicate = await request(
       "/module.sgmodule?variant=cdn&intervalHours=12&intervalHours=24",

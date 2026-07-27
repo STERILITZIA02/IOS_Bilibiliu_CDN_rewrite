@@ -378,6 +378,17 @@
     ) {
       return "vip-materials";
     }
+    if (
+      (
+        includes(APP_HOSTS, parsed.host) ||
+        includes(API_HOSTS, parsed.host)
+      ) &&
+      /^\/x\/resource\/(?:top\/activity|patch\/tab(?:\/v2)?)$/.test(
+        path
+      )
+    ) {
+      return "resource-promotion";
+    }
 
     if (includes(APP_HOSTS, parsed.host)) {
       if (
@@ -430,6 +441,9 @@
       if (path === "/x/vip/web/vip_center/combine") {
         return "vip-center";
       }
+      if (path === "/pgc/activity/deliver/material/receive") {
+        return "pgc-activity-material";
+      }
     }
 
     if (
@@ -437,6 +451,19 @@
       path === "/xlive/app-room/v1/index/getInfoByRoom"
     ) {
       return "live";
+    }
+    if (
+      parsed.host === "api.live.bilibili.com" &&
+      path ===
+        "/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info"
+    ) {
+      return "live-shopping-material";
+    }
+    if (
+      parsed.host === "line3-h5-mobile-api.biligame.com" &&
+      path === "/game/live/large_card_material"
+    ) {
+      return "game-live-material";
     }
     return "";
   }
@@ -472,8 +499,16 @@
         return "grpc-view-unite";
       case "/bilibili.app.viewunite.v1.View/ViewProgress":
         return "grpc-view-unite-progress";
+      case "/bilibili.app.viewunite.v1.View/PlayPause":
+        return "grpc-view-unite-play-pause";
+      case "/bilibili.app.viewunite.v1.View/ViewEndPage":
+        return "grpc-view-unite-end-page";
       case "/bilibili.app.viewunite.v1.View/RelatesFeed":
         return "grpc-view-unite-relates";
+      case "/bilibili.app.mine.v1.Mine/PubModule":
+        return "grpc-mine-pub-module";
+      case "/bilibili.app.show.v1.Popular/Index":
+        return "grpc-popular";
       case "/bilibili.app.dynamic.v2.Dynamic/DynAll":
         return "grpc-dynamic";
       case "/bilibili.polymer.app.search.v1.Search/SearchAll":
@@ -483,6 +518,49 @@
       default:
         return "";
     }
+  }
+
+  function isWholeResponseAdEndpoint(endpoint) {
+    return (
+      endpoint === "grpc-view-unite-play-pause" ||
+      endpoint === "grpc-view-unite-end-page"
+    );
+  }
+
+  function grpcEndpointEnabled(endpoint, config) {
+    if (!endpoint || !config) {
+      return false;
+    }
+    if (isWholeResponseAdEndpoint(endpoint)) {
+      return config.ads !== false;
+    }
+    if (endpoint === "grpc-popular") {
+      return (
+        config.ads !== false ||
+        config.homeFeedVideoOnly !== false
+      );
+    }
+    if (endpoint === "grpc-mine-pub-module") {
+      return Boolean(
+        config.ui !== false &&
+          (
+            config.hideMineFirstVideo ||
+            config.hideMineRewardPublish
+          )
+      );
+    }
+    if (
+      endpoint === "grpc-view-v1" ||
+      endpoint === "grpc-view-v1-relates" ||
+      endpoint === "grpc-view-unite" ||
+      endpoint === "grpc-view-unite-relates"
+    ) {
+      return (
+        config.ads !== false ||
+        config.videoOnlyRecommendations !== false
+      );
+    }
+    return config.ads !== false;
   }
 
   function deleteProperty(object, key) {
@@ -1315,6 +1393,64 @@
     return 1;
   }
 
+  function replaceRootObject(body, replacement) {
+    var keys;
+    var replacementKeys;
+    var index;
+    if (!isPlainObject(body) || !isPlainObject(replacement)) {
+      return 0;
+    }
+    if (JSON.stringify(body) === JSON.stringify(replacement)) {
+      return 0;
+    }
+    keys = Object.keys(body);
+    for (index = 0; index < keys.length; index += 1) {
+      delete body[keys[index]];
+    }
+    replacementKeys = Object.keys(replacement);
+    for (index = 0; index < replacementKeys.length; index += 1) {
+      body[replacementKeys[index]] = replacement[replacementKeys[index]];
+    }
+    return 1;
+  }
+
+  function handleDedicatedPromotion(body, endpoint, config) {
+    if (endpoint === "live-shopping-material") {
+      return config.liveShopping
+        ? replaceRootObject(body, {})
+        : 0;
+    }
+    if (!config.ads) {
+      return 0;
+    }
+    if (endpoint === "resource-promotion") {
+      return replaceRootObject(body, {
+        code: -404,
+        data: null,
+        message: "-404",
+        ttl: 1
+      });
+    }
+    if (endpoint === "game-live-material") {
+      return replaceRootObject(body, {
+        code: 0,
+        message: "success"
+      });
+    }
+    if (endpoint === "pgc-activity-material") {
+      return replaceRootObject(body, {
+        code: 0,
+        data: {
+          closeType: "close_win",
+          container: [],
+          showTime: ""
+        },
+        message: "success"
+      });
+    }
+    return 0;
+  }
+
   function vipOverlayHasMarketingMarker(value) {
     var index;
     if (Array.isArray(value)) {
@@ -1793,6 +1929,14 @@
     if (endpoint === "vip-materials") {
       return handleVipMaterials(body, config);
     }
+    if (
+      endpoint === "resource-promotion" ||
+      endpoint === "pgc-activity-material" ||
+      endpoint === "live-shopping-material" ||
+      endpoint === "game-live-material"
+    ) {
+      return handleDedicatedPromotion(body, endpoint, config);
+    }
     if (endpoint === "search-square") {
       return handleSearchSquare(body, config);
     }
@@ -2163,6 +2307,112 @@
     return text.toLowerCase();
   }
 
+  function positiveVarintField(input, fieldNumber) {
+    var field = findProtoField(input, fieldNumber, 0);
+    return Boolean(field && field.scalar > 0);
+  }
+
+  function popularCardBase(input) {
+    var bytes = toUint8Array(input);
+    var small = findProtoField(bytes, 1, 2);
+    var large = findProtoField(bytes, 2, 2);
+    var container;
+    var base;
+    if (!bytes || Boolean(small) === Boolean(large)) {
+      return null;
+    }
+    container = protoPayload(bytes, small || large);
+    base = findProtoField(container, 1, 2);
+    return base ? protoPayload(container, base) : null;
+  }
+
+  function isPopularCardAd(input) {
+    var bytes = toUint8Array(input);
+    var base;
+    var adInfo;
+    if (!bytes) {
+      return false;
+    }
+    if (findProtoField(bytes, 11, 2)) {
+      return true;
+    }
+    base = popularCardBase(bytes);
+    if (!base) {
+      return false;
+    }
+    adInfo = findProtoField(base, 12, 2);
+    return Boolean(
+      adInfo && adInfo.payloadEnd > adInfo.payloadStart
+    );
+  }
+
+  function isExplicitPopularAv(input) {
+    var base = popularCardBase(input);
+    var cardGoto;
+    var gotoValue;
+    var param;
+    var uri;
+    var args;
+    var playerArgs;
+    var identity = false;
+    if (!base || isPopularCardAd(input)) {
+      return false;
+    }
+    cardGoto = shortAsciiField(base, 2);
+    gotoValue = shortAsciiField(base, 3);
+    if (
+      cardGoto &&
+      cardGoto !== "av" &&
+      cardGoto !== "video"
+    ) {
+      return false;
+    }
+    if (
+      gotoValue &&
+      gotoValue !== "av" &&
+      gotoValue !== "video"
+    ) {
+      return false;
+    }
+    if (
+      cardGoto !== "av" &&
+      cardGoto !== "video" &&
+      gotoValue !== "av" &&
+      gotoValue !== "video"
+    ) {
+      return false;
+    }
+
+    param = shortAsciiField(base, 4);
+    uri = shortAsciiField(base, 7);
+    if (param && /^(?:\d+|bv[0-9a-z]+)$/i.test(param)) {
+      identity = true;
+    }
+    if (
+      uri &&
+      /^(?:bilibili:\/\/video\/|https?:\/\/(?:www\.)?bilibili\.com\/video\/)/i.test(
+        uri
+      )
+    ) {
+      identity = true;
+    }
+    args = findProtoField(base, 9, 2);
+    if (
+      args &&
+      positiveVarintField(protoPayload(base, args), 11)
+    ) {
+      identity = true;
+    }
+    playerArgs = findProtoField(base, 10, 2);
+    if (
+      playerArgs &&
+      positiveVarintField(protoPayload(base, playerArgs), 2)
+    ) {
+      identity = true;
+    }
+    return identity;
+  }
+
   function bytesContainCommercialLink(input) {
     var bytes = toUint8Array(input);
     var text = "";
@@ -2183,7 +2433,10 @@
   }
 
   function shouldRemoveViewV1Relate(input, config) {
-    if (isViewV1RelateAd(input)) {
+    if (
+      config.ads !== false &&
+      isViewV1RelateAd(input)
+    ) {
       return true;
     }
     return (
@@ -2241,7 +2494,10 @@
   }
 
   function shouldRemoveViewUniteRelate(input, config) {
-    if (isViewUniteRelateAd(input)) {
+    if (
+      config.ads !== false &&
+      isViewUniteRelateAd(input)
+    ) {
       return true;
     }
     return (
@@ -2278,6 +2534,7 @@
     }
     return rewriteProtoMessage(input, function (field, bytes) {
       if (
+        config.ads !== false &&
         field.wireType === 2 &&
         includes([30, 31, 34, 41, 48], field.fieldNumber)
       ) {
@@ -2322,6 +2579,72 @@
       return field.fieldNumber === 4 && field.wireType === 2
         ? { changed: 1, remove: true }
         : null;
+    });
+  }
+
+  function transformWholeResponseAd(input) {
+    var bytes = toUint8Array(input) || new Uint8Array();
+    return {
+      body: new Uint8Array(),
+      changed: bytes.length > 0 ? 1 : 0,
+      valid: true
+    };
+  }
+
+  function transformMinePubModule(input, config) {
+    if (
+      !config ||
+      config.ui === false ||
+      (
+        !config.hideMineFirstVideo &&
+        !config.hideMineRewardPublish
+      )
+    ) {
+      return {
+        body: toUint8Array(input) || new Uint8Array(),
+        changed: 0,
+        valid: true
+      };
+    }
+    return filterRepeatedMessage(input, 1, function (pubCard) {
+      return Boolean(
+        findProtoField(pubCard, 1, 2) ||
+        smallVarintField(pubCard, 5) === 1
+      );
+    });
+  }
+
+  function transformPopular(input, config) {
+    var keptVideos = 0;
+    var strict =
+      !config || config.homeFeedVideoOnly !== false;
+    return rewriteProtoMessage(input, function (field, bytes) {
+      var card;
+      var remove;
+      if (
+        field.fieldNumber !== 1 ||
+        field.wireType !== 2
+      ) {
+        return null;
+      }
+      card = protoPayload(bytes, field);
+      remove = strict
+        ? (
+            !isExplicitPopularAv(card) ||
+            keptVideos >= HOME_FEED_VIDEO_LIMIT
+          )
+        : (
+            config &&
+            config.ads !== false &&
+            isPopularCardAd(card)
+          );
+      if (remove) {
+        return { changed: 1, remove: true };
+      }
+      if (strict) {
+        keptVideos += 1;
+      }
+      return null;
     });
   }
 
@@ -2395,8 +2718,10 @@
       payload = protoPayload(bytes, field);
       moduleType = smallVarintField(payload, 1);
       if (
-        moduleType === 18 ||
-        moduleType === 55 ||
+        (
+          config.ads !== false &&
+          (moduleType === 18 || moduleType === 55)
+        ) ||
         (moduleType === 29 && config.vipPromotions !== false)
       ) {
         return { changed: 1, remove: true };
@@ -2499,7 +2824,11 @@
     }
     return rewriteProtoMessage(input, function (field, bytes) {
       var nested;
-      if (field.fieldNumber === 7 && field.wireType === 2) {
+      if (
+        config.ads !== false &&
+        field.fieldNumber === 7 &&
+        field.wireType === 2
+      ) {
         return { changed: 1, remove: true };
       }
       if (field.fieldNumber !== 5 || field.wireType !== 2) {
@@ -2628,8 +2957,15 @@
         return transformViewUnite(input, false, config);
       case "grpc-view-unite-progress":
         return transformViewUniteProgress(input);
+      case "grpc-view-unite-play-pause":
+      case "grpc-view-unite-end-page":
+        return transformWholeResponseAd(input);
       case "grpc-view-unite-relates":
         return transformViewUnite(input, true, config);
+      case "grpc-mine-pub-module":
+        return transformMinePubModule(input, config);
+      case "grpc-popular":
+        return transformPopular(input, config);
       case "grpc-dynamic":
         return transformDynamic(input);
       case "grpc-search":
@@ -2823,7 +3159,7 @@
         valid: false
       };
     }
-    if (!endpoint || !effectiveConfig.ads) {
+    if (!grpcEndpointEnabled(endpoint, effectiveConfig)) {
       return {
         body: original,
         changed: 0,
@@ -2833,7 +3169,10 @@
     }
     for (index = 0; index < frames.length; index += 1) {
       frame = frames[index];
-      if (frame.flag === 1) {
+      if (
+        frame.flag === 1 &&
+        !isWholeResponseAdEndpoint(endpoint)
+      ) {
         chunks.push(original.slice(frame.start, frame.end));
         continue;
       }
@@ -2883,13 +3222,19 @@
         valid: false
       });
     }
-    if (!endpoint || !effectiveConfig.ads) {
+    if (!grpcEndpointEnabled(endpoint, effectiveConfig)) {
       return Promise.resolve({
         body: original,
         changed: 0,
         endpoint: endpoint,
         valid: true
       });
+    }
+
+    if (isWholeResponseAdEndpoint(endpoint)) {
+      return Promise.resolve(
+        transformGrpcBody(body, requestUrl, effectiveConfig)
+      );
     }
 
     tasks = frames.map(function (frame) {
@@ -3104,6 +3449,7 @@
     isHighConfidencePromotion: isHighConfidencePromotion,
     isMineMarketingBanner: isMineMarketingBanner,
     isFeedAdCard: isFeedAdCard,
+    isExplicitPopularAv: isExplicitPopularAv,
     matchesMineTarget: matchesMineTarget,
     matchesNavigationItem: matchesNavigationItem,
     parseArgument: parseArgument,
@@ -3113,6 +3459,8 @@
     transformGrpcBody: transformGrpcBody,
     transformGrpcBodyAsync: transformGrpcBodyAsync,
     transformGrpcPayload: transformGrpcPayload,
+    transformMinePubModule: transformMinePubModule,
+    transformPopular: transformPopular,
     transformJsonText: transformJsonText
   };
 
