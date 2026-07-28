@@ -4,7 +4,9 @@ The production website for this repository. It provides an iPhone/iPad-first
 interface for choosing the CDN-only or Enhanced module, enabling the ordinary-
 video-only playback filter and the six-item ordinary-AV home feed, changing
 each reviewed Home/Mine visibility option, and generating a stable
-Shadowrocket install URL.
+Shadowrocket install URL. CDN controls expose the default nonblocking learner,
+an explicit blocking/cache-only mode, manual network profiles, and an
+idempotent learning-state reset token.
 
 ## Safety model
 

@@ -83,12 +83,16 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(moduleText, /隐藏设置:false/);
   assert.match(moduleText, /PCDN策略:DIRECT/);
   assert.match(moduleText, /网络档案:auto/);
+  assert.match(moduleText, /测速方式:nonblocking/);
+  assert.match(moduleText, /重置令牌:none/);
   assert.match(
     moduleText,
     /DOMAIN-WILDCARD,\*pcdn\*\.biliapi\.net,\{\{\{PCDN策略\}\}\}/,
   );
   assert.doesNotMatch(moduleText, /DOMAIN-SUFFIX,mcdn\.bilivideo\.cn,REJECT/);
   assert.match(moduleText, /"networkProfile":"\{\{\{网络档案\}\}\}"/);
+  assert.match(moduleText, /"probeMode":"\{\{\{测速方式\}\}\}"/);
+  assert.match(moduleText, /"resetToken":"\{\{\{重置令牌\}\}\}"/);
   assert.match(
     moduleText,
     /"homeFeedVideoOnly":\{\{\{首页推荐6个普通视频\}\}\}/,
@@ -101,6 +105,10 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(moduleText, /"switchThreshold":\{\{\{切换阈值\}\}\}/);
   assert.match(moduleText, /"hideMineWallet":\{\{\{隐藏我的钱包\}\}\}/);
   assert.match(moduleText, /"hideMoreSettings":\{\{\{隐藏设置\}\}\}/);
+  assert.match(
+    moduleText,
+    /Bilibili Enhance Fresh UI = .*argument="\{"debug":\{\{\{调试日志\}\}\}\}"/,
+  );
 
   assert.match(cdnOnlyModule, /^#!name=Bilibili CDN Switcher$/m);
   assert.match(cdnOnlyModule, /\[Rule\]/);
@@ -119,7 +127,7 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   );
 });
 
-test("fresh UI request guard covers only Home and Mine cache-sensitive APIs", () => {
+test("fresh UI request guard covers every reviewed cache-sensitive metadata API", () => {
   const scriptLine = moduleText
     .split(/\r?\n/)
     .find((line) => line.startsWith("Bilibili Enhance Fresh UI = "));
@@ -133,13 +141,19 @@ test("fresh UI request guard covers only Home and Mine cache-sensitive APIs", ()
     "https://app.biliapi.net/x/v2/feed/index/story?pull=1",
     "https://app.bilibili.com/x/v2/account/mine?build=9400000",
     "https://app.biliapi.net/x/v2/account/mine/ipad",
+    "https://app.bilibili.com/x/v2/account/myinfo",
+    "https://app.bilibili.com/x/v2/view?aid=1",
+    "https://app.bilibili.com/x/v2/splash/list",
+    "https://app.biliapi.net/x/v2/splash/event/list2",
+    "https://app.bilibili.com/x/vip/ads/materials",
+    "https://api.biliapi.net/x/vip/ads/material/report",
   ]) {
     assert.match(url, pattern);
   }
   for (const url of [
     "https://api.bilibili.com/x/v2/feed/index",
-    "https://app.bilibili.com/x/v2/view",
-    "https://app.bilibili.com/x/v2/account/myinfo",
+    "https://app.bilibili.com/x/v2/search/square",
+    "https://app.bilibili.com/x/resource/show/tab/v2",
   ]) {
     assert.doesNotMatch(url, pattern);
   }
@@ -168,6 +182,8 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
     "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/ViewEndPage",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/RelatesFeed",
     "https://grpc.biliapi.net/bilibili.app.mine.v1.Mine/PubModule",
+    "https://grpc.biliapi.net/bilibili.app.mine.v1.Mine/DeviceFeature",
+    "https://app.bilibili.com/bilibili.app.resource.v1.Module/List",
     "https://grpc.biliapi.net/bilibili.app.show.v1.Popular/Index",
     "https://grpc.biliapi.net/bilibili.app.dynamic.v2.Dynamic/DynAll",
     "https://grpc.biliapi.net/bilibili.polymer.app.search.v1.Search/SearchAll",
@@ -263,8 +279,11 @@ test("enhancement response pattern covers only reviewed API endpoints", () => {
     "https://app.bilibili.com/x/resource/top/activity",
     "https://api.biliapi.net/x/resource/patch/tab/v2",
     "https://app.bilibili.com/x/v2/account/mine",
+    "https://app.bilibili.com/x/v2/account/myinfo",
     "https://app.bilibili.com/x/vip/ads/materials?position=mine",
+    "https://app.bilibili.com/x/vip/ads/material/report",
     "https://api.biliapi.net/x/vip/ads/materials?position=mine",
+    "https://api.biliapi.net/x/vip/ads/material/report",
     "https://api.bilibili.com/x/v2/reply/main?oid=1",
     "https://api.bilibili.com/x/vip/web/vip_center/combine",
     "https://api.bilibili.com/pgc/page/cinema/tab",

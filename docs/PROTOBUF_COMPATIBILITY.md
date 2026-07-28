@@ -22,16 +22,18 @@
 
 | gRPC 方法 | 高置信处理 |
 | --- | --- |
-| `bilibili.app.view.v1.View/View` | 删除 `ViewReply` 的 `cms(30)`、`cm_config(31)`、`tf_panel_customized(34)`、`cm_ipad(41)`、兼容字段 `cm_under_player(48)`；始终移除含 `Relate.cm(28)` 的关联卡；严格模式下只保留 `Relate.goto(7) == "av"` |
+| `bilibili.app.view.v1.View/View` | 删除 `ViewReply` 的 `cms(30)`、`cm_config(31)`、`tf_panel_customized(34)`、`cm_ipad(41)`、兼容字段 `cm_under_player(48)`；始终移除含 `Relate.cm(28)` 的关联卡；严格模式下只保留 `Relate.goto(7) == "av"` 且存在 `aid(1)`、有效 `param(8)` 或 video URI(9) 的关系卡 |
 | `bilibili.app.view.v1.View/ViewProgress` | 删除每次播放进度响应重新下发的 `video_guide(1)` 运营容器；保留 `chronos(2)`、视频快照/进度点及未知顶层字段 |
 | `bilibili.app.view.v1.View/RelatesFeed` | 使用与上项相同的关系卡判据 |
 | `bilibili.app.view.v1.View/TFInfo` | 删除运营商免流营销 `tf_toast(2)` 与 `tf_panel_customized(3)`；保留 `tips_id(1)`、`user_flag_new(4)` 和未知字段 |
 | `bilibili.app.viewunite.v1.View/View` | 删除顶层 `cm(7)`；始终移除类型 `4`（游戏推广）、`5`（广告）、`11`（课程推广）、`game(5)`/`cm(6)` 载荷、非空 `cm_stock(11)` 或 `BasicInfo.unique_id(6)` 卡；严格模式下仅保留同时满足类型 `1 (AV)` 与 oneof `av(2)` 且不存在非 AV oneof `3/4/5/6/7/8/9/13/14` 的卡；移除介绍模块类型 `18`（活动横幅）、`55`（UP 主商品分享）以及受 `会员营销` 控制的 `29`（大会员横幅） |
 | `bilibili.app.viewunite.v1.View/ViewProgress` | 删除每次播放进度响应重新下发的 `dm(4)` 运营/命令卡容器；保留 `video_guide(1)`、`chronos(2)`、视频快照及未知顶层字段 |
-| `bilibili.app.viewunite.v1.View/PlayPause` | 9.4.0 专用暂停运营响应；在进入渲染层前返回空 gRPC 消息，音视频流与播放地址不由此方法承载 |
-| `bilibili.app.viewunite.v1.View/ViewEndPage` | 9.4.0 专用结束页运营响应；与 `PlayPause` 使用相同的精确方法级中和 |
+| `bilibili.app.viewunite.v1.View/PlayPause` | 逐个检查顶层 length-delimited 字段；只删除载荷中含已审核商业 URL、creative/ad ID 或暂停广告标记的字段。9.4.0 构建信息用于诊断 adapter 标签，不作为盲目清空消息的依据；无证据字段和未知 wire bytes 保留 |
+| `bilibili.app.viewunite.v1.View/ViewEndPage` | 按公开 schema 读取重复 `ViewEndPageCard(1)`，再读取其 `relate(1)`；使用与 ViewUnite 关系卡相同的广告与普通 AV 判据，保留普通 AV、`card_index(2)`、未知顶层字段和未知 wire bytes |
 | `bilibili.app.viewunite.v1.View/RelatesFeed` | 使用与上项相同的关系卡判据；不处理介绍模块 |
 | `bilibili.app.mine.v1.Mine/PubModule` | 只删除 `PubCard.pub_guide(1)`，保留 `ugc(2)`、`opus(3)`、`more(4)`、`card_type(5)` 与未知字段 |
+| `bilibili.app.mine.v1.Mine/DeviceFeature` | 验证 `DeviceFeatureResp.actionData(1)` 为严格 UTF-8 JSON；当前没有能证明具体广告 action 的脱敏 fixture，因此只输出诊断原因并逐字节透传 |
+| `bilibili.app.resource.v1.Module/List` | 公开 schema 确认 `ListReply.env(1)`、`pools(2)`、`list_version(3)`；该资源更新入口仅做结构诊断，永不清空、拒绝或阻断 |
 | `bilibili.app.show.v1.Popular/Index` | 重复 `Card(1)` 最多保留前 6 个明确普通 AV；仅接受 `smallCoverV5(1)`/`largeCoverV1(2)`，拒绝 `rcmdOneItem(10)`、`smallCoverV5Ad(11)`、`ad_info(12)` 和非 AV/无视频身份卡 |
 | `bilibili.app.dynamic.v2.Dynamic/DynAll` | 仅移除 `DynamicItem.card_type == 15 (ad)` |
 | `bilibili.polymer.app.search.v1.Search/SearchAll` | 仅移除 oneof 为 `game(11)` 或 `cm(25)` 的搜索卡 |
@@ -46,6 +48,10 @@ CDN 脚本只在模块精确列出的播放 gRPC 方法中运行。它不依赖�
 `bilibili.app.playurl.v1.PlayURL/PlayView`、PGC gateway player `v1/v2` 与
 `bilibili.cheese.gateway.player.v1.PlayURL/PlayView`，用于普通/短视频/竖屏/
 稍后再看、番剧影视和课程等仍返回同类播放结构的入口。未知新方法不做猜测式匹配。
+
+app PlayURL、PlayerUnite、PGC v1 与 Cheese/PUGV 使用已核对的 reply field `1`
+下媒体路径 `5.2`、`5.3.1`、`6`、`7.2`、`9.2`；PGC v2 只使用其公开 schema
+存在的 `5.2`、`5.3.1`、`6`、`7.2`，不会把未知 field `9` 猜成无损音频。
 
 | 结构 | 主 URL | 备用 URL | 隔离元数据 |
 | --- | --- | --- | --- |
@@ -66,6 +72,8 @@ CDN 脚本只在模块精确列出的播放 gRPC 方法中运行。它不依赖�
 - `推荐仅普通视频` 默认开启且只影响播放页关系卡，并受 `广告过滤` 总开关控制；关闭后类型
   `0/2/3/6/7/8/9/10` 等合法非 AV 卡可恢复，但明确广告/推广判据仍执行。
 - 仅支持标准 Protobuf wire type `0`、`1`、`2`、`5`。
+- 超过 JavaScript safe integer 的 uint64 varint 不转换成 Number；原始 varint
+  bytes 保留，且不会导致整条消息解析失败。
 - gRPC 压缩标志 `0` 直接处理；标志 `1` 按 Bilibili 当前 gzip 约定解压，最多
   4 MiB，修改后以标志 `0` 和新的消息长度输出。
 - 未知帧标志、gzip 解压不可用/失败或解压后超限时，整份响应原样返回。

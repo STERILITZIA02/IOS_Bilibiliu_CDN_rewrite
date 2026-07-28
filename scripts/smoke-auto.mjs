@@ -22,6 +22,7 @@ const config = cdn.parseArgument(
     cdn: "auto",
     intervalHours: 12,
     networkProfile: "smoke",
+    probeMode: "blocking",
     switchThreshold: 20,
   }),
 );
@@ -62,11 +63,13 @@ const services = {
         };
         const validation = cdn.validateProbeResponse(raw, candidate.url);
         probeResults.push({
+          bodyLength: validation.bodyLength || 0,
           elapsedMs: Math.round(raw.elapsedMs),
           host: new URL(candidate.url).hostname,
           ok: validation.ok,
           reason: validation.reason,
           status: raw.status,
+          totalLength: validation.totalLength || 0,
         });
         callback(raw);
       })
@@ -109,6 +112,9 @@ console.log(
 
 if (probeResults.length !== 2 || probeResults.some((result) => !result.ok)) {
   throw new Error("Strict Range validation did not pass for both candidates");
+}
+if (outcome.reason === "object-mismatch") {
+  throw new Error("Primary and backup samples did not prove the same object");
 }
 if (outcome.changed !== 0) {
   throw new Error("A newly learned result changed the current response");

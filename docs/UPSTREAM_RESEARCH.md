@@ -11,7 +11,8 @@
 
 1. 广告过滤通常只处理多特征一致的高置信度对象；播放页“仅普通视频”开关是
    有意例外，无法确认为普通 AV 的关系卡会删除。
-2. 首页与“我的”页面只从服务端原始数组中删除明确命中的入口，不用本地白名单覆盖整个数组。
+2. 首页普通视频流是明确的严格白名单例外；首页导航与“我的”页面仍只从已知 UI
+   容器中删除明确入口，不遍历账号或未知对象。
 3. 自动 CDN 不能把一个主机全局套用到整份响应。视频、音频、清晰度、编码和资源版本必须隔离。
 4. 自动候选只来自同一个媒体对象的 `base_url` 与 `backup_url`；静态主机只能作为显式手动模式的补充。
 5. CDN 可用性必须使用小范围 `Range` 请求验证；仅成功的 `HEAD` 不足以证明返回的是可播放媒体。
@@ -37,6 +38,8 @@
 | [WebKit Compression Streams](https://docs.webkit.org/Deep%20Dive/Modules/CompressionStreams.html) | 调研日文档 | WebKit 文档条款 | 核对 iOS WebView 的 gzip 流式解压能力与格式支持 |
 | [`bilibili-API-collect` 公开镜像](https://gitea.s1f.ren/shiran/bilibili-API-collect) | `cfc5fddcc8a94b74d91970bb5b4eaeb349addc47` | CC BY-NC 4.0 | 只交叉核对互操作字段号与语义事实，不复制 schema 或实现 |
 | [`pskdje/bilibili-API-collect`](https://github.com/pskdje/bilibili-API-collect) | `271b123a0836` | 仓库未声明标准 SPDX 许可证 | 只核对公开大会员中心 JSON 字段事实，不复制文档或实现 |
+| [`bilibili-plugins/bilibili-grpc-protobuf-files`](https://github.com/bilibili-plugins/bilibili-grpc-protobuf-files/tree/1d4ae29ff226d1aea082234f21b66c577dbb4e54) | `1d4ae29ff226` | 仓库声明为准 | 核对 `DeviceFeatureResp.actionData(1)`、`ViewEndPageReply.relates(1)` 与 `ViewEndPageCard.relate(1)`；不打包 schema |
+| [`aaa1115910/bv` gRPC proto](https://github.com/aaa1115910/bv/tree/0e454c06e954b00df7a0a5a6873c9f18a7f9d0f5/bili-api/grpc/proto) | `0e454c06e954` | 仓库声明为准 | 交叉核对 app PlayURL、PlayerUnite 与 playershared 媒体路径；只实现精确 adapter |
 
 最终发行版会在 `THIRD_PARTY_NOTICES.md` 中保留实际采用来源的许可证说明。若后续复制任何上游代码片段，必须先记录文件、提交和许可证；当前设计不需要复制。
 
@@ -93,11 +96,16 @@ BiliUniverse/ADBlock 固定提交
 - 底部“发布”：`id=670`、`tab_id=publish`、URI 为投稿中心。
 - 底部“会员购”：`id=242`、`tab_id=会员购Bottom`、URI 为会员购。
 
-删除逻辑必须至少同时命中名称与稳定 ID、`tab_id` 或 URI 之一。首页、动态/关注、消息、个人中心等非目标入口必须保留。
+删除逻辑优先按稳定 ID、`tab_id`、action/type 或精确 URI 命中；只有缺少这些稳定
+标识时才以精确中文标题作兼容回退。首页、动态/关注、消息、个人中心等非目标入口
+必须保留。
 
 ### “我的”页面
 
-已确认的服务项包括“我的课程”“看视频免流量”“能量加油站”。其余目标项采用“精确中文名 + 商业 URI/稳定 ID”匹配。登录、账号、设置、历史、收藏、下载、真实大会员状态与付费权益不得更改。
+已确认的服务项包括“我的课程”“看视频免流量”“能量加油站”。目标项优先使用
+稳定 ID/module ID/tab ID/action/type、精确 URI/scheme 与所在已知 section；
+精确中文标题仅作最后兼容回退，不再要求标题先命中才允许稳定标识生效。登录、
+账号、设置、历史、收藏、下载、真实大会员状态与付费权益不得更改。
 
 ### 播放页与大会员中心
 
@@ -107,7 +115,8 @@ BiliUniverse/ADBlock 固定提交
   当前上游实现还识别 `11` 为课程推广。默认严格模式因此只允许类型 `1`。
 - [旧版 View schema 快照](https://github.com/pskdje/bilibili-API-collect/blob/main/grpc_api/bilibili/app/view/v1/view.proto)
   记录 `Relate.goto(7)` 中 `"av"` 为普通视频，`"special"` 为 PGC，`"cm"` 为广告，
-  `"game"` 为游戏；严格模式只允许 `"av"`。
+  `"game"` 为游戏；严格模式还要求 `aid(1)`、有效 `param(8)` 或 video URI(9)
+  之一，避免只有 `"av"` 外壳的未知卡片混入。
 - [JSON 推荐接口样例](https://github.com/pskdje/bilibili-API-collect/blob/main/docs/video/recommend.md)
   将普通视频表示为 `goto:"av"`，直播表示为 `goto:"live"`，OGV 表示为
   `goto:"ogv"`，并给出明确广告类型；JSON 白名单据此实现，同时拒绝已审核的
@@ -127,8 +136,17 @@ BiliUniverse/ADBlock 固定提交
 - Sparkle 固定提交中的当前模块把
   `bilibili.app.viewunite.v1.View/PlayPause` 与
   `bilibili.app.viewunite.v1.View/ViewEndPage` 作为独立广告响应中和；这与用户在
-  9.4.0 后台暂停后看到的全屏应用卡入口吻合。本项目据公开方法事实独立实现空
-  gRPC 响应，没有复制 GPL 实现。
+  9.4.0 后台暂停后看到的全屏应用卡入口吻合，但不足以证明整个消息永久为空。
+  本项目因此不复制其空消息策略：`PlayPause` 只删除含明确商业证据的字段；
+  `ViewEndPage` 依据公开 `ViewEndPageCard.relate(1)` schema 过滤关系卡，未知字段
+  原样保留。
+- 公开 `DeviceFeatureResp` 只证明 field `1` 是 actionData 字符串，未证明任何
+  当前 action 专门承载广告；因此严格 UTF-8/JSON 解析后仍诊断透传。公开
+  `bilibili.app.resource.v1.Module/List` schema 证明它是资源模块更新，不得为了
+  “我的页”清理而清空或阻断。
+- `/x/vip/ads/materials` 的公开契约包含 `list`、`list_v2` 与
+  `vip_login_coupon` 等素材字段；`/x/vip/ads/material/report` 是独立上报接口，
+  成功响应为 `code/message/ttl` 形状。两者必须使用不同 handler。
 - `Mine/PubModule` 的 `PubCard` 是 oneof；只删除 `pub_guide(1)`，保留
   `ugc(2)`、`opus(3)` 和未知字段，避免为修复后台回流而覆盖整个“我的”数据。
 - `Popular/Index` 的普通卡 oneof 与广告卡 oneof 可精确区分；严格首页开关下仍

@@ -17,6 +17,9 @@
 > 自动化测试不能替代真实 iPhone/iPad、Shadowrocket 与 Bilibili App
 > 组合的真机验收。仓库会明确区分“代码测试通过”和“真机已验证”；发布前后的
 > 检查矩阵见 [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
+>
+> v3.3.0 的确认问题、修改前后链路、证据不足的安全透传项和回滚方式见
+> [增量审计记录](docs/V3_3_AUDIT.md)。
 
 ## 下载与直接安装
 
@@ -140,34 +143,41 @@ AVID/BVID/CID、`param`、播放器参数或 `/video/` 地址中的至少一个�
 
 `推荐仅普通视频=true` 是播放页推荐列表的有意严格边界：JSON 必须有
 `goto/card_goto/type=av|video`、普通视频 `player_args` 或 `/video/` 地址，只有
-AVID/BVID 而没有类型证据的卡片不会放行；旧版 View gRPC 只保留 `goto=av`；
+AVID/BVID 而没有类型证据的卡片不会放行；旧版 View gRPC 只保留同时具有
+`goto=av` 与 aid/param/video URI 身份的卡；
 ViewUnite 必须同时是关系卡类型 `1 (AV)` 且实际 oneof 为 `av(2)`。类型伪装、
 字段缺失或载荷为纪录片/番剧、资源、游戏、CM、直播、AI、特殊内容的卡片会删除，
 未知非目标字段仍按原始 wire bytes 保留。关闭该开关可恢复合法非视频推荐，但
 `广告过滤=true` 时明确 CM、广告/游戏/课程推广、活动横幅、大会员横幅和 UP 主
 商品分享模块仍会清理。
 
-播放页 gRPC 脚本同时读取 Shadowrocket 的 `bodyBytes`，并在 WebView 引擎内对
-首个 gzip 压缩响应做 4 MiB 解压上限处理；因此播放器下广告和关系卡会在第一次
-渲染前完成过滤。损坏帧、未知压缩格式或解压能力不可用时仍原样放行，避免破坏播放。
+播放页 gRPC 脚本优先读取 Shadowrocket 的 `bodyBytes`，逐帧处理未压缩或 gzip
+消息，并在 WebView 引擎内设置 4 MiB 解压上限；因此播放器下广告和关系卡会在
+第一次渲染前完成过滤。损坏帧、未知压缩格式、未知 schema、超限响应或解压能力
+不可用时整份响应原样放行，避免破坏播放。
 
 针对 Bilibili iOS 9.4.0（用户报告构建
 `58ece148439d6782b1e6f9a9a37e82a1fd0db236`），App 从后台恢复或暂停时可能重新
 请求 `ViewProgress`、`PlayPause` 与 `ViewEndPage`。Enhanced 会逐次移除旧版
-`view.v1` 的 `video_guide`、新版 `viewunite.v1` 的 `dm`，并将两个专用暂停/
-结束运营响应中和为空 gRPC 消息；Chronos、视频快照、进度点和播放地址不在这些
-删除目标中。这样可在暂停广告进入渲染层前阻断，而不是等第二次进入视频才清理。
+`view.v1` 的 `video_guide`、新版 `viewunite.v1` 的 `dm`；`PlayPause` 只删除
+载荷中具有明确商业 URL/creative/广告字段证据的 length-delimited 字段，
+`ViewEndPage` 则按已验证的 `ViewEndPageCard.relate(1)` 结构执行与播放页相同的
+普通 AV/广告判据。Chronos、视频快照、进度点、播放地址、未知顶层字段和没有
+商业证据的暂停字段均保留。无法识别 schema 时记录 no-op 并原样放行，不再永久
+清空整个消息。
 
-首页/推荐页和“我的”页的易变请求另有精确请求侧缓存保护：只对
-`/x/v2/feed/index`、`/x/v2/feed/index/story` 与
-`/x/v2/account/mine(/ipad)` 移除条件缓存校验头并请求重新验证，不修改 URL、
-查询参数、请求体或签名。后台恢复后得到的新响应会再次经过同一过滤器。
+首页/推荐页和“我的”页的易变请求另有精确请求侧缓存保护：只对四个 splash
+接口、`/x/v2/feed/index`、`/x/v2/feed/index/story`、`/x/v2/view`、
+`/x/v2/account/mine(/ipad)`、`/x/v2/account/myinfo` 以及两个 VIP 广告素材/
+上报接口移除条件缓存校验头，并设置 `no-cache, no-store`；不修改 URL、查询
+参数、请求体或签名。后台恢复后得到的新响应会再次经过同一过滤器。
 异步 `Mine/PubModule` 只删除发布引导 `PubGuide`，保留 UGC、动态及未知卡；
 `Popular/Index` 备用推荐流同样只保留最多 6 个有明确视频身份的普通 AV。
 
 大会员中心只处理营销 `banners`/已审核横幅列表变体和具有高置信营销标记的弹层；
 “我的”页还会删除协议中明确用于会员营销的 `vip_section`、`vip_section_v2`、
-`modular_vip_section`，并中和专用 `/x/vip/ads/materials` 响应。以下内容属于
+`modular_vip_section`，并对 `/x/vip/ads/materials` 返回经核对的空素材成功
+结构；`/x/vip/ads/material/report` 单独返回无副作用的成功上报结构。以下内容属于
 保护边界：真实会员状态、到期时间、会员标签、钱包、订单、付款渠道、权益列表和
 未知账号字段。每份新的“我的”响应都会独立过滤，因此切后台后服务端重新下发也
 不会依赖上一次响应的本地状态。
@@ -199,6 +209,8 @@ ViewUnite 必须同时是关系卡类型 `1 (AV)` 且实际 oneof 为 `av(2)`。
 | `分流策略` | `DIRECT` | `DIRECT`、`PROXY` 或现有策略组名称 |
 | `PCDN策略` | `DIRECT` | 只匹配 `*pcdn*.biliapi.net`；设为 `REJECT` 才阻断 |
 | `网络档案` | `auto` | 手动命名不同网络缓存，如 `home_wifi`、`cellular` |
+| `测速方式` | `nonblocking` | 默认不阻塞首播；`blocking` 用于一次确定性学习；`off` 只读缓存 |
+| `重置令牌` | `none` | 改成新的安全字符串时清空一次 CDN 学习状态 |
 | `测速间隔` | `12` | 6–72 小时；所有资源探测仍至少间隔 2 分钟 |
 | `切换阈值` | `20` | 备用路线至少快多少百分比才进入二次确认，范围 10–80 |
 | `调试日志` | `false` | 排错时临时开启；不输出完整 URL、签名或正文 |
@@ -213,19 +225,27 @@ ViewUnite 必须同时是关系卡类型 `1 (AV)` 且实际 oneof 为 `av(2)`。
 
 1. 分离视频、音频、分段、清晰度、编码、带宽、网络档案和候选集合；
 2. 不跨普通 CDN、MCDN、PCDN 家族晋升；
-3. 每次播放地址响应最多验证一个对象的两条 URL；
-4. 固定使用 `GET Range: bytes=0-65535`，只接受严格一致的 `206` 媒体响应；
-5. 新备用路线需至少间隔 10 分钟成功两次，并达到切换阈值；
-6. 探测结果只影响之后重新取得的播放地址，不中断当前播放；
-7. 使用当前响应中的完整签名 URL，不复用旧 query，不删除原始备用；
-8. 持久化只保存摘要、计数和时间戳，最多 64 条；任何异常都原样放行。
+3. 有已验证且未过期的缓存时立即使用；无缓存时默认先返回服务端原始 URL；
+4. 默认 `nonblocking` 不等待探测后再 `$done()`；后台回调只做尽力学习，
+   Shadowrocket 若结束回调则不会写入任何未验证选择；
+5. 每次播放地址响应最多验证一个对象的两条 URL；
+6. 固定使用 `GET Range: bytes=0-65535`，要求双方均为 `206`，Range 起止、总文件
+   长度、实际样本长度和内容样本 hash 完全一致，Content-Type 兼容，且没有内容
+   压缩、跨对象重定向或 HTML/JSON/XML/错误页；
+7. 新备用路线需至少间隔 10 分钟成功两次，并达到切换阈值；
+8. 探测结果只影响之后重新取得的播放地址，不中断当前播放；
+9. 使用当前响应中同一 alias lane 的完整签名 URL；camelCase/snake_case 的签名
+   不互换，不复用旧 query，不删除原始备用；
+10. 持久化只保存摘要、计数和时间戳，最多 64 条；任何异常都原样放行。
 
-首次安装后，没有立即切换是正常现象。稳定性与正确性优先于“第一次就选最低延迟”。
+首次安装后，没有立即切换是正常现象。若设备运行时在 `$done()` 后不继续执行
+回调，可临时选择一次 `blocking` 完成确定性学习，再恢复 `nonblocking`；不希望
+产生探测时选择 `off`。稳定性与正确性优先于“第一次就选最低延迟”。
 
-固定主机模式只接受 Bilibili 自有媒体域或仓库明确审核的固定候选，并替换受支持
-点播 URL 的 host，保留 path/query；共享 CDN 服务商上的任意未审核子域和普通
-第三方主机都会被拒绝，避免把签名播放地址泄露给非目标服务器。目标主机能否接受
-该资源签名仍由用户承担。参考候选见
+固定主机模式只接受 Bilibili 自有媒体域或仓库明确审核的固定候选，并且只会在
+**当前同一媒体对象、同一 alias lane 已经返回的完整主/备用 URL** 中提升目标
+host；目标不存在时安全 no-op，不再拼接新 host。共享 CDN 服务商上的任意未审核
+子域和普通第三方主机都会被拒绝，避免把签名播放地址泄露给非目标服务器。参考候选见
 [`config/cdn-candidates.json`](config/cdn-candidates.json)。直播签名 URL
 永远不做固定 CDN 替换，只按规则分流。
 
@@ -254,8 +274,8 @@ DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 Shadowrocket 会取得新的远程资源地址，不会继续复用上一版同名脚本缓存。
 
 如果原先安装的是 README 的固定 `main/dist/*.sgmodule` 地址、历史兼容地址或
-BiliFlow 生成的固定 URL，升级到 3.2.0 **不需要重新订阅**，只需执行上述“更新
-模块”。更新后模块详情应显示 `3.2.0`，脚本 URL 应含 `?v=3.2.0`。只有把 Release
+BiliFlow 生成的固定 URL，升级到 3.3.0 **不需要重新订阅**，只需执行上述“更新
+模块”。更新后模块详情应显示 `3.3.0`，脚本 URL 应含 `?v=3.3.0`。只有把 Release
 附件下载成本地文件、或使用不带远程 URL 的旧副本时，才需要重新安装固定地址。
 
 按影响最小顺序回滚：

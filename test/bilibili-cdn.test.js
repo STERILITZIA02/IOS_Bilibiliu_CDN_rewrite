@@ -25,15 +25,21 @@ const liveUrl =
 const fixedConfig = cdn.parseArgument(
   JSON.stringify({ cdn: targetHost, debug: false }),
 );
+const presentFixedConfig = {
+  ...cdn.parseArgument(JSON.stringify({ cdn: backupHost, debug: false })),
+  grpcAdapter: "playview-v1",
+};
 const autoConfig = cdn.parseArgument(
   JSON.stringify({
     cdn: "auto",
     debug: false,
     intervalHours: 12,
     networkProfile: "auto",
+    probeMode: "blocking",
     switchThreshold: 20,
   }),
 );
+const grpcAutoConfig = { ...autoConfig, grpcAdapter: "playview-v1" };
 
 function bytes(...chunks) {
   const normalized = chunks.map((chunk) =>
@@ -224,6 +230,8 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
     debug: false,
     intervalHours: 12,
     networkProfile: "auto",
+    probeMode: "nonblocking",
+    resetToken: "",
     switchThreshold: 20,
     valid: true,
   });
@@ -233,6 +241,8 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
     debug: false,
     intervalHours: 12,
     networkProfile: "auto",
+    probeMode: "nonblocking",
+    resetToken: "",
     switchThreshold: 20,
     valid: true,
   });
@@ -244,6 +254,8 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
       debug: false,
       intervalHours: 6,
       networkProfile: "home_wifi",
+      probeMode: "nonblocking",
+      resetToken: "",
       switchThreshold: 80,
       valid: true,
     },
@@ -273,7 +285,7 @@ test("fixed mode rewrites only Bilibili VOD URLs and preserves signed live URLs"
   );
 });
 
-test("fixed JSON mode rewrites primaries without replacing backups", () => {
+test("fixed JSON mode promotes only a complete URL already returned for that media object", () => {
   const fixture = videoFixture();
   fixture.data.dash.audio = [
     {
@@ -283,20 +295,67 @@ test("fixed JSON mode rewrites primaries without replacing backups", () => {
   ];
   fixture.data.durl = [{ url: originalUrl, backup_url: [backupUrl] }];
 
-  const result = cdn.transformJsonText(JSON.stringify(fixture), fixedConfig);
+  const result = cdn.transformJsonText(
+    JSON.stringify(fixture),
+    presentFixedConfig,
+  );
   const output = JSON.parse(result.body);
 
   assert.equal(result.valid, true);
-  assert.equal(result.changed, 4);
-  assert.match(output.data.dash.video[0].baseUrl, new RegExp(targetHost));
-  assert.match(output.data.dash.video[0].base_url, new RegExp(targetHost));
-  assert.match(output.data.dash.audio[0].base_url, new RegExp(targetHost));
-  assert.match(output.data.durl[0].url, new RegExp(targetHost));
-  assert.deepEqual(output.data.dash.video[0].backup_url, [backupUrl]);
-  assert.deepEqual(output.data.dash.video[0].backupUrl, [backupUrl]);
+  assert.equal(result.changed, 8);
+  assert.equal(output.data.dash.video[0].baseUrl, backupUrl);
+  assert.equal(output.data.dash.video[0].base_url, backupUrl);
+  assert.equal(
+    output.data.dash.audio[0].base_url,
+    backupUrl.replace("video.m4s", "audio.m4s"),
+  );
+  assert.equal(output.data.durl[0].url, backupUrl);
+  assert.deepEqual(output.data.dash.video[0].backup_url, [originalUrl]);
+  assert.deepEqual(output.data.dash.video[0].backupUrl, [originalUrl]);
+  assert.deepEqual(output.data.dash.audio[0].backup_url, [
+    originalUrl.replace("video.m4s", "audio.m4s"),
+  ]);
+  assert.deepEqual(output.data.durl[0].backup_url, [originalUrl]);
 });
 
-test("fixed Protobuf mode handles DashVideo, DashItem, and ResponseUrl safely", () => {
+test("fixed JSON mode keeps camelCase and snake_case signatures in their own aliases", () => {
+  const camelPrimary = originalUrl.replace("old-primary", "camel-primary");
+  const snakePrimary = originalUrl.replace("old-primary", "snake-primary");
+  const camelBackup = backupUrl.replace("old-backup", "camel-backup");
+  const snakeBackup = backupUrl.replace("old-backup", "snake-backup");
+  const fixture = videoFixture();
+  const media = fixture.data.dash.video[0];
+  media.baseUrl = camelPrimary;
+  media.base_url = snakePrimary;
+  media.backupUrl = [camelBackup];
+  media.backup_url = [snakeBackup];
+
+  const result = cdn.transformJsonText(
+    JSON.stringify(fixture),
+    presentFixedConfig,
+  );
+  const output = JSON.parse(result.body).data.dash.video[0];
+
+  assert.equal(output.baseUrl, camelBackup);
+  assert.equal(output.base_url, snakeBackup);
+  assert.deepEqual(output.backupUrl, [camelPrimary]);
+  assert.deepEqual(output.backup_url, [snakePrimary]);
+  assert.doesNotMatch(output.baseUrl, /snake-/);
+  assert.doesNotMatch(output.base_url, /camel-/);
+});
+
+test("fixed JSON mode fails open when the requested host is absent from any alias lane", () => {
+  const fixture = videoFixture();
+  fixture.data.dash.video[0].backupUrl = [backupUrl];
+  fixture.data.dash.video[0].backup_url = [secondBackupUrl];
+  const input = JSON.stringify(fixture);
+  const result = cdn.transformJsonText(input, presentFixedConfig);
+
+  assert.equal(result.changed, 0);
+  assert.equal(result.body, input);
+});
+
+test("fixed Protobuf mode follows verified PlayView media field paths only", () => {
   const dashVideo = bytes(
     stringField(1, originalUrl),
     stringField(2, backupUrl),
@@ -312,19 +371,20 @@ test("fixed Protobuf mode handles DashVideo, DashItem, and ResponseUrl safely", 
     stringField(4, originalUrl),
     stringField(5, backupUrl),
   );
-  const payload = bytes(
-    messageField(1, dashVideo),
-    messageField(2, dashAudio),
-    messageField(3, responseUrl),
+  const videoInfo = bytes(
+    messageField(5, messageField(2, dashVideo)),
+    messageField(5, messageField(3, messageField(1, responseUrl))),
+    messageField(6, dashAudio),
   );
+  const payload = messageField(1, videoInfo);
   const framed = grpcFrame(payload);
-  const result = cdn.transformGrpcBody(framed, fixedConfig);
+  const result = cdn.transformGrpcBody(framed, presentFixedConfig);
   const output = asciiFromBinary(result.body);
 
   assert.equal(result.valid, true);
-  assert.equal(result.changed, 3);
-  assert.equal(output.split(targetHost).length - 1, 3);
+  assert.equal(result.changed, 6);
   assert.equal(output.split(backupHost).length - 1, 3);
+  assert.equal(output.split(originalHost).length - 1, 3);
   assert.equal(cdn.findFirstGrpcVodUrl(framed), originalUrl);
 });
 
@@ -346,9 +406,14 @@ test("fixed mode leaves compressed frames, malformed bodies, and live URLs uncha
 });
 
 test("bounded gzip normalization enables fixed CDN rewriting for compressed gRPC", async () => {
-  const payload = bytes(
+  const responseUrl = bytes(
+    varintField(1, 1),
     stringField(4, originalUrl),
     stringField(5, backupUrl),
+  );
+  const payload = messageField(
+    1,
+    messageField(5, messageField(3, messageField(1, responseUrl))),
   );
   const compressed = grpcFrame(
     new Uint8Array(gzipSync(payload)),
@@ -362,21 +427,18 @@ test("bounded gzip normalization enables fixed CDN rewriting for compressed gRPC
 
   const discovered = cdn.prepareSafeGrpc(
     decoded.body,
-    autoConfig,
+    grpcAutoConfig,
     cdn.createEmptyAutoState(),
     0,
   );
   assert.equal(discovered.valid, true);
   assert.equal(discovered.descriptors.length, 1);
 
-  const result = cdn.transformGrpcBody(decoded.body, fixedConfig);
+  const result = cdn.transformGrpcBody(decoded.body, presentFixedConfig);
   assert.equal(result.valid, true);
   assert.ok(result.changed >= 1);
-  assert.match(asciiFromBinary(result.body), new RegExp(targetHost));
-  assert.doesNotMatch(
-    asciiFromBinary(result.body),
-    new RegExp(originalHost),
-  );
+  assert.match(asciiFromBinary(result.body), new RegExp(backupHost));
+  assert.match(asciiFromBinary(result.body), new RegExp(originalHost));
 
   const malformed = grpcFrame(new Uint8Array([1, 2, 3, 4]), 1);
   const failed = await cdn.decompressGrpcFrames(malformed);
@@ -446,6 +508,43 @@ test("safe auto maps a cached fingerprint to current server URLs without reusing
     persisted,
     /deadline|token=|upgcxcode|bilivideo|akamaized|1784897148/,
   );
+});
+
+test("safe auto applies a cached candidate with alias-local signed URLs only", () => {
+  const fixture = videoFixture();
+  const media = fixture.data.dash.video[0];
+  const camelPrimary = originalUrl.replace("old-primary", "camel-current");
+  const snakePrimary = originalUrl.replace("old-primary", "snake-current");
+  const camelBackup = backupUrl.replace("old-backup", "camel-current");
+  const snakeBackup = backupUrl.replace("old-backup", "snake-current");
+  media.baseUrl = camelPrimary;
+  media.base_url = snakePrimary;
+  media.backupUrl = [camelBackup];
+  media.backup_url = [snakeBackup];
+  const input = JSON.stringify(fixture);
+  const now = 50_000;
+  const state = cdn.createEmptyAutoState();
+  const descriptor = cdn.prepareSafeJson(
+    input,
+    autoConfig,
+    state,
+    now,
+  ).descriptors[0];
+  state.entries[descriptor.resourceKey] = descriptorStateEntry(
+    descriptor,
+    descriptor.candidates[1].id,
+    now,
+    now + 60_000,
+  );
+
+  const applied = cdn.prepareSafeJson(input, autoConfig, state, now + 1);
+  const output = JSON.parse(applied.body).data.dash.video[0];
+  assert.equal(output.baseUrl, camelBackup);
+  assert.equal(output.base_url, snakeBackup);
+  assert.deepEqual(output.backupUrl, [camelPrimary]);
+  assert.deepEqual(output.backup_url, [snakePrimary]);
+  assert.doesNotMatch(output.baseUrl, /snake-/);
+  assert.doesNotMatch(output.base_url, /camel-/);
 });
 
 test("safe JSON cache keys isolate video, audio, quality, codec, profile, and candidate set", () => {
@@ -665,6 +764,129 @@ test("strict probe validator rejects non-media, ignored ranges, redirects, encod
   );
 });
 
+test("pair validation rejects different samples and different total lengths", async () => {
+  for (const mismatch of ["hash", "length"]) {
+    const environment = makeEnvironment({
+      responder(candidate, callNumber) {
+        if (callNumber === 1) {
+          return validProbe(candidate, 100);
+        }
+        if (mismatch === "hash") {
+          return validProbe(candidate, 40, {
+            body: Buffer.alloc(cdn.AUTO_RANGE_END + 1, 2),
+          });
+        }
+        return validProbe(candidate, 40, {
+          headers: {
+            "Content-Length": String(cdn.AUTO_RANGE_END + 1),
+            "Content-Range": `bytes 0-${cdn.AUTO_RANGE_END}/10000000`,
+            "Content-Type": "video/mp4",
+          },
+        });
+      },
+    });
+    const result = await processAuto(
+      JSON.stringify(videoFixture()),
+      false,
+      autoConfig,
+      environment,
+    );
+    const state = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
+    const entry = Object.values(state.entries)[0];
+    assert.equal(result.reason, "object-mismatch");
+    assert.equal(entry.candidateId, null);
+    assert.equal(entry.pendingCandidateId, null);
+  }
+});
+
+test("default nonblocking mode completes before probes and never calls completion twice", () => {
+  const input = JSON.stringify(videoFixture());
+  const callbacks = [];
+  const storage = {};
+  const now = Date.UTC(2026, 6, 28, 12, 0, 0);
+  let completion;
+  let completionCount = 0;
+  const config = cdn.parseArgument(
+    "cdn=auto&probeMode=nonblocking&intervalHours=12",
+  );
+  const services = {
+    now: () => now,
+    persistent: true,
+    probe(candidate, timeoutMs, callback) {
+      callbacks.push({ callback, candidate, timeoutMs });
+    },
+    read(key) {
+      return storage[key] || null;
+    },
+    write(value, key) {
+      storage[key] = value;
+      return true;
+    },
+  };
+
+  cdn.processSafeAutoResponse(input, false, config, services, (result) => {
+    completion = result;
+    completionCount += 1;
+  });
+  assert.equal(completionCount, 1);
+  assert.equal(completion.body, input);
+  assert.equal(completion.reason, "probe-started-nonblocking");
+  assert.equal(completion.scriptElapsedMs, 0);
+  assert.ok(completion.candidateCount >= 2);
+  assert.equal(completion.candidateFamilies, "standard");
+  assert.equal(completion.probeSummary, "started");
+  assert.equal(callbacks.length, 2);
+
+  callbacks[0].callback(validProbe(callbacks[0].candidate, 100));
+  callbacks[1].callback(validProbe(callbacks[1].candidate, 40));
+  assert.equal(completionCount, 1);
+  const state = JSON.parse(storage[cdn.AUTO_STATE_KEY]);
+  assert.equal(Object.values(state.entries)[0].pendingSuccesses, 1);
+});
+
+test("cache-only mode applies a verified choice immediately without starting probes", () => {
+  const input = JSON.stringify(videoFixture());
+  const now = 75_000;
+  const state = cdn.createEmptyAutoState();
+  const offConfig = cdn.parseArgument(
+    "cdn=auto&probeMode=off&intervalHours=72",
+  );
+  const descriptor = cdn.prepareSafeJson(
+    input,
+    offConfig,
+    state,
+    now,
+  ).descriptors[0];
+  state.entries[descriptor.resourceKey] = descriptorStateEntry(
+    descriptor,
+    descriptor.candidates[1].id,
+    now,
+    now + 72 * 60 * 60 * 1000,
+  );
+  const environment = makeEnvironment({ now, state });
+  let result;
+  cdn.processSafeAutoResponse(
+    input,
+    false,
+    offConfig,
+    environment.services,
+    (value) => {
+      result = value;
+    },
+  );
+
+  assert.equal(result.reason, "probe-disabled");
+  assert.equal(result.probeCount, 0);
+  assert.ok(result.candidateCount >= 2);
+  assert.equal(result.candidateFamilies, "standard");
+  assert.equal(result.probeSummary, "none");
+  assert.equal(environment.calls.length, 0);
+  assert.equal(
+    JSON.parse(result.body).data.dash.video[0].base_url,
+    backupUrl,
+  );
+});
+
 test("probe throttling and per-resource locks prevent repeated hot-path tests", async () => {
   const input = JSON.stringify(videoFixture());
   const now = Date.UTC(2026, 6, 26, 12, 0, 0);
@@ -740,6 +962,65 @@ test("failed alternatives back off and state capacity is bounded", async () => {
   assert.equal(Object.keys(loaded.entries).length, cdn.AUTO_CACHE_CAPACITY);
 });
 
+test("corrupted state fails open and a changed reset token clears learning exactly once", async () => {
+  const input = JSON.stringify(videoFixture());
+  const environment = makeEnvironment();
+  environment.storage[cdn.AUTO_STATE_KEY] = "{corrupted";
+  assert.deepEqual(
+    cdn.loadAutoState(environment.services),
+    cdn.createEmptyAutoState(),
+  );
+
+  const discovered = cdn.prepareSafeJson(
+    input,
+    autoConfig,
+    cdn.createEmptyAutoState(),
+    environment.now,
+  );
+  const populated = cdn.createEmptyAutoState();
+  populated.entries[discovered.descriptors[0].resourceKey] =
+    descriptorStateEntry(
+      discovered.descriptors[0],
+      discovered.descriptors[0].candidates[1].id,
+      environment.now,
+      environment.now + 60_000,
+    );
+  environment.storage[cdn.AUTO_STATE_KEY] = JSON.stringify(populated);
+  const resetConfig = cdn.parseArgument(
+    "cdn=auto&probeMode=off&resetToken=reset_20260728",
+  );
+  await processAuto(input, false, resetConfig, environment);
+  const reset = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
+  assert.equal(reset.resetToken, "reset_20260728");
+  assert.deepEqual(reset.entries, {});
+
+  reset.entries.keep = { ignored: true };
+  environment.storage[cdn.AUTO_STATE_KEY] = JSON.stringify(reset);
+  await processAuto(input, false, resetConfig, environment);
+  const repeated = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
+  assert.equal(repeated.resetToken, "reset_20260728");
+});
+
+test("configured interval is the exact selection TTL", async () => {
+  const config = cdn.parseArgument(
+    "cdn=auto&probeMode=blocking&intervalHours=72&switchThreshold=20",
+  );
+  const environment = makeEnvironment({
+    responder(candidate, callNumber) {
+      return validProbe(candidate, callNumber % 2 === 1 ? 100 : 40);
+    },
+  });
+  const input = JSON.stringify(videoFixture());
+  await processAuto(input, false, config, environment);
+  environment.advance(cdn.AUTO_CONFIRM_DELAY_MS);
+  const confirmedAt = environment.now;
+  await processAuto(input, false, config, environment);
+  const state = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
+  const entry = Object.values(state.entries)[0];
+  assert.equal(entry.expiresAt, confirmedAt + 72 * 60 * 60 * 1000);
+  assert.equal(entry.nextProbeAt, entry.expiresAt);
+});
+
 test("safe Protobuf mode isolates DashVideo, DashItem audio, and ResponseUrl", () => {
   const audioPrimary = originalUrl.replace("video.m4s", "audio.m4s");
   const audioBackup = backupUrl.replace("video.m4s", "audio.m4s");
@@ -760,21 +1041,29 @@ test("safe Protobuf mode isolates DashVideo, DashItem audio, and ResponseUrl", (
     stringField(5, secondBackupUrl),
   );
   const input = grpcFrame(
-    bytes(
-      messageField(1, dashVideo),
-      messageField(2, dashAudio),
-      messageField(3, segment),
+    messageField(
+      1,
+      bytes(
+        messageField(5, messageField(2, dashVideo)),
+        messageField(5, messageField(3, messageField(1, segment))),
+        messageField(6, dashAudio),
+      ),
     ),
   );
   const now = 50_000;
   const state = cdn.createEmptyAutoState();
-  const discovered = cdn.prepareSafeGrpc(input, autoConfig, state, now);
+  const discovered = cdn.prepareSafeGrpc(
+    input,
+    grpcAutoConfig,
+    state,
+    now,
+  );
 
   assert.equal(discovered.valid, true);
   assert.equal(discovered.descriptors.length, 3);
   assert.deepEqual(
     discovered.descriptors.map((descriptor) => descriptor.kind),
-    ["video", "audio", "segment"],
+    ["video", "segment", "audio"],
   );
   assert.equal(
     new Set(discovered.descriptors.map((descriptor) => descriptor.resourceKey))
@@ -790,7 +1079,12 @@ test("safe Protobuf mode isolates DashVideo, DashItem audio, and ResponseUrl", (
       now + 60_000,
     );
   }
-  const applied = cdn.prepareSafeGrpc(input, autoConfig, state, now + 1);
+  const applied = cdn.prepareSafeGrpc(
+    input,
+    grpcAutoConfig,
+    state,
+    now + 1,
+  );
   const output = asciiFromBinary(applied.body);
   assert.equal(applied.valid, true);
   assert.ok(applied.changed >= 3);
@@ -806,7 +1100,7 @@ test("safe gRPC fails open for malformed input and never edits compressed frames
   );
   const compressedResult = cdn.prepareSafeGrpc(
     compressed,
-    autoConfig,
+    grpcAutoConfig,
     cdn.createEmptyAutoState(),
     1,
   );
@@ -817,13 +1111,81 @@ test("safe gRPC fails open for malformed input and never edits compressed frames
   const malformed = new Uint8Array([0, 0, 0, 0, 20, 8, 1]);
   const malformedResult = cdn.prepareSafeGrpc(
     malformed,
-    autoConfig,
+    grpcAutoConfig,
     cdn.createEmptyAutoState(),
     1,
   );
   assert.equal(malformedResult.valid, false);
   assert.equal(malformedResult.changed, 0);
   assert.deepEqual(Buffer.from(malformedResult.body), Buffer.from(malformed));
+});
+
+test("gRPC adapters preserve PGC v2 unknown field 9 and support multi-frame uint64", () => {
+  const unsafeUint64 = bytes(
+    fieldTag(99, 0),
+    new Uint8Array([255, 255, 255, 255, 255, 255, 255, 255, 255, 1]),
+  );
+  const losslessAudio = bytes(
+    varintField(1, 30251),
+    stringField(2, originalUrl.replace("video.m4s", "lossless.m4s")),
+    stringField(3, backupUrl.replace("video.m4s", "lossless.m4s")),
+    unsafeUint64,
+  );
+  const fieldNineReply = grpcFrame(
+    messageField(1, messageField(9, messageField(2, losslessAudio))),
+  );
+  const pgc = cdn.prepareSafeGrpc(
+    fieldNineReply,
+    { ...autoConfig, grpcAdapter: "pgc-v2" },
+    cdn.createEmptyAutoState(),
+    1,
+  );
+  const app = cdn.prepareSafeGrpc(
+    fieldNineReply,
+    { ...autoConfig, grpcAdapter: "app-playurl-v1" },
+    cdn.createEmptyAutoState(),
+    1,
+  );
+  assert.equal(pgc.descriptors.length, 0);
+  assert.equal(app.descriptors.length, 1);
+  assert.deepEqual(Buffer.from(pgc.body), Buffer.from(fieldNineReply));
+
+  const dashVideo = bytes(
+    stringField(1, originalUrl),
+    stringField(2, backupUrl),
+    unsafeUint64,
+  );
+  const firstFrame = grpcFrame(
+    messageField(1, messageField(5, messageField(2, dashVideo))),
+  );
+  const secondFrame = grpcFrame(
+    messageField(1, stringField(99, "future-frame-must-stay")),
+  );
+  const multiFrame = bytes(firstFrame, secondFrame);
+  const discovered = cdn.prepareSafeGrpc(
+    multiFrame,
+    { ...autoConfig, grpcAdapter: "app-playurl-v1" },
+    cdn.createEmptyAutoState(),
+    10,
+  );
+  const state = cdn.createEmptyAutoState();
+  const descriptor = discovered.descriptors[0];
+  state.entries[descriptor.resourceKey] = descriptorStateEntry(
+    descriptor,
+    descriptor.candidates[1].id,
+    10,
+    1000,
+  );
+  const applied = cdn.prepareSafeGrpc(
+    multiFrame,
+    { ...autoConfig, grpcAdapter: "app-playurl-v1" },
+    state,
+    11,
+  );
+  const output = Buffer.from(applied.body);
+  assert.ok(applied.changed > 0);
+  assert.match(output.toString("latin1"), /future-frame-must-stay/);
+  assert.ok(output.includes(Buffer.from(unsafeUint64)));
 });
 
 test("safe auto fails open when persistence or HTTP services are unavailable", async () => {
@@ -843,7 +1205,7 @@ test("Shadowrocket fixed entrypoint returns only the changed JSON body", () => {
   );
   let completion;
   const context = {
-    $argument: JSON.stringify({ cdn: targetHost, debug: false }),
+    $argument: JSON.stringify({ cdn: backupHost, debug: false }),
     $done(value) {
       completion = value;
     },
@@ -851,7 +1213,10 @@ test("Shadowrocket fixed entrypoint returns only the changed JSON body", () => {
       url: "https://api.bilibili.com/x/player/playurl?bvid=test",
     },
     $response: {
-      body: JSON.stringify({ code: 0, data: { durl: [{ url: originalUrl }] } }),
+      body: JSON.stringify({
+        code: 0,
+        data: { durl: [{ backup_url: [backupUrl], url: originalUrl }] },
+      }),
     },
     ArrayBuffer,
     Boolean,
@@ -868,7 +1233,8 @@ test("Shadowrocket fixed entrypoint returns only the changed JSON body", () => {
 
   vm.runInNewContext(source, context, { filename: "bilibili-cdn.js" });
   assert.ok(completion && typeof completion.body === "string");
-  assert.match(completion.body, new RegExp(targetHost));
+  assert.match(completion.body, new RegExp(backupHost));
+  assert.match(completion.body, /token=old-backup/);
 });
 
 test("Shadowrocket gRPC entrypoint prefers bodyBytes and decodes gzip", async () => {
@@ -876,9 +1242,14 @@ test("Shadowrocket gRPC entrypoint prefers bodyBytes and decodes gzip", async ()
     path.join(__dirname, "..", "src", "bilibili-cdn.js"),
     "utf8",
   );
-  const payload = bytes(
+  const responseUrl = bytes(
+    varintField(1, 1),
     stringField(4, originalUrl),
     stringField(5, backupUrl),
+  );
+  const payload = messageField(
+    1,
+    messageField(5, messageField(3, messageField(1, responseUrl))),
   );
   const input = grpcFrame(
     new Uint8Array(gzipSync(payload)),
@@ -887,7 +1258,7 @@ test("Shadowrocket gRPC entrypoint prefers bodyBytes and decodes gzip", async ()
   let completion;
   const completed = new Promise((resolve) => {
     const context = {
-      $argument: JSON.stringify({ cdn: targetHost, debug: false }),
+      $argument: JSON.stringify({ cdn: backupHost, debug: false }),
       $done(value) {
         completion = value;
         resolve();
@@ -897,6 +1268,7 @@ test("Shadowrocket gRPC entrypoint prefers bodyBytes and decodes gzip", async ()
       },
       $response: {
         body: "text-body-must-not-win",
+        headers: { "grpc-encoding": "gzip" },
         bodyBytes: input.buffer.slice(
           input.byteOffset,
           input.byteOffset + input.byteLength,
@@ -930,7 +1302,7 @@ test("Shadowrocket gRPC entrypoint prefers bodyBytes and decodes gzip", async ()
   assert.equal(new Uint8Array(completion.body)[0], 0);
   assert.match(
     asciiFromBinary(completion.body),
-    new RegExp(targetHost),
+    new RegExp(backupHost),
   );
   assert.doesNotMatch(
     asciiFromBinary(completion.body),
@@ -955,6 +1327,7 @@ test("Shadowrocket auto entrypoint persists validation, then uses a fresh signed
         debug: false,
         intervalHours: 12,
         networkProfile: "auto",
+        probeMode: "blocking",
         switchThreshold: 20,
       }),
       $done(value) {

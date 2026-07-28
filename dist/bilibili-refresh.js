@@ -1,16 +1,22 @@
 "use strict";
 
 /*
- * Prevent Bilibili's volatile Home/Mine metadata from falling back to an
- * unmodified conditional-cache entry after a long background suspension.
+ * Prevent Bilibili's volatile ad/UI metadata from falling back to an
+ * unmodified conditional-cache entry after refresh or background suspension.
  *
  * This request helper is deliberately narrow:
  * - exact Bilibili app hosts only;
- * - exact Home Feed / Story / Mine paths only;
+ * - exact reviewed Splash / Home / View / Mine / VIP-ad paths only;
  * - request headers only (the signed URL and body are never changed).
  */
 (function (root) {
   var VOLATILE_HOSTS = {
+    "app.bilibili.com": true,
+    "app.biliapi.net": true
+  };
+  var VIP_AD_HOSTS = {
+    "api.bilibili.com": true,
+    "api.biliapi.net": true,
     "app.bilibili.com": true,
     "app.biliapi.net": true
   };
@@ -28,17 +34,56 @@
     };
   }
 
-  function isVolatileMetadataUrl(requestUrl) {
+  function classifyVolatileEndpoint(requestUrl) {
     var parsed = parseRequestUrl(requestUrl);
-    return Boolean(
-      parsed &&
-        VOLATILE_HOSTS[parsed.host] &&
-        (
-          parsed.path === "/x/v2/feed/index" ||
-          parsed.path === "/x/v2/feed/index/story" ||
-          /^\/x\/v2\/account\/mine(?:\/ipad)?$/.test(parsed.path)
-        )
-    );
+    if (!parsed) {
+      return "";
+    }
+    if (VOLATILE_HOSTS[parsed.host]) {
+      if (parsed.path === "/x/v2/splash/list") {
+        return "splash-list";
+      }
+      if (parsed.path === "/x/v2/splash/show") {
+        return "splash-show";
+      }
+      if (parsed.path === "/x/v2/splash/event/list2") {
+        return "splash-event-list2";
+      }
+      if (parsed.path === "/x/v2/splash/brand/list") {
+        return "splash-brand-list";
+      }
+      if (parsed.path === "/x/v2/feed/index") {
+        return "feed-index";
+      }
+      if (parsed.path === "/x/v2/feed/index/story") {
+        return "feed-story";
+      }
+      if (parsed.path === "/x/v2/view") {
+        return "view-json";
+      }
+      if (parsed.path === "/x/v2/account/mine") {
+        return "mine";
+      }
+      if (parsed.path === "/x/v2/account/mine/ipad") {
+        return "mine-ipad";
+      }
+      if (parsed.path === "/x/v2/account/myinfo") {
+        return "myinfo";
+      }
+    }
+    if (VIP_AD_HOSTS[parsed.host]) {
+      if (parsed.path === "/x/vip/ads/materials") {
+        return "vip-materials";
+      }
+      if (parsed.path === "/x/vip/ads/material/report") {
+        return "vip-material-report";
+      }
+    }
+    return "";
+  }
+
+  function isVolatileMetadataUrl(requestUrl) {
+    return Boolean(classifyVolatileEndpoint(requestUrl));
   }
 
   function copyHeaders(headers) {
@@ -72,22 +117,59 @@
 
   function guardRequest(requestUrl, headers) {
     var output;
-    if (!isVolatileMetadataUrl(requestUrl)) {
+    var endpoint = classifyVolatileEndpoint(requestUrl);
+    var keys;
+    var index;
+    var removedValidators = 0;
+    if (!endpoint) {
       return {
         changed: false,
+        endpoint: "",
         headers: headers
       };
     }
     output = copyHeaders(headers);
+    keys = Object.keys(output);
+    for (index = 0; index < keys.length; index += 1) {
+      if (/^(?:if-none-match|if-modified-since|if-range)$/i.test(keys[index])) {
+        removedValidators += 1;
+      }
+    }
     deleteHeader(output, "if-none-match");
     deleteHeader(output, "if-modified-since");
     deleteHeader(output, "if-range");
-    setHeader(output, "Cache-Control", "no-cache");
+    setHeader(output, "Cache-Control", "no-cache, no-store");
     setHeader(output, "Pragma", "no-cache");
     return {
       changed: true,
-      headers: output
+      endpoint: endpoint,
+      headers: output,
+      removedValidators: removedValidators
     };
+  }
+
+  function debugEnabled(argument) {
+    var text = typeof argument === "string" ? argument.trim() : "";
+    var parsed;
+    if (!text) {
+      return false;
+    }
+    try {
+      parsed = JSON.parse(text);
+      return Boolean(parsed && parsed.debug === true);
+    } catch (error) {
+      return /(?:^|[&,])debug=(?:1|true)(?:$|[&,])/i.test(text);
+    }
+  }
+
+  function safeLog(message) {
+    if (
+      typeof console !== "undefined" &&
+      console &&
+      typeof console.log === "function"
+    ) {
+      console.log("[BiliRefresh] " + String(message));
+    }
   }
 
   function runShadowrocket() {
@@ -101,6 +183,22 @@
         ? $request.headers
         : null
     );
+    if (
+      debugEnabled(
+        typeof $argument === "string" ? $argument : ""
+      )
+    ) {
+      safeLog(
+        "endpoint=" +
+          (result.endpoint || "unmatched") +
+          " changed=" +
+          (result.changed ? 1 : 0) +
+          " validatorsRemoved=" +
+          (result.removedValidators || 0) +
+          " reason=" +
+          (result.changed ? "fresh-response-requested" : "endpoint-unmatched")
+      );
+    }
     if (result.changed) {
       $done({ headers: result.headers });
     } else {
@@ -109,6 +207,8 @@
   }
 
   var api = {
+    classifyVolatileEndpoint: classifyVolatileEndpoint,
+    debugEnabled: debugEnabled,
     guardRequest: guardRequest,
     isVolatileMetadataUrl: isVolatileMetadataUrl,
     runShadowrocket: runShadowrocket

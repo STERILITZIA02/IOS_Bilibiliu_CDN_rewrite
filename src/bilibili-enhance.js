@@ -215,6 +215,42 @@
     "vipSectionV2",
     "modularVipSection"
   ];
+  var MINE_UI_CONTAINER_KEYS = {
+    button: true,
+    buttons: true,
+    card_list: true,
+    cardList: true,
+    cards: true,
+    entries: true,
+    item: true,
+    items: true,
+    list: true,
+    module_list: true,
+    moduleList: true,
+    modules: true,
+    more_sections: true,
+    moreSections: true,
+    section_list: true,
+    sectionList: true,
+    sections: true,
+    sections_v2: true,
+    service_list: true,
+    serviceList: true,
+    services: true
+  };
+  var VIEW_JSON_CONTAINER_KEYS = {
+    cards: true,
+    introduction: true,
+    introductions: true,
+    items: true,
+    modules: true,
+    relates_feed: true,
+    relatesFeed: true,
+    tab: true,
+    tab_modules: true,
+    tabModules: true,
+    tabs: true
+  };
   var MAX_GRPC_DECOMPRESSED_BYTES = 4 * 1024 * 1024;
 
   function isObject(value) {
@@ -374,9 +410,14 @@
         includes(APP_HOSTS, parsed.host) ||
         includes(API_HOSTS, parsed.host)
       ) &&
-      path === "/x/vip/ads/materials"
+      (
+        path === "/x/vip/ads/materials" ||
+        path === "/x/vip/ads/material/report"
+      )
     ) {
-      return "vip-materials";
+      return path === "/x/vip/ads/materials"
+        ? "vip-materials"
+        : "vip-material-report";
     }
     if (
       (
@@ -391,12 +432,17 @@
     }
 
     if (includes(APP_HOSTS, parsed.host)) {
-      if (
-        /^\/x\/v2\/splash\/(?:brand\/list|event\/list2|list|show)$/.test(
-          path
-        )
-      ) {
-        return "splash";
+      if (path === "/x/v2/splash/list") {
+        return "splash-list";
+      }
+      if (path === "/x/v2/splash/show") {
+        return "splash-show";
+      }
+      if (path === "/x/v2/splash/event/list2") {
+        return "splash-event-list2";
+      }
+      if (path === "/x/v2/splash/brand/list") {
+        return "splash-brand-list";
       }
       if (path === "/x/v2/feed/index") {
         return "feed";
@@ -415,6 +461,9 @@
       }
       if (/^\/x\/v2\/account\/mine(?:\/ipad)?$/.test(path)) {
         return "mine";
+      }
+      if (path === "/x/v2/account/myinfo") {
+        return "myinfo-diagnostic";
       }
       if (path === "/x/v2/view") {
         return "view";
@@ -507,6 +556,10 @@
         return "grpc-view-unite-relates";
       case "/bilibili.app.mine.v1.Mine/PubModule":
         return "grpc-mine-pub-module";
+      case "/bilibili.app.mine.v1.Mine/DeviceFeature":
+        return "grpc-mine-device-feature";
+      case "/bilibili.app.resource.v1.Module/List":
+        return "grpc-resource-module-list";
       case "/bilibili.app.show.v1.Popular/Index":
         return "grpc-popular";
       case "/bilibili.app.dynamic.v2.Dynamic/DynAll":
@@ -520,18 +573,15 @@
     }
   }
 
-  function isWholeResponseAdEndpoint(endpoint) {
-    return (
-      endpoint === "grpc-view-unite-play-pause" ||
-      endpoint === "grpc-view-unite-end-page"
-    );
+  function isPauseAdEndpoint(endpoint) {
+    return endpoint === "grpc-view-unite-play-pause";
   }
 
   function grpcEndpointEnabled(endpoint, config) {
     if (!endpoint || !config) {
       return false;
     }
-    if (isWholeResponseAdEndpoint(endpoint)) {
+    if (isPauseAdEndpoint(endpoint)) {
       return config.ads !== false;
     }
     if (endpoint === "grpc-popular") {
@@ -548,6 +598,12 @@
             config.hideMineRewardPublish
           )
       );
+    }
+    if (endpoint === "grpc-mine-device-feature") {
+      return Boolean(config.ui !== false || config.ads !== false);
+    }
+    if (endpoint === "grpc-resource-module-list") {
+      return true;
     }
     if (
       endpoint === "grpc-view-v1" ||
@@ -687,10 +743,20 @@
       "ad_cb",
       "creative_id",
       "creativeId",
+      "creative_ids",
+      "creativeIds",
       "ad_id",
       "adId",
+      "adver_id",
+      "adverId",
+      "ad_source",
+      "adSource",
       "cm_mark",
       "cmMark",
+      "commercial_id",
+      "commercialId",
+      "commercial_mark",
+      "commercialMark",
       "business_info",
       "businessInfo"
     ];
@@ -698,7 +764,12 @@
     if (!isPlainObject(item)) {
       return false;
     }
-    if (item.is_ad === true || item.is_ad === 1) {
+    if (
+      item.is_ad === true ||
+      item.is_ad === 1 ||
+      item.is_commercial === true ||
+      item.is_commercial === 1
+    ) {
       return true;
     }
     if (item.goto === "ad" || item.type === "ad") {
@@ -731,7 +802,17 @@
         return true;
       }
     }
-    return isFeedAdCard(item) || explicitCommercialLabel(item);
+    if (
+      hasOwn.call(item, "adInfo") &&
+      hasMarkerValue(item.adInfo)
+    ) {
+      return true;
+    }
+    return (
+      isFeedAdCard(item) ||
+      explicitCommercialLabel(item) ||
+      hasNestedCommercialEvidence(item, 0)
+    );
   }
 
   function hasCommercialTracking(item) {
@@ -755,6 +836,79 @@
       if (
         hasOwn.call(item, keys[index]) &&
         hasMarkerValue(item[keys[index]])
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function hasNestedCommercialEvidence(item, depth) {
+    var keys = [
+      "ad",
+      "ad_info",
+      "adInfo",
+      "cm",
+      "commercial",
+      "commercial_info",
+      "commercialInfo",
+      "creative",
+      "creative_info",
+      "creativeInfo",
+      "tracking",
+      "tracking_info",
+      "trackingInfo"
+    ];
+    var index;
+    var nested;
+    if (!isPlainObject(item) || depth > 3) {
+      return false;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      if (!hasOwn.call(item, keys[index])) {
+        continue;
+      }
+      nested = item[keys[index]];
+      if (!hasMarkerValue(nested)) {
+        continue;
+      }
+      if (
+        keys[index] === "ad" ||
+        keys[index] === "ad_info" ||
+        keys[index] === "adInfo" ||
+        keys[index] === "cm"
+      ) {
+        return true;
+      }
+      if (
+        isPlainObject(nested) &&
+        (
+          nested.is_ad === true ||
+          nested.is_ad === 1 ||
+          hasAnyMarker(
+            nested,
+            [
+              "ad_id",
+              "adId",
+              "creative_id",
+              "creativeId",
+              "commercial_id",
+              "commercialId",
+              "show_url",
+              "showUrl",
+              "click_url",
+              "clickUrl",
+              "exposure_url",
+              "exposureUrl"
+            ]
+          )
+        )
+      ) {
+        return true;
+      }
+      if (
+        isPlainObject(nested) &&
+        hasNestedCommercialEvidence(nested, depth + 1)
       ) {
         return true;
       }
@@ -830,17 +984,111 @@
     return Array.isArray(allowed) && includes(allowed, cardGoto);
   }
 
-  function handleSplash(body) {
+  function emptySplashData(endpoint) {
+    var data = {};
+    if (endpoint === "splash-list") {
+      data.account = null;
+      data.event_list = [];
+      data.list = [];
+      data.preload = [];
+      data.show = [];
+    } else if (endpoint === "splash-show") {
+      data.account = null;
+      data.preload = [];
+      data.show = [];
+    } else if (endpoint === "splash-event-list2") {
+      data.event_list = [];
+      data.list = [];
+      data.preload = [];
+    } else if (endpoint === "splash-brand-list") {
+      data.account = null;
+      data.brand_list = [];
+      data.list = [];
+      data.preload = [];
+      data.splash_list = [];
+    }
+    return data;
+  }
+
+  function clearPresentSplashState(data) {
+    var emptyArrayKeys = [
+      "client_keep_ids",
+      "creative_keep_ids",
+      "keep_ids",
+      "loaded_creative_list",
+      "query_list"
+    ];
+    var emptyStringKeys = [
+      "new_splash_hash",
+      "show_hash"
+    ];
     var changes = 0;
-    var keys = ["account", "event_list", "preload", "show"];
     var index;
+    var key;
+    for (index = 0; index < emptyArrayKeys.length; index += 1) {
+      key = emptyArrayKeys[index];
+      if (
+        hasOwn.call(data, key) &&
+        (
+          !Array.isArray(data[key]) ||
+          data[key].length > 0
+        )
+      ) {
+        data[key] = [];
+        changes += 1;
+      }
+    }
+    for (index = 0; index < emptyStringKeys.length; index += 1) {
+      key = emptyStringKeys[index];
+      if (
+        hasOwn.call(data, key) &&
+        data[key] !== ""
+      ) {
+        data[key] = "";
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
+  function applyKnownJsonFields(target, replacement) {
+    var keys;
+    var index;
+    var key;
+    var changes = 0;
+    if (!isPlainObject(target) || !isPlainObject(replacement)) {
+      return 0;
+    }
+    keys = Object.keys(replacement);
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (
+        JSON.stringify(target[key]) !==
+        JSON.stringify(replacement[key])
+      ) {
+        target[key] = replacement[key];
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
+  function handleSplash(body, endpoint) {
+    var changes = 0;
     if (!isPlainObject(body.data)) {
       return 0;
     }
-    for (index = 0; index < keys.length; index += 1) {
-      changes += deleteProperty(body.data, keys[index]);
-    }
-    return changes;
+    changes += applyKnownJsonFields(body, {
+      code: 0,
+      message: "0",
+      ttl: 1
+    });
+    changes += applyKnownJsonFields(
+      body.data,
+      emptySplashData(endpoint)
+    );
+    changes += clearPresentSplashState(body.data);
+    return changes > 0 ? 1 : 0;
   }
 
   function handleFeed(body, config) {
@@ -890,7 +1138,13 @@
           item,
           "banner_item",
           function (banner) {
-            return isPlainObject(banner) && banner.type === "ad";
+            return (
+              isPlainObject(banner) &&
+              (
+                banner.type === "ad" ||
+                isHighConfidencePromotion(banner)
+              )
+            );
           }
         );
         changes += removed;
@@ -1042,42 +1296,34 @@
 
     if (target === "game") {
       return (
-        name === "游戏中心" &&
-        (
-          id === 222 ||
-          tabId === "游戏中心Top" ||
-          /^bilibili:\/\/game_center\/home\/?$/i.test(uri)
-        )
+        id === 222 ||
+        tabId === "游戏中心Top" ||
+        /^bilibili:\/\/game_center\/home\/?$/i.test(uri) ||
+        name === "游戏中心"
       );
     }
     if (target === "journey") {
       return (
-        name === "新征程" &&
-        (
-          id === 136117 ||
-          tabId === "165" ||
-          /\/136117(?:[/?#]|$)/.test(uri)
-        )
+        id === 136117 ||
+        tabId === "165" ||
+        /\/136117(?:[/?#]|$)/.test(uri) ||
+        name === "新征程"
       );
     }
     if (target === "publish") {
       return (
-        name === "发布" &&
-        (
-          id === 670 ||
-          tabId === "publish" ||
-          /^bilibili:\/\/uper\/center_plus(?:[/?#]|$)/i.test(uri)
-        )
+        id === 670 ||
+        tabId === "publish" ||
+        /^bilibili:\/\/uper\/center_plus(?:[/?#]|$)/i.test(uri) ||
+        name === "发布"
       );
     }
     if (target === "mall") {
       return (
-        name === "会员购" &&
-        (
-          id === 242 ||
-          tabId === "会员购Bottom" ||
-          /^bilibili:\/\/mall\/home\/?$/i.test(uri)
-        )
+        id === 242 ||
+        tabId === "会员购Bottom" ||
+        /^bilibili:\/\/mall\/home\/?$/i.test(uri) ||
+        name === "会员购"
       );
     }
     return false;
@@ -1147,6 +1393,12 @@
     if (!target) {
       return false;
     }
+    if (includes(target.ids, id)) {
+      return true;
+    }
+    if (link && target.uri.test(link)) {
+      return true;
+    }
     for (index = 0; index < labels.length; index += 1) {
       for (
         targetIndex = 0;
@@ -1165,14 +1417,7 @@
         break;
       }
     }
-    if (!labelMatched) {
-      return false;
-    }
-    return (
-      target.labelOnly === true ||
-      includes(target.ids, id) ||
-      Boolean(link && target.uri.test(link))
-    );
+    return labelMatched;
   }
 
   function configuredMineTarget(item, config) {
@@ -1319,7 +1564,7 @@
     var keys;
     var key;
 
-    if (!isObject(node) || depth > 16) {
+    if (!isObject(node) || depth > 10) {
       return 0;
     }
     if (Array.isArray(node)) {
@@ -1364,12 +1609,29 @@
         changes += 1;
         continue;
       }
-      if (shouldRemoveMineItem(value, config, key)) {
+      if (
+        (
+          MINE_UI_CONTAINER_KEYS[key] ||
+          includes(VIP_BANNER_KEYS, key) ||
+          /^(?:marketing|promotion|activity|vip|member)[_-]?banner(?:s)?$/i.test(
+            key
+          )
+        ) &&
+        shouldRemoveMineItem(value, config, key)
+      ) {
         delete node[key];
         changes += 1;
         continue;
       }
-      changes += filterMineNode(value, depth + 1, config, key);
+      if (
+        MINE_UI_CONTAINER_KEYS[key] ||
+        includes(VIP_BANNER_KEYS, key) ||
+        /^(?:marketing|promotion|activity|vip|member)[_-]?banner(?:s)?$/i.test(
+          key
+        )
+      ) {
+        changes += filterMineNode(value, depth + 1, config, key);
+      }
     }
     return changes;
   }
@@ -1384,13 +1646,39 @@
     if (
       !config.ads ||
       !config.vipPromotions ||
-      !hasOwn.call(body, "data") ||
-      body.data === null
+      !isPlainObject(body.data)
     ) {
       return 0;
     }
-    body.data = null;
-    return 1;
+    var changes = applyKnownJsonFields(body, {
+      code: 0,
+      message: "0",
+      ttl: 1
+    });
+    changes += applyKnownJsonFields(body.data, {
+      list: [],
+      list_v2: [],
+      materials: [],
+      vip_login_coupon: {
+        exp: false,
+        login_layer: null,
+        report: {}
+      }
+    });
+    return changes > 0 ? 1 : 0;
+  }
+
+  function handleVipMaterialReport(body, config) {
+    if (!config.ads || !config.vipPromotions) {
+      return 0;
+    }
+    return applyKnownJsonFields(body, {
+      code: 0,
+      message: "0",
+      ttl: 1
+    }) > 0
+      ? 1
+      : 0;
   }
 
   function replaceRootObject(body, replacement) {
@@ -1753,7 +2041,10 @@
     changes += replaceFilteredArray(data, "relates", function (item) {
       if (
         config.videoOnlyRecommendations !== false &&
-        !isPlainVideoRecommendation(item)
+        (
+          !isPlainVideoRecommendation(item) ||
+          !hasOrdinaryVideoIdentity(item)
+        )
       ) {
         return true;
       }
@@ -1770,6 +2061,74 @@
         )
       );
     });
+    changes += filterKnownViewJsonContainers(data, config, 0);
+    return changes;
+  }
+
+  function shouldRemoveViewJsonModule(item, config) {
+    var moduleType;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    if (
+      config.ads !== false &&
+      isHighConfidencePromotion(item)
+    ) {
+      return true;
+    }
+    moduleType = Number(
+      item.module_type !== undefined
+        ? item.module_type
+        : item.moduleType
+    );
+    return (
+      (config.ads !== false && (moduleType === 18 || moduleType === 55)) ||
+      (config.vipPromotions !== false && moduleType === 29)
+    );
+  }
+
+  function filterKnownViewJsonContainers(node, config, depth) {
+    var keys;
+    var index;
+    var key;
+    var value;
+    var changes = 0;
+    if (!isPlainObject(node) || depth > 8) {
+      return 0;
+    }
+    keys = Object.keys(node);
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (!VIEW_JSON_CONTAINER_KEYS[key]) {
+        continue;
+      }
+      value = node[key];
+      if (Array.isArray(value)) {
+        changes += replaceFilteredArray(node, key, function (item) {
+          return shouldRemoveViewJsonModule(item, config);
+        });
+        node[key].forEach(function (item) {
+          if (isPlainObject(item)) {
+            changes += filterKnownViewJsonContainers(
+              item,
+              config,
+              depth + 1
+            );
+          }
+        });
+      } else if (isPlainObject(value)) {
+        if (shouldRemoveViewJsonModule(value, config)) {
+          delete node[key];
+          changes += 1;
+        } else {
+          changes += filterKnownViewJsonContainers(
+            value,
+            config,
+            depth + 1
+          );
+        }
+      }
+    }
     return changes;
   }
 
@@ -1929,6 +2288,12 @@
     if (endpoint === "vip-materials") {
       return handleVipMaterials(body, config);
     }
+    if (endpoint === "vip-material-report") {
+      return handleVipMaterialReport(body, config);
+    }
+    if (endpoint === "myinfo-diagnostic") {
+      return 0;
+    }
     if (
       endpoint === "resource-promotion" ||
       endpoint === "pgc-activity-material" ||
@@ -1944,8 +2309,11 @@
       return 0;
     }
     switch (endpoint) {
-      case "splash":
-        return handleSplash(body);
+      case "splash-list":
+      case "splash-show":
+      case "splash-event-list2":
+      case "splash-brand-list":
+        return handleSplash(body, endpoint);
       case "feed":
         return handleFeed(body, config);
       case "story":
@@ -1973,6 +2341,8 @@
     var parsed;
     var endpoint;
     var changes;
+    var data;
+    var arrayCounts = [];
     var effectiveConfig = config || parseArgument("");
 
     try {
@@ -1982,6 +2352,7 @@
         body: original,
         changed: 0,
         endpoint: "",
+        reason: "invalid-json",
         valid: false
       };
     }
@@ -1992,6 +2363,7 @@
         body: original,
         changed: 0,
         endpoint: "",
+        reason: "endpoint-unmatched",
         valid: true
       };
     }
@@ -2003,13 +2375,41 @@
         body: original,
         changed: 0,
         endpoint: endpoint,
+        reason: "handler-error",
         valid: false
       };
     }
+    data = isPlainObject(parsed.data) ? parsed.data : null;
+    if (data) {
+      [
+        "items",
+        "list",
+        "list_v2",
+        "cards",
+        "relates",
+        "sections",
+        "sections_v2"
+      ].forEach(function (key) {
+        if (Array.isArray(data[key])) {
+          arrayCounts.push(key + ":" + data[key].length);
+        }
+      });
+    }
     return {
+      arrayCounts: arrayCounts,
       body: changes > 0 ? JSON.stringify(parsed) : original,
       changed: changes,
       endpoint: endpoint,
+      hitType: changes > 0 ? endpoint + "-filter" : "",
+      reason:
+        changes > 0
+          ? "changed"
+          : (
+              endpoint === "myinfo-diagnostic"
+                ? "diagnostic-only"
+                : "no-ad-fields"
+            ),
+      topKeys: Object.keys(parsed).slice(0, 12),
       valid: true
     };
   }
@@ -2091,15 +2491,28 @@
     var offset = start;
     var count = 0;
     var byte;
+    var contribution;
+    var safe = true;
     while (offset < bytes.length && count < 10) {
       byte = bytes[offset];
-      value += (byte & 0x7f) * multiplier;
+      if (safe) {
+        contribution = (byte & 0x7f) * multiplier;
+        if (
+          !Number.isSafeInteger(contribution) ||
+          value > Number.MAX_SAFE_INTEGER - contribution
+        ) {
+          safe = false;
+        } else {
+          value += contribution;
+        }
+      }
       offset += 1;
       count += 1;
       if ((byte & 0x80) === 0) {
         return {
           next: offset,
-          value: value
+          safe: safe,
+          value: safe ? value : null
         };
       }
       multiplier *= 128;
@@ -2123,7 +2536,7 @@
     }
     while (offset < bytes.length) {
       tag = readVarint(bytes, offset);
-      if (!tag || !Number.isSafeInteger(tag.value)) {
+      if (!tag || !tag.safe || !Number.isSafeInteger(tag.value)) {
         return null;
       }
       fieldNumber = Math.floor(tag.value / 8);
@@ -2137,6 +2550,7 @@
         payloadEnd: 0,
         payloadStart: 0,
         scalar: null,
+        scalarSafe: true,
         start: offset,
         tagEnd: tag.next,
         wireType: wireType
@@ -2146,7 +2560,8 @@
         if (!value) {
           return null;
         }
-        field.scalar = value.value;
+        field.scalar = value.safe ? value.value : null;
+        field.scalarSafe = value.safe;
         end = value.next;
       } else if (wireType === 1) {
         end = tag.next + 8;
@@ -2154,6 +2569,7 @@
         length = readVarint(bytes, tag.next);
         if (
           !length ||
+          !length.safe ||
           !Number.isSafeInteger(length.value) ||
           length.value < 0
         ) {
@@ -2432,6 +2848,28 @@
     return Boolean(findProtoField(input, 28, 2));
   }
 
+  function isExplicitViewV1Av(input) {
+    var param;
+    var uri;
+    if (shortAsciiField(input, 7) !== "av") {
+      return false;
+    }
+    if (positiveVarintField(input, 1)) {
+      return true;
+    }
+    param = shortAsciiField(input, 8);
+    if (param && /^(?:\d+|bv[0-9a-z]+)$/i.test(param)) {
+      return true;
+    }
+    uri = shortAsciiField(input, 9);
+    return Boolean(
+      uri &&
+      /^(?:bilibili:\/\/video\/|https?:\/\/(?:www\.)?bilibili\.com\/video\/)/i.test(
+        uri
+      )
+    );
+  }
+
   function shouldRemoveViewV1Relate(input, config) {
     if (
       config.ads !== false &&
@@ -2441,7 +2879,7 @@
     }
     return (
       config.videoOnlyRecommendations !== false &&
-      shortAsciiField(input, 7) !== "av"
+      !isExplicitViewV1Av(input)
     );
   }
 
@@ -2582,11 +3020,256 @@
     });
   }
 
-  function transformWholeResponseAd(input) {
+  function contextHeaderText(context) {
+    var headers = context && context.requestHeaders;
+    var keys;
+    var index;
+    var output = [];
+    if (!isPlainObject(headers)) {
+      return "";
+    }
+    keys = Object.keys(headers);
+    for (index = 0; index < keys.length; index += 1) {
+      if (
+        /^(?:user-agent|x-bili-(?:build|version))$/i.test(keys[index]) &&
+        typeof headers[keys[index]] === "string" &&
+        headers[keys[index]].length <= 512
+      ) {
+        output.push(headers[keys[index]]);
+      }
+    }
+    return output.join(" ").toLowerCase();
+  }
+
+  function isSupportedIos940Build(context) {
+    var text = contextHeaderText(context);
+    return Boolean(
+      context &&
+      (
+        context.assumeIos940 === true ||
+        /58ece148439d6782b1e6f9a9a37e82a1fd0db236/i.test(text) ||
+        /(?:bili(?:bili)?|bili-universal)[^;\r\n]{0,40}(?:9\.4\.0|9400\d{2,})/i.test(
+          text
+        ) ||
+        /(?:build|version)[=:/ _-]*(?:9\.4\.0|9400\d{2,})/i.test(text)
+      )
+    );
+  }
+
+  function bytesContainCommercialEvidence(input) {
+    var bytes = toUint8Array(input);
+    var text = "";
+    var index;
+    if (!bytes || bytes.length === 0 || bytes.length > 262144) {
+      return false;
+    }
+    for (index = 0; index < bytes.length; index += 1) {
+      text += bytes[index] >= 0x20 && bytes[index] <= 0x7e
+        ? String.fromCharCode(bytes[index])
+        : " ";
+    }
+    return /(?:https?:\/\/(?:[^/\s]+\.)?(?:cm|ad)\.bili(?:bili)?\.(?:com|net)|(?:https?:\/\/|bilibili:\/\/)[^\s]{0,160}(?:taobao|tmall|jd\.com|pinduoduo|sponsor|commercial|creative|advert)|(?:^|[^a-z0-9])(?:ad_info|ad_report|adver_id|creative_id|commercial_id|pause[_-]?(?:ad|commerce)|flash[_-]?sale|mall[_/-]ad)(?:[^a-z0-9]|$))/i.test(
+      text
+    );
+  }
+
+  function transformPlayPause(input, context) {
+    var bytes = toUint8Array(input) || new Uint8Array();
+    var fields = parseProtoFields(bytes);
+    var result;
+    if (!fields || fields.length === 0) {
+      return {
+        body: bytes,
+        changed: 0,
+        reason: "schema-unrecognized",
+        schema: "play-pause-unknown",
+        valid: true
+      };
+    }
+    result = rewriteProtoMessage(bytes, function (field, message) {
+      return bytesContainCommercialEvidence(
+        protoPayload(message, field)
+      )
+        ? { changed: 1, remove: true }
+        : null;
+    });
+    result.reason =
+      result.changed > 0 ? "commercial-fields-removed" : "no-ad-fields";
+    result.schema = isSupportedIos940Build(context)
+      ? "play-pause-ios-9.4.0-commercial-fields"
+      : "play-pause-commercial-evidence-v1";
+    return result;
+  }
+
+  function transformViewEndPage(input, config) {
+    var result = filterRepeatedMessage(input, 1, function (card) {
+      var relate = findProtoField(card, 1, 2);
+      if (!relate) {
+        return false;
+      }
+      return shouldRemoveViewUniteRelate(
+        protoPayload(card, relate),
+        config
+      );
+    });
+    result.reason =
+      result.changed > 0 ? "relates-filtered" : "no-ad-fields";
+    result.schema = "view-end-page-relates-v1";
+    return result;
+  }
+
+  function decodeUtf8Strict(input) {
+    var bytes = toUint8Array(input);
+    var output = "";
+    var index = 0;
+    var first;
+    var second;
+    var third;
+    var fourth;
+    var codePoint;
+    if (!bytes) {
+      return null;
+    }
+    while (index < bytes.length) {
+      first = bytes[index];
+      if (first <= 0x7f) {
+        output += String.fromCharCode(first);
+        index += 1;
+        continue;
+      }
+      if (first >= 0xc2 && first <= 0xdf) {
+        if (index + 1 >= bytes.length) {
+          return null;
+        }
+        second = bytes[index + 1];
+        if ((second & 0xc0) !== 0x80) {
+          return null;
+        }
+        output += String.fromCharCode(
+          ((first & 0x1f) << 6) | (second & 0x3f)
+        );
+        index += 2;
+        continue;
+      }
+      if (first >= 0xe0 && first <= 0xef) {
+        if (index + 2 >= bytes.length) {
+          return null;
+        }
+        second = bytes[index + 1];
+        third = bytes[index + 2];
+        if (
+          (second & 0xc0) !== 0x80 ||
+          (third & 0xc0) !== 0x80 ||
+          (first === 0xe0 && second < 0xa0) ||
+          (first === 0xed && second >= 0xa0)
+        ) {
+          return null;
+        }
+        output += String.fromCharCode(
+          ((first & 0x0f) << 12) |
+          ((second & 0x3f) << 6) |
+          (third & 0x3f)
+        );
+        index += 3;
+        continue;
+      }
+      if (first >= 0xf0 && first <= 0xf4) {
+        if (index + 3 >= bytes.length) {
+          return null;
+        }
+        second = bytes[index + 1];
+        third = bytes[index + 2];
+        fourth = bytes[index + 3];
+        if (
+          (second & 0xc0) !== 0x80 ||
+          (third & 0xc0) !== 0x80 ||
+          (fourth & 0xc0) !== 0x80 ||
+          (first === 0xf0 && second < 0x90) ||
+          (first === 0xf4 && second >= 0x90)
+        ) {
+          return null;
+        }
+        codePoint =
+          ((first & 0x07) << 18) |
+          ((second & 0x3f) << 12) |
+          ((third & 0x3f) << 6) |
+          (fourth & 0x3f);
+        codePoint -= 0x10000;
+        output += String.fromCharCode(
+          0xd800 + (codePoint >> 10),
+          0xdc00 + (codePoint & 0x3ff)
+        );
+        index += 4;
+        continue;
+      }
+      return null;
+    }
+    return output;
+  }
+
+  function transformDeviceFeature(input) {
+    var bytes = toUint8Array(input) || new Uint8Array();
+    var fields = parseProtoFields(bytes);
+    var field;
+    var text;
+    if (!fields) {
+      return {
+        body: bytes,
+        changed: 0,
+        reason: "schema-unrecognized",
+        schema: "device-feature-unknown",
+        valid: true
+      };
+    }
+    field = findProtoField(bytes, 1, 2);
+    if (!field) {
+      return {
+        body: bytes,
+        changed: 0,
+        reason: "action-data-absent",
+        schema: "device-feature-action-data-v1",
+        valid: true
+      };
+    }
+    text = decodeUtf8Strict(protoPayload(bytes, field));
+    if (text === null) {
+      return {
+        body: bytes,
+        changed: 0,
+        reason: "invalid-utf8",
+        schema: "device-feature-action-data-v1",
+        valid: true
+      };
+    }
+    try {
+      JSON.parse(text);
+    } catch (error) {
+      return {
+        body: bytes,
+        changed: 0,
+        reason: "action-data-not-json",
+        schema: "device-feature-action-data-v1",
+        valid: true
+      };
+    }
+    return {
+      body: bytes,
+      changed: 0,
+      reason: "no-verified-action",
+      schema: "device-feature-action-data-v1",
+      valid: true
+    };
+  }
+
+  function transformResourceModuleList(input) {
     var bytes = toUint8Array(input) || new Uint8Array();
     return {
-      body: new Uint8Array(),
-      changed: bytes.length > 0 ? 1 : 0,
+      body: bytes,
+      changed: 0,
+      reason: parseProtoFields(bytes)
+        ? "diagnostic-only"
+        : "schema-unrecognized",
+      schema: "resource-module-list-v1",
       valid: true
     };
   }
@@ -2942,7 +3625,7 @@
     });
   }
 
-  function transformGrpcPayload(input, endpoint, config) {
+  function transformGrpcPayload(input, endpoint, config, context) {
     config = config || parseArgument("");
     switch (endpoint) {
       case "grpc-view-v1":
@@ -2958,12 +3641,17 @@
       case "grpc-view-unite-progress":
         return transformViewUniteProgress(input);
       case "grpc-view-unite-play-pause":
+        return transformPlayPause(input, context);
       case "grpc-view-unite-end-page":
-        return transformWholeResponseAd(input);
+        return transformViewEndPage(input, config);
       case "grpc-view-unite-relates":
         return transformViewUnite(input, true, config);
       case "grpc-mine-pub-module":
         return transformMinePubModule(input, config);
+      case "grpc-mine-device-feature":
+        return transformDeviceFeature(input);
+      case "grpc-resource-module-list":
+        return transformResourceModuleList(input);
       case "grpc-popular":
         return transformPopular(input, config);
       case "grpc-dynamic":
@@ -3063,6 +3751,53 @@
     return false;
   }
 
+  function headerValue(headers, name) {
+    var keys;
+    var index;
+    var value;
+    if (!isPlainObject(headers)) {
+      return "";
+    }
+    keys = Object.keys(headers);
+    for (index = 0; index < keys.length; index += 1) {
+      if (keys[index].toLowerCase() === name.toLowerCase()) {
+        value = headers[keys[index]];
+        return value === undefined || value === null
+          ? ""
+          : String(value);
+      }
+    }
+    return "";
+  }
+
+  function grpcEncodingForContext(context) {
+    return headerValue(
+      context && context.responseHeaders,
+      "grpc-encoding"
+    )
+      .split(",")[0]
+      .trim()
+      .toLowerCase();
+  }
+
+  function isSupportedGzipPayload(payload, context) {
+    var bytes = toUint8Array(payload);
+    var encoding = grpcEncodingForContext(context);
+    if (
+      encoding &&
+      encoding !== "gzip" &&
+      encoding !== "x-gzip"
+    ) {
+      return false;
+    }
+    return Boolean(
+      bytes &&
+      bytes.length >= 2 &&
+      bytes[0] === 0x1f &&
+      bytes[1] === 0x8b
+    );
+  }
+
   function decompressGzip(input) {
     var bytes = toUint8Array(input);
     var output;
@@ -3139,7 +3874,7 @@
     return readNext();
   }
 
-  function transformGrpcBody(body, requestUrl, config) {
+  function transformGrpcBody(body, requestUrl, config, context) {
     var parsed = parseGrpcFrames(body);
     var original = parsed.body;
     var frames = parsed.frames;
@@ -3151,11 +3886,15 @@
     var frame;
     var payload;
     var result;
+    var reasons = {};
+    var schemas = {};
     if (!parsed.valid) {
       return {
         body: original,
         changed: 0,
         endpoint: endpoint,
+        frames: 0,
+        reason: "malformed-grpc",
         valid: false
       };
     }
@@ -3164,15 +3903,14 @@
         body: original,
         changed: 0,
         endpoint: endpoint,
+        frames: frames.length,
+        reason: endpoint ? "feature-disabled" : "endpoint-unmatched",
         valid: true
       };
     }
     for (index = 0; index < frames.length; index += 1) {
       frame = frames[index];
-      if (
-        frame.flag === 1 &&
-        !isWholeResponseAdEndpoint(endpoint)
-      ) {
+      if (frame.flag === 1) {
         chunks.push(original.slice(frame.start, frame.end));
         continue;
       }
@@ -3180,14 +3918,23 @@
       result = transformGrpcPayload(
         payload,
         endpoint,
-        effectiveConfig
+        effectiveConfig,
+        context
       );
+      if (result.reason) {
+        reasons[result.reason] = true;
+      }
+      if (result.schema) {
+        schemas[result.schema] = true;
+      }
       if (!result.valid) {
         return {
-          body: original,
-          changed: 0,
-          endpoint: endpoint,
-          valid: false
+            body: original,
+            changed: 0,
+            endpoint: endpoint,
+            frames: frames.length,
+            reason: result.reason || "schema-unrecognized",
+            valid: false
         };
       }
       if (result.changed > 0) {
@@ -3202,11 +3949,17 @@
       body: changed > 0 ? concatBytes(chunks) : original,
       changed: changed,
       endpoint: endpoint,
+      frames: frames.length,
+      hitType: changed > 0 ? endpoint + "-filter" : "",
+      reason:
+        Object.keys(reasons)[0] ||
+        (changed > 0 ? "changed" : "no-ad-fields"),
+      schema: Object.keys(schemas).join(","),
       valid: true
     };
   }
 
-  function transformGrpcBodyAsync(body, requestUrl, config) {
+  function transformGrpcBodyAsync(body, requestUrl, config, context) {
     var parsed = parseGrpcFrames(body);
     var original = parsed.body;
     var frames = parsed.frames;
@@ -3219,6 +3972,8 @@
         body: original,
         changed: 0,
         endpoint: endpoint,
+        frames: 0,
+        reason: "malformed-grpc",
         valid: false
       });
     }
@@ -3227,18 +3982,22 @@
         body: original,
         changed: 0,
         endpoint: endpoint,
+        frames: frames.length,
+        reason: endpoint ? "feature-disabled" : "endpoint-unmatched",
         valid: true
       });
     }
 
-    if (isWholeResponseAdEndpoint(endpoint)) {
-      return Promise.resolve(
-        transformGrpcBody(body, requestUrl, effectiveConfig)
-      );
-    }
-
     tasks = frames.map(function (frame) {
       var payload = original.slice(frame.payloadStart, frame.end);
+      if (
+        frame.flag === 1 &&
+        !isSupportedGzipPayload(payload, context)
+      ) {
+        return Promise.reject(
+          new Error("unsupported gRPC compression encoding")
+        );
+      }
       var payloadPromise =
         frame.flag === 1
           ? decompressGzip(payload)
@@ -3249,7 +4008,8 @@
           result: transformGrpcPayload(
             decoded,
             endpoint,
-            effectiveConfig
+            effectiveConfig,
+            context
           )
         };
       });
@@ -3261,13 +4021,24 @@
         var changed = 0;
         var index;
         var entry;
+        var reasons = {};
+        var schemas = {};
         for (index = 0; index < entries.length; index += 1) {
           entry = entries[index];
+          if (entry.result.reason) {
+            reasons[entry.result.reason] = true;
+          }
+          if (entry.result.schema) {
+            schemas[entry.result.schema] = true;
+          }
           if (!entry.result.valid) {
             return {
               body: original,
               changed: 0,
               endpoint: endpoint,
+              frames: frames.length,
+              reason:
+                entry.result.reason || "schema-unrecognized",
               valid: false
             };
           }
@@ -3285,6 +4056,12 @@
           body: changed > 0 ? concatBytes(chunks) : original,
           changed: changed,
           endpoint: endpoint,
+          frames: frames.length,
+          hitType: changed > 0 ? endpoint + "-filter" : "",
+          reason:
+            Object.keys(reasons)[0] ||
+            (changed > 0 ? "changed" : "no-ad-fields"),
+          schema: Object.keys(schemas).join(","),
           valid: true
         };
       },
@@ -3293,6 +4070,8 @@
           body: original,
           changed: 0,
           endpoint: endpoint,
+          frames: frames.length,
+          reason: "gzip-decode-failed",
           valid: false
         };
       }
@@ -3309,12 +4088,81 @@
     }
   }
 
+  function bodyLengthForLog(body) {
+    var bytes = toUint8Array(body);
+    if (bytes) {
+      return bytes.length;
+    }
+    return typeof body === "string" ? body.length : 0;
+  }
+
+  function grpcFrameSummaryForLog(body) {
+    var parsed = parseGrpcFrames(body);
+    if (!parsed.valid) {
+      return "invalid";
+    }
+    return parsed.frames
+      .slice(0, 8)
+      .map(function (frame) {
+        return (
+          String(frame.flag) +
+          ":" +
+          String(frame.end - frame.payloadStart)
+        );
+      })
+      .join("|");
+  }
+
+  function logDiagnostic(result, transport, body, responseHeaders) {
+    var contentType = headerValue(responseHeaders, "content-type")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    safeLog(
+      "endpoint=" +
+        (result.endpoint || "unmatched") +
+        " transport=" +
+        transport +
+        " contentType=" +
+        (contentType || "unknown") +
+        " bodyBytes=" +
+        bodyLengthForLog(body) +
+        " frames=" +
+        (result.frames || 0) +
+        (
+          transport === "grpc"
+            ? " frameFlags=" + grpcFrameSummaryForLog(body)
+            : ""
+        ) +
+        " changed=" +
+        (result.changed || 0) +
+        " schema=" +
+        (result.schema || "none") +
+        " hit=" +
+        (result.hitType || "none") +
+        (
+          Array.isArray(result.topKeys) && result.topKeys.length > 0
+            ? " topKeys=" + result.topKeys.join(",")
+            : ""
+        ) +
+        (
+          Array.isArray(result.arrayCounts) &&
+          result.arrayCounts.length > 0
+            ? " arrays=" + result.arrayCounts.join(",")
+            : ""
+        ) +
+        " reason=" +
+        (result.reason || (result.valid ? "no-op" : "fail-open"))
+    );
+  }
+
   function runShadowrocket() {
     var config;
     var body;
     var requestUrl;
     var result;
     var grpcEndpoint;
+    var context;
     try {
       config = parseArgument(
         typeof $argument === "string" ? $argument : ""
@@ -3329,6 +4177,16 @@
           ? String($request.url || "")
           : "";
       grpcEndpoint = classifyGrpcEndpoint(requestUrl);
+      context = {
+        requestHeaders:
+          typeof $request !== "undefined" && $request
+            ? $request.headers
+            : null,
+        responseHeaders:
+          typeof $response !== "undefined" && $response
+            ? $response.headers
+            : null
+      };
       body =
         grpcEndpoint &&
         typeof $response !== "undefined" &&
@@ -3346,26 +4204,23 @@
           transformGrpcBodyAsync(
             body,
             requestUrl,
-            config
+            config,
+            context
           ).then(function (asyncResult) {
+            if (config.debug) {
+              logDiagnostic(
+                asyncResult,
+                "grpc",
+                body,
+                context.responseHeaders
+              );
+            }
             if (
               asyncResult.valid &&
               asyncResult.changed > 0
             ) {
-              if (config.debug) {
-                safeLog(
-                  asyncResult.endpoint + " removed " +
-                    asyncResult.changed +
-                    " compressed Protobuf field/item(s)"
-                );
-              }
               $done({ body: asyncResult.body });
               return;
-            }
-            if (config.debug && !asyncResult.valid) {
-              safeLog(
-                "unsupported compressed gRPC response left unchanged"
-              );
             }
             $done({});
           }, function (error) {
@@ -3381,19 +4236,18 @@
           });
           return;
         }
-        result = transformGrpcBody(body, requestUrl, config);
+        result = transformGrpcBody(body, requestUrl, config, context);
+        if (config.debug) {
+          logDiagnostic(
+            result,
+            "grpc",
+            body,
+            context.responseHeaders
+          );
+        }
         if (result.valid && result.changed > 0) {
-          if (config.debug) {
-            safeLog(
-              result.endpoint + " removed " +
-                result.changed + " Protobuf field/item(s)"
-            );
-          }
           $done({ body: result.body });
           return;
-        }
-        if (config.debug && !result.valid) {
-          safeLog("unsupported gRPC response left unchanged");
         }
         $done({});
         return;
@@ -3406,18 +4260,17 @@
         return;
       }
       result = transformJsonText(body, requestUrl, config);
+      if (config.debug) {
+        logDiagnostic(
+          result,
+          "json",
+          body,
+          context.responseHeaders
+        );
+      }
       if (result.valid && result.changed > 0) {
-        if (config.debug) {
-          safeLog(
-            result.endpoint + " removed/updated " +
-              result.changed + " item(s)"
-          );
-        }
         $done({ body: result.body });
         return;
-      }
-      if (config.debug && !result.valid) {
-        safeLog("unsupported JSON response left unchanged");
       }
       $done({});
     } catch (error) {
@@ -3440,16 +4293,19 @@
     classifyGrpcEndpoint: classifyGrpcEndpoint,
     concatBytes: concatBytes,
     encodeVarint: encodeVarint,
+    grpcFrameSummaryForLog: grpcFrameSummaryForLog,
     handleFeed: handleFeed,
     handleMine: handleMine,
     handleNavigation: handleNavigation,
     handleVipCenter: handleVipCenter,
+    handleVipMaterialReport: handleVipMaterialReport,
     handleVipMaterials: handleVipMaterials,
     hasExplicitAdMarker: hasExplicitAdMarker,
     isHighConfidencePromotion: isHighConfidencePromotion,
     isMineMarketingBanner: isMineMarketingBanner,
     isFeedAdCard: isFeedAdCard,
     isExplicitPopularAv: isExplicitPopularAv,
+    isSupportedIos940Build: isSupportedIos940Build,
     matchesMineTarget: matchesMineTarget,
     matchesNavigationItem: matchesNavigationItem,
     parseArgument: parseArgument,
@@ -3460,7 +4316,10 @@
     transformGrpcBodyAsync: transformGrpcBodyAsync,
     transformGrpcPayload: transformGrpcPayload,
     transformMinePubModule: transformMinePubModule,
+    transformDeviceFeature: transformDeviceFeature,
+    transformPlayPause: transformPlayPause,
     transformPopular: transformPopular,
+    transformViewEndPage: transformViewEndPage,
     transformJsonText: transformJsonText
   };
 

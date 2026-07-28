@@ -134,6 +134,18 @@ test("parses independent enhancement switches and rejects malformed arguments", 
   assert.equal(enhance.parseArgument("ads=%").valid, false);
 });
 
+test("gRPC debug summary records only frame flags and payload lengths", () => {
+  const body = bytes(
+    grpcFrame(new Uint8Array([1, 2, 3]), 0),
+    grpcFrame(new Uint8Array([31, 139, 8, 0]), 1),
+  );
+  assert.equal(enhance.grpcFrameSummaryForLog(body), "0:3|1:4");
+  assert.equal(
+    enhance.grpcFrameSummaryForLog(new Uint8Array([0, 0])),
+    "invalid",
+  );
+});
+
 test("high-confidence promotion detection preserves ambiguous content", () => {
   assert.equal(
     enhance.isHighConfidencePromotion({
@@ -173,25 +185,93 @@ test("high-confidence promotion detection preserves ambiguous content", () => {
   );
 });
 
-test("removes only high-confidence splash and feed advertisements", () => {
-  const splash = transform(
-    `${appRoot}/x/v2/splash/show`,
+test("four splash endpoints return endpoint-specific empty success responses", () => {
+  const cases = [
     {
+      endpoint: "splash-list",
+      path: "/x/v2/splash/list",
+      arrays: ["event_list", "list", "preload", "show"],
+      nullable: ["account"],
+    },
+    {
+      endpoint: "splash-show",
+      path: "/x/v2/splash/show",
+      arrays: ["preload", "show"],
+      nullable: ["account"],
+    },
+    {
+      endpoint: "splash-event-list2",
+      path: "/x/v2/splash/event/list2",
+      arrays: ["event_list", "list", "preload"],
+      nullable: [],
+    },
+    {
+      endpoint: "splash-brand-list",
+      path: "/x/v2/splash/brand/list",
+      arrays: ["brand_list", "list", "preload", "splash_list"],
+      nullable: ["account"],
+    },
+  ];
+
+  for (const splashCase of cases) {
+    const url = `${appRoot}${splashCase.path}`;
+    const fixture = {
       code: 0,
+      message: "loaded",
+      ttl: 120,
       data: {
         account: { id: 1 },
-        event_list: [1],
-        preload: [2],
-        show: [3],
+        brand_list: [{ creative_id: 10 }],
+        client_keep_ids: [10, 11],
+        creative_keep_ids: [12],
+        event_list: [{ creative_id: 13 }],
+        keep_ids: [14],
+        list: [{ creative_id: 15 }],
+        loaded_creative_list: [16],
+        new_splash_hash: "old-set",
+        preload: [{ creative_id: 17 }],
+        pull_interval: 3600,
+        show: [{ creative_id: 18 }],
+        show_hash: "old-show",
+        splash_list: [{ creative_id: 19 }],
+        has_new_splash_set: true,
         unknown_future_field: { keep: true },
       },
-    },
-  );
-  const splashBody = JSON.parse(splash.body);
+      trace_id: "keep-trace",
+    };
+    const first = transform(url, fixture);
+    const output = JSON.parse(first.body);
 
-  assert.equal(splash.changed, 4);
-  assert.equal("account" in splashBody.data, false);
-  assert.deepEqual(splashBody.data.unknown_future_field, { keep: true });
+    assert.equal(first.endpoint, splashCase.endpoint);
+    assert.equal(first.changed, 1);
+    assert.equal(output.code, 0);
+    assert.equal(output.message, "0");
+    assert.equal(output.ttl, 1);
+    assert.deepEqual(output.data.client_keep_ids, []);
+    assert.deepEqual(output.data.creative_keep_ids, []);
+    assert.deepEqual(output.data.keep_ids, []);
+    assert.deepEqual(output.data.loaded_creative_list, []);
+    assert.equal(output.data.new_splash_hash, "");
+    assert.equal(output.data.show_hash, "");
+    assert.equal(output.data.pull_interval, 3600);
+    assert.equal(output.data.has_new_splash_set, true);
+    assert.deepEqual(output.data.unknown_future_field, { keep: true });
+    assert.equal(output.trace_id, "keep-trace");
+    for (const key of splashCase.arrays) {
+      assert.deepEqual(output.data[key], []);
+    }
+    for (const key of splashCase.nullable) {
+      assert.equal(output.data[key], null);
+    }
+
+    const repeated = enhance.transformJsonText(
+      first.body,
+      url,
+      enhance.parseArgument(""),
+    );
+    assert.equal(repeated.changed, 0);
+    assert.equal(repeated.body, first.body);
+  }
 
   const feed = transform(
     `${appRoot}/x/v2/feed/index?device=phone`,
@@ -760,7 +840,7 @@ test("mine cleanup preserves account, membership, history, and unknown entries",
   assert.equal(data.sections_v2.length, 1);
   assert.deepEqual(
     data.sections_v2[0].items.map((item) => item.title),
-    ["历史记录", "我的课程", "未知新服务"],
+    ["历史记录", "未知新服务"],
   );
   assert.equal("button" in data.sections_v2[0], false);
 });
@@ -817,7 +897,7 @@ test("Mine and More service toggles are independent and default-visible", () => 
     JSON.parse(defaults.body).data.sections_v2[0].items.map(
       (item) => item.title,
     ),
-    ["我的钱包", "创作中心", "联系客服", "设置", "未来新服务"],
+    ["我的钱包", "联系客服", "设置", "未来新服务"],
   );
 
   const customized = transform(
@@ -832,7 +912,7 @@ test("Mine and More service toggles are independent and default-visible", () => 
     JSON.parse(customized.body).data.sections_v2[0].items.map(
       (item) => item.title,
     ),
-    ["创作中心", "联系客服", "未来新服务"],
+    ["联系客服", "未来新服务"],
   );
 
   const uiDisabled = transform(
@@ -1008,7 +1088,7 @@ test("VIP center cleanup removes only marketing overlays and banners", () => {
   assert.deepEqual(JSON.parse(disabled.body), fixture);
 });
 
-test("VIP ad-material responses are neutralized on every host", () => {
+test("VIP materials and reports use distinct idempotent success contracts", () => {
   const fixture = {
     code: 0,
     message: "0",
@@ -1031,9 +1111,22 @@ test("VIP ad-material responses are neutralized on every host", () => {
     const firstBody = JSON.parse(first.body);
     assert.equal(first.endpoint, "vip-materials");
     assert.equal(first.changed, 1);
-    assert.equal(firstBody.data, null);
-    assert.equal(firstBody.code, 0);
-    assert.equal(firstBody.trace_id, "keep-trace");
+    assert.deepEqual(firstBody, {
+      code: 0,
+      data: {
+        list: [],
+        list_v2: [],
+        materials: [],
+        vip_login_coupon: {
+          exp: false,
+          login_layer: null,
+          report: {},
+        },
+      },
+      message: "0",
+      trace_id: "keep-trace",
+      ttl: 1,
+    });
 
     const repeated = enhance.transformJsonText(
       first.body,
@@ -1043,6 +1136,30 @@ test("VIP ad-material responses are neutralized on every host", () => {
     assert.equal(repeated.changed, 0);
     assert.equal(repeated.body, first.body);
   }
+
+  const reportUrl = `${appRoot}/x/vip/ads/material/report`;
+  const report = transform(reportUrl, {
+    code: 0,
+    data: { status: "recorded" },
+    message: "ok",
+    trace_id: "keep-trace",
+  });
+  assert.equal(report.endpoint, "vip-material-report");
+  assert.equal(report.changed, 1);
+  assert.deepEqual(JSON.parse(report.body), {
+    code: 0,
+    data: { status: "recorded" },
+    message: "0",
+    trace_id: "keep-trace",
+    ttl: 1,
+  });
+  const repeatedReport = enhance.transformJsonText(
+    report.body,
+    reportUrl,
+    enhance.parseArgument(""),
+  );
+  assert.equal(repeatedReport.changed, 0);
+  assert.equal(repeatedReport.body, report.body);
 
   const disabled = transform(
     `${appRoot}/x/vip/ads/materials`,
@@ -1057,6 +1174,16 @@ test("VIP ad-material responses are neutralized on every host", () => {
     '{"ads":false}',
   );
   assert.deepEqual(JSON.parse(adsDisabled.body), fixture);
+
+  const disabledReport = transform(
+    reportUrl,
+    { code: 0, data: { status: "recorded" } },
+    '{"ads":false}',
+  );
+  assert.deepEqual(JSON.parse(disabledReport.body), {
+    code: 0,
+    data: { status: "recorded" },
+  });
 });
 
 test("dedicated activity, shopping, and game material APIs return empty safe shapes", () => {
@@ -1158,6 +1285,27 @@ test("JSON cleanup is idempotent across repeated refresh responses", () => {
   assert.ok(first.changed > 0);
   assert.equal(second.changed, 0);
   assert.equal(second.body, first.body);
+});
+
+test("myinfo is diagnostic-only and never edits account data without a fixture", () => {
+  const input = JSON.stringify({
+    code: 0,
+    data: {
+      mid: 123456,
+      name: "private-account-value",
+      vip: { label: { text: "年度大会员" } },
+    },
+  });
+  const result = enhance.transformJsonText(
+    input,
+    `${appRoot}/x/v2/account/myinfo`,
+    enhance.parseArgument(""),
+  );
+
+  assert.equal(result.endpoint, "myinfo-diagnostic");
+  assert.equal(result.reason, "diagnostic-only");
+  assert.equal(result.changed, 0);
+  assert.equal(result.body, input);
 });
 
 test("handles view, reply, PGC, web feed, and live ads conservatively", () => {
@@ -1304,6 +1452,10 @@ test("view recommendations keep only ordinary videos by default", () => {
           title: "无法明确确认类型的旧版卡片",
         },
         {
+          goto: "av",
+          title: "只有 AV 外壳但没有视频身份",
+        },
+        {
           aid: 10,
           goto: "av",
           title: "普通 UP 主拍了一部纪录片",
@@ -1419,7 +1571,12 @@ test("view recommendations keep only ordinary videos by default", () => {
 
 test("gRPC View v1 keeps only explicit AV relations by default", () => {
   const normalRelate = bytes(
+    varintField(1, 1001),
     stringField(3, "normal-related-video"),
+    stringField(7, "av"),
+  );
+  const fakeAvRelate = bytes(
+    stringField(3, "av-shell-without-video-identity"),
     stringField(7, "av"),
   );
   const specialRelate = bytes(
@@ -1432,6 +1589,7 @@ test("gRPC View v1 keeps only explicit AV relations by default", () => {
   );
   const reply = bytes(
     messageField(10, normalRelate),
+    messageField(10, fakeAvRelate),
     messageField(10, specialRelate),
     messageField(10, adRelate),
     messageField(30, stringField(1, "cm-body")),
@@ -1447,7 +1605,7 @@ test("gRPC View v1 keeps only explicit AV relations by default", () => {
   const outputText = Buffer.from(output).toString("latin1");
 
   assert.equal(result.valid, true);
-  assert.equal(result.changed, 4);
+  assert.equal(result.changed, 5);
   assert.equal(protoFields(output, 10, 2).length, 1);
   assert.equal(protoFields(output, 30).length, 0);
   assert.equal(protoFields(output, 31).length, 0);
@@ -1455,6 +1613,7 @@ test("gRPC View v1 keeps only explicit AV relations by default", () => {
   assert.match(outputText, /unknown-field-must-stay/);
   assert.doesNotMatch(outputText, /documentary-related-card/);
   assert.doesNotMatch(outputText, /commercial-related-card/);
+  assert.doesNotMatch(outputText, /av-shell-without-video-identity/);
 
   const relaxed = enhance.transformGrpcBody(
     grpcFrame(reply),
@@ -1626,7 +1785,11 @@ test("gRPC RelatesFeed endpoints use the same ordinary-video allowlist", () => {
       bytes(
         messageField(
           1,
-          bytes(stringField(3, "v1-av"), stringField(7, "av")),
+          bytes(
+            varintField(1, 1002),
+            stringField(3, "v1-av"),
+            stringField(7, "av"),
+          ),
         ),
         messageField(
           1,
@@ -1750,36 +1913,104 @@ test("ViewProgress removes pause-time promotion containers after every resume", 
   );
 });
 
-test("9.4.0 PlayPause and ViewEndPage responses are neutralized before rendering", async () => {
+test("9.4.0 PlayPause removes only evidenced commercial fields", async () => {
   const pausePayload = bytes(
-    messageField(1, stringField(1, "taobao-flash-sale-app")),
-    messageField(2, stringField(1, "pause-commerce-card")),
+    messageField(
+      1,
+      bytes(
+        stringField(1, "https://cm.bilibili.com/pause-ad"),
+        stringField(2, "ad_info"),
+      ),
+    ),
+    messageField(2, stringField(1, "normal-playback-state")),
+    varintField(99, 7),
   );
-  for (const method of ["PlayPause", "ViewEndPage"]) {
-    const result = await enhance.transformGrpcBodyAsync(
-      grpcFrame(new Uint8Array(gzipSync(pausePayload)), 1),
-      `https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/${method}`,
-      enhance.parseArgument(""),
-    );
-    assert.equal(result.valid, true);
-    assert.equal(result.changed, 1);
-    assert.equal(result.body.length, 5);
-    assert.deepEqual(
-      Array.from(result.body),
-      [0, 0, 0, 0, 0],
-    );
+  const url =
+    "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/PlayPause";
+  const result = await enhance.transformGrpcBodyAsync(
+    grpcFrame(new Uint8Array(gzipSync(pausePayload)), 1),
+    url,
+    enhance.parseArgument(""),
+    {
+      requestHeaders: {
+        "user-agent": "bilibili/9.4.0 build/940001",
+      },
+      responseHeaders: {
+        "grpc-encoding": "gzip",
+      },
+    },
+  );
+  const output = grpcPayload(result.body);
+  const text = Buffer.from(output).toString("latin1");
 
-    const disabled = enhance.transformGrpcBody(
-      grpcFrame(pausePayload),
-      `https://app.bilibili.com/bilibili.app.viewunite.v1.View/${method}`,
-      enhance.parseArgument('{"ads":false}'),
+  assert.equal(result.valid, true);
+  assert.equal(result.changed, 1);
+  assert.match(result.schema, /play-pause-ios-9\.4\.0/);
+  assert.equal(protoFields(output, 1).length, 0);
+  assert.equal(protoFields(output, 2, 2).length, 1);
+  assert.equal(protoFields(output, 99, 0).length, 1);
+  assert.doesNotMatch(text, /pause-ad|ad_info/);
+  assert.match(text, /normal-playback-state/);
+
+  const disabled = enhance.transformGrpcBody(
+    grpcFrame(pausePayload),
+    url,
+    enhance.parseArgument('{"ads":false}'),
+  );
+  assert.equal(disabled.changed, 0);
+  assert.deepEqual(
+    Buffer.from(disabled.body),
+    Buffer.from(grpcFrame(pausePayload)),
+  );
+});
+
+test("ViewEndPage keeps ordinary AV cards and unknown top-level fields", () => {
+  const card = (type, title, payloadField) =>
+    bytes(
+      varintField(1, type),
+      messageField(payloadField, stringField(1, `${title}-payload`)),
+      messageField(12, stringField(1, title)),
     );
-    assert.equal(disabled.changed, 0);
-    assert.match(
-      Buffer.from(disabled.body).toString("latin1"),
-      /taobao-flash-sale-app/,
-    );
-  }
+  const reply = bytes(
+    messageField(1, bytes(messageField(1, card(1, "ordinary-av", 2)))),
+    messageField(1, bytes(messageField(1, card(5, "commercial-card", 6)))),
+    stringField(9, "future-end-page-field"),
+  );
+  const url =
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/ViewEndPage";
+  const result = enhance.transformGrpcBody(
+    grpcFrame(reply),
+    url,
+    enhance.parseArgument(""),
+  );
+  const output = grpcPayload(result.body);
+  const text = Buffer.from(output).toString("latin1");
+
+  assert.equal(result.valid, true);
+  assert.equal(result.changed, 1);
+  assert.equal(protoFields(output, 1, 2).length, 1);
+  assert.match(text, /ordinary-av/);
+  assert.doesNotMatch(text, /commercial-card/);
+  assert.match(text, /future-end-page-field/);
+
+  const repeated = enhance.transformGrpcBody(
+    result.body,
+    url,
+    enhance.parseArgument(""),
+  );
+  assert.equal(repeated.changed, 0);
+  assert.deepEqual(Buffer.from(repeated.body), Buffer.from(result.body));
+
+  const disabled = enhance.transformGrpcBody(
+    grpcFrame(reply),
+    url,
+    enhance.parseArgument('{"ads":false}'),
+  );
+  assert.equal(disabled.changed, 0);
+  assert.deepEqual(
+    Buffer.from(disabled.body),
+    Buffer.from(grpcFrame(reply)),
+  );
 });
 
 test("Mine PubModule removes only asynchronous publishing guides after resume", () => {
@@ -1817,6 +2048,105 @@ test("Mine PubModule removes only asynchronous publishing guides after resume", 
     ),
   );
   assert.equal(disabled.changed, 0);
+});
+
+test("DeviceFeature parses only field-1 UTF-8 JSON and safely passes unknown actions", async () => {
+  const url =
+    "https://app.bilibili.com/bilibili.app.mine.v1.Mine/DeviceFeature";
+  const valid = grpcFrame(
+    bytes(
+      stringField(
+        1,
+        JSON.stringify({
+          actions: [{ action: "future_action", id: "vip_banner" }],
+        }),
+      ),
+      stringField(9, "future-field"),
+    ),
+  );
+  const validResult = enhance.transformGrpcBody(
+    valid,
+    url,
+    enhance.parseArgument(""),
+  );
+  assert.equal(validResult.endpoint, "grpc-mine-device-feature");
+  assert.equal(validResult.reason, "no-verified-action");
+  assert.match(validResult.schema, /device-feature-action-data-v1/);
+  assert.equal(validResult.changed, 0);
+  assert.deepEqual(Buffer.from(validResult.body), Buffer.from(valid));
+
+  const notJson = grpcFrame(stringField(1, "not-json"));
+  const notJsonResult = enhance.transformGrpcBody(
+    notJson,
+    url,
+    enhance.parseArgument(""),
+  );
+  assert.equal(notJsonResult.reason, "action-data-not-json");
+  assert.deepEqual(Buffer.from(notJsonResult.body), Buffer.from(notJson));
+
+  const invalidUtf8Payload = new Uint8Array([0xc3, 0x28]);
+  const invalidUtf8 = grpcFrame(
+    bytes(
+      fieldTag(1, 2),
+      enhance.encodeVarint(invalidUtf8Payload.length),
+      invalidUtf8Payload,
+    ),
+  );
+  const invalidResult = enhance.transformGrpcBody(
+    invalidUtf8,
+    url,
+    enhance.parseArgument(""),
+  );
+  assert.equal(invalidResult.reason, "invalid-utf8");
+  assert.deepEqual(Buffer.from(invalidResult.body), Buffer.from(invalidUtf8));
+
+  const compressed = grpcFrame(
+    new Uint8Array(gzipSync(stringField(1, '{"actions":[]}'))),
+    1,
+  );
+  const compressedResult = await enhance.transformGrpcBodyAsync(
+    compressed,
+    url,
+    enhance.parseArgument(""),
+    { responseHeaders: { "grpc-encoding": "gzip" } },
+  );
+  assert.equal(compressedResult.reason, "no-verified-action");
+  assert.equal(compressedResult.changed, 0);
+  assert.deepEqual(Buffer.from(compressedResult.body), Buffer.from(compressed));
+});
+
+test("resource Module/List is matched for diagnostics and never blocks module updates", () => {
+  const input = grpcFrame(
+    bytes(
+      stringField(1, "release"),
+      messageField(
+        2,
+        bytes(
+          stringField(1, "player-modules"),
+          messageField(
+            2,
+            bytes(
+              stringField(1, "module-name"),
+              stringField(3, "https://i0.hdslb.com/module.zip"),
+              stringField(4, "fixture-md5"),
+            ),
+          ),
+        ),
+      ),
+      varintField(3, 123),
+    ),
+  );
+  const result = enhance.transformGrpcBody(
+    input,
+    "https://grpc.biliapi.net/bilibili.app.resource.v1.Module/List",
+    enhance.parseArgument(""),
+  );
+
+  assert.equal(result.endpoint, "grpc-resource-module-list");
+  assert.equal(result.reason, "diagnostic-only");
+  assert.match(result.schema, /resource-module-list-v1/);
+  assert.equal(result.changed, 0);
+  assert.deepEqual(Buffer.from(result.body), Buffer.from(input));
 });
 
 test("Popular fallback feed keeps exactly six explicit ordinary AV cards", () => {
@@ -1949,6 +2279,49 @@ test("compressed first ViewUnite response removes the under-player ad and disgui
   assert.doesNotMatch(outputText, /documentary-disguised-as-av/);
   assert.doesNotMatch(outputText, /live-disguised-as-av/);
   assert.doesNotMatch(outputText, /game-ad-disguised-as-av/);
+});
+
+test("mixed multi-frame gRPC filters every frame and unknown compression fails open", async () => {
+  const url =
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/View";
+  const first = grpcFrame(
+    bytes(
+      messageField(30, stringField(1, "first-frame-cm")),
+      stringField(99, "keep-first-frame"),
+    ),
+  );
+  const secondPayload = bytes(
+    messageField(31, stringField(1, "second-frame-cm")),
+    stringField(98, "keep-second-frame"),
+  );
+  const second = grpcFrame(
+    new Uint8Array(gzipSync(secondPayload)),
+    1,
+  );
+  const input = bytes(first, second);
+  const result = await enhance.transformGrpcBodyAsync(
+    input,
+    url,
+    enhance.parseArgument(""),
+    { responseHeaders: { "grpc-encoding": "gzip" } },
+  );
+  const text = Buffer.from(result.body).toString("latin1");
+
+  assert.equal(result.frames, 2);
+  assert.equal(result.changed, 2);
+  assert.match(text, /keep-first-frame/);
+  assert.match(text, /keep-second-frame/);
+  assert.doesNotMatch(text, /first-frame-cm|second-frame-cm/);
+
+  const unsupported = await enhance.transformGrpcBodyAsync(
+    second,
+    url,
+    enhance.parseArgument(""),
+    { responseHeaders: { "grpc-encoding": "br" } },
+  );
+  assert.equal(unsupported.valid, false);
+  assert.equal(unsupported.reason, "gzip-decode-failed");
+  assert.deepEqual(Buffer.from(unsupported.body), Buffer.from(second));
 });
 
 test("gRPC dynamic, search, and reply filters use endpoint-specific fields", () => {

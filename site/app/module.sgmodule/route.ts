@@ -17,7 +17,8 @@ const SAFE_FIXED_CDN_HOSTS = new Set<string>([
 const SAFE_OWNED_CDN_HOST =
   /^(?:[a-z0-9-]+\.)+(?:acgvideo\.com|bilivideo\.(?:com|cn|net)|bilibilivideo\.com)$/i;
 const SAFE_POLICY = /^[\p{L}\p{N}_.+ -]{1,64}$/u;
-const SAFE_PROFILE = /^[A-Za-z0-9._-]{1,40}$/;
+const SAFE_PROFILE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
+const SAFE_RESET_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
 
 class RequestError extends Error {
   constructor(message: string) {
@@ -91,7 +92,23 @@ function parseString(value: string, option: ModuleOption): string {
     !SAFE_PROFILE.test(value)
   ) {
     throw new RequestError(
-      "networkProfile 仅支持字母、数字、点、横线和下划线",
+      "networkProfile 必须以字母或数字开头，且仅支持字母、数字、横线和下划线",
+    );
+  }
+  if (
+    option.key === "probeMode" &&
+    !["nonblocking", "blocking", "off"].includes(value)
+  ) {
+    throw new RequestError(
+      "probeMode 只能是 nonblocking、blocking 或 off",
+    );
+  }
+  if (
+    option.key === "resetToken" &&
+    !SAFE_RESET_TOKEN.test(value)
+  ) {
+    throw new RequestError(
+      "resetToken 必须以字母或数字开头，且仅支持字母、数字、横线和下划线",
     );
   }
   return value;

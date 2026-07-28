@@ -919,6 +919,35 @@ select:focus {
   line-height: 1.5;
 }
 
+.reset-field {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.reset-field button {
+  background: color-mix(in srgb, var(--blue) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--blue) 24%, var(--line));
+  border-radius: 12px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 750;
+  min-height: 45px;
+  padding: 0 14px;
+}
+
+.reset-field button:hover {
+  background: color-mix(in srgb, var(--blue) 15%, var(--surface));
+}
+
+.reset-field small {
+  color: var(--muted);
+  font-size: 10px;
+  grid-column: 1 / -1;
+  line-height: 1.5;
+}
+
 .range-field > span {
   align-items: center;
   display: flex;
@@ -1444,6 +1473,15 @@ footer > a {
   .network-grid,
   .advanced-body {
     grid-template-columns: 1fr;
+  }
+
+  .reset-field {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .reset-field small {
+    grid-column: 1;
   }
 
   .advanced summary {

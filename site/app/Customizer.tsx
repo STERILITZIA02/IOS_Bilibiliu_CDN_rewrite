@@ -469,8 +469,8 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.2.0 已覆盖 Bilibili iOS
-              9.4.0 的后台恢复、暂停/结束页广告与备用推荐流。
+              使用本站同版本的已审核快照。Enhanced 3.3.0 已覆盖 Bilibili iOS
+              9.4.0 的后台恢复、字段级暂停/结束页广告与备用推荐流。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
@@ -820,6 +820,23 @@ export function Customizer({
                       不会声称识别你的 Wi‑Fi 名称。
                     </small>
                   </label>
+                  <label>
+                    <span>测速执行方式</span>
+                    <select
+                      onChange={(event) =>
+                        setValue("probeMode", event.target.value)
+                      }
+                      value={String(values.probeMode)}
+                    >
+                      <option value="nonblocking">
+                        不阻塞首播（推荐）
+                      </option>
+                      <option value="blocking">
+                        阻塞一次以确定学习结果
+                      </option>
+                      <option value="off">关闭探测，仅使用缓存</option>
+                    </select>
+                  </label>
                   <label className="range-field">
                     <span>
                       测速间隔
@@ -856,6 +873,35 @@ export function Customizer({
                       value={Number(values.switchThreshold)}
                     />
                   </label>
+                  <div className="reset-field full-field">
+                    <label>
+                      <span>CDN 学习状态令牌</span>
+                      <input
+                        onChange={(event) =>
+                          setValue(
+                            "resetToken",
+                            event.target.value.trim(),
+                          )
+                        }
+                        placeholder="none"
+                        value={String(values.resetToken)}
+                      />
+                    </label>
+                    <button
+                      onClick={() =>
+                        setValue(
+                          "resetToken",
+                          `reset_${Date.now().toString(36)}`.slice(0, 32),
+                        )
+                      }
+                      type="button"
+                    >
+                      生成重置令牌
+                    </button>
+                    <small>
+                      令牌发生变化时仅清空一次测速缓存；生成后重新安装或更新模块即可。
+                    </small>
+                  </div>
                   <div className="setting-row">
                     <div className="setting-copy">
                       <strong>调试日志</strong>

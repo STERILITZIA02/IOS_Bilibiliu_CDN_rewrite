@@ -405,7 +405,7 @@
       "argument": "CDN",
       "group": "network",
       "label": "CDN 模式",
-      "description": "auto 只比较同一媒体对象的服务端主/备用完整 URL；off 完全关闭；也可填写固定点播主机",
+      "description": "auto 只比较同一媒体对象的服务端完整候选；off 关闭；固定主机仅在本次响应已返回该完整 URL 时提升，否则不改写",
       "type": "string",
       "default": "auto",
       "variants": [
@@ -444,9 +444,35 @@
       "argument": "网络档案",
       "group": "network",
       "label": "网络档案",
-      "description": "auto 使用 6 小时缓存；手动填写 home_wifi、cellular 等名称可隔离不同网络",
+      "description": "auto 只是共享缓存档案，不会自动识别 Wi-Fi、蜂窝或 SSID；手动命名可隔离不同网络",
       "type": "string",
       "default": "auto",
+      "variants": [
+        "cdn",
+        "enhanced"
+      ]
+    },
+    {
+      "key": "probeMode",
+      "argument": "测速方式",
+      "group": "network",
+      "label": "测速执行方式",
+      "description": "nonblocking 默认不阻塞首播；blocking 仅用于一次确定性学习；off 只复用已验证缓存",
+      "type": "string",
+      "default": "nonblocking",
+      "variants": [
+        "cdn",
+        "enhanced"
+      ]
+    },
+    {
+      "key": "resetToken",
+      "argument": "重置令牌",
+      "group": "network",
+      "label": "CDN 学习状态",
+      "description": "更改令牌会安全清空一次已学习 CDN 状态；相同令牌不会重复重置",
+      "type": "string",
+      "default": "none",
       "variants": [
         "cdn",
         "enhanced"

@@ -17,7 +17,7 @@
 
   var NAME = "BiliCDN";
   var DEFAULT_CDN = "upos-sz-mirrorali.bilivideo.com";
-  var AUTO_STATE_KEY = "BiliCDN.safeAuto.v2";
+  var AUTO_STATE_KEY = "BiliCDN.safeAuto.v3";
   var DEFAULT_AUTO_INTERVAL_HOURS = 12;
   var DEFAULT_SWITCH_THRESHOLD = 20;
   var RUNTIME_OPTION_LIMITS = {
@@ -44,6 +44,7 @@
   var MAX_PROTO_DEPTH = 32;
   var MAX_URL_BYTES = 65536;
   var MAX_JSON_DEPTH = 64;
+  var AUTO_SCORE_SAMPLE_LIMIT = 5;
 
   /*
    * This list is documentation and fixed-mode input guidance only. Safe auto
@@ -112,9 +113,103 @@
     "size",
     "md5"
   ];
+  /*
+   * Verified against the public PlayView/PlayViewUnite schemas. Every method
+   * currently matched by the module wraps VodInfo/VideoInfo in reply field 1.
+   * Only these paths may be decoded as media messages; arbitrary
+   * length-delimited fields are never recursively guessed.
+   */
+  var PLAYVIEW_MEDIA_PATHS = [
+    [1, 5, 2],
+    [1, 5, 3, 1],
+    [1, 6],
+    [1, 7, 2],
+    [1, 9, 2]
+  ];
+  var PGC_V2_MEDIA_PATHS = [
+    [1, 5, 2],
+    [1, 5, 3, 1],
+    [1, 6],
+    [1, 7, 2]
+  ];
+  var GRPC_MEDIA_PATHS = {
+    "app-playurl-v1": PLAYVIEW_MEDIA_PATHS,
+    "playerunite-v1": PLAYVIEW_MEDIA_PATHS,
+    "pgc-v1": PLAYVIEW_MEDIA_PATHS,
+    "pgc-v2": PGC_V2_MEDIA_PATHS,
+    "cheese-v1": PLAYVIEW_MEDIA_PATHS,
+    /* Backward-compatible utility adapter; runtime classification is specific. */
+    "playview-v1": PLAYVIEW_MEDIA_PATHS
+  };
 
   function isObject(value) {
     return value !== null && typeof value === "object";
+  }
+
+  function classifyGrpcAdapter(requestUrl) {
+    var value = typeof requestUrl === "string" ? requestUrl : "";
+    if (
+      /\/bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite(?:\?|$)/i.test(
+        value
+      )
+    ) {
+      return "playerunite-v1";
+    }
+    if (
+      /\/bilibili\.app\.playurl\.v1\.PlayURL\/PlayView(?:\?|$)/i.test(value)
+    ) {
+      return "app-playurl-v1";
+    }
+    if (
+      /\/bilibili\.pgc\.gateway\.player\.v2\.PlayURL\/PlayView(?:\?|$)/i.test(
+        value
+      )
+    ) {
+      return "pgc-v2";
+    }
+    if (
+      /\/bilibili\.pgc\.gateway\.player\.v1\.PlayURL\/PlayView(?:\?|$)/i.test(
+        value
+      )
+    ) {
+      return "pgc-v1";
+    }
+    if (
+      /\/bilibili\.cheese\.gateway\.player\.v1\.PlayURL\/PlayView(?:\?|$)/i.test(
+        value
+      )
+    ) {
+      return "cheese-v1";
+    }
+    return "";
+  }
+
+  function protoPathState(adapter, path) {
+    var paths = GRPC_MEDIA_PATHS[adapter] || [];
+    var exact = false;
+    var prefix = false;
+    var index;
+    var inner;
+    var matches;
+    for (index = 0; index < paths.length; index += 1) {
+      if (path.length > paths[index].length) {
+        continue;
+      }
+      matches = true;
+      for (inner = 0; inner < path.length; inner += 1) {
+        if (path[inner] !== paths[index][inner]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        prefix = true;
+        if (path.length === paths[index].length) {
+          exact = true;
+        }
+      }
+    }
+    return { exact: exact, prefix: prefix };
   }
 
   function isByteView(value) {
@@ -257,6 +352,20 @@
       : "auto";
   }
 
+  function normalizeProbeMode(value) {
+    var mode =
+      typeof value === "string" ? value.trim().toLowerCase() : "";
+    return mode === "blocking" || mode === "off"
+      ? mode
+      : "nonblocking";
+  }
+
+  function normalizeResetToken(value) {
+    var token =
+      typeof value === "string" ? value.trim().toLowerCase() : "";
+    return /^[a-z0-9][a-z0-9_-]{0,31}$/.test(token) ? token : "";
+  }
+
   function parseArgument(argument) {
     var config = {
       auto: true,
@@ -264,6 +373,8 @@
       debug: false,
       intervalHours: DEFAULT_AUTO_INTERVAL_HOURS,
       networkProfile: "auto",
+      probeMode: "nonblocking",
+      resetToken: "",
       switchThreshold: DEFAULT_SWITCH_THRESHOLD,
       valid: true
     };
@@ -296,6 +407,10 @@
       config.networkProfile = normalizeNetworkProfile(
         parsed.networkProfile || parsed.profile
       );
+      config.probeMode = normalizeProbeMode(
+        parsed.probeMode || parsed.probes
+      );
+      config.resetToken = normalizeResetToken(parsed.resetToken);
       config.intervalHours = boundedNumber(
         parsed.intervalHours,
         DEFAULT_AUTO_INTERVAL_HOURS,
@@ -333,6 +448,10 @@
         config.debug = parseBoolean(value);
       } else if (key === "networkprofile" || key === "profile") {
         config.networkProfile = normalizeNetworkProfile(value);
+      } else if (key === "probemode" || key === "probes") {
+        config.probeMode = normalizeProbeMode(value);
+      } else if (key === "resettoken") {
+        config.resetToken = normalizeResetToken(value);
       } else if (key === "intervalhours" || key === "interval") {
         config.intervalHours = boundedNumber(
           value,
@@ -483,6 +602,185 @@
     }
   }
 
+  function jsonAliasLanes(value) {
+    var mappings = [
+      ["baseUrl", "backupUrl"],
+      ["base_url", "backup_url"]
+    ];
+    var lanes = [];
+    var coveredPrimary = {};
+    var primaryCount = 0;
+    var index;
+    var primaryKey;
+    var backupKey;
+    var primaryUrl;
+    var backups;
+
+    Object.keys(PRIMARY_URL_KEYS).forEach(function (key) {
+      if (typeof value[key] === "string" && isVodMediaUrl(value[key])) {
+        primaryCount += 1;
+      }
+    });
+    for (index = 0; index < mappings.length; index += 1) {
+      primaryKey = mappings[index][0];
+      backupKey = mappings[index][1];
+      primaryUrl = value[primaryKey];
+      backups = arrayOfVodUrls(value[backupKey]);
+      if (
+        typeof primaryUrl === "string" &&
+        isVodMediaUrl(primaryUrl) &&
+        backups.length > 0
+      ) {
+        lanes.push({
+          backupKey: backupKey,
+          backups: backups,
+          primaryId: candidateIdForUrl(primaryUrl),
+          primaryKey: primaryKey,
+          primaryUrl: primaryUrl
+        });
+        coveredPrimary[primaryKey] = true;
+      }
+    }
+    if (typeof value.url === "string" && isVodMediaUrl(value.url)) {
+      backupKey =
+        !coveredPrimary.base_url && Array.isArray(value.backup_url)
+          ? "backup_url"
+          : !coveredPrimary.baseUrl && Array.isArray(value.backupUrl)
+            ? "backupUrl"
+            : "";
+      backups = backupKey ? arrayOfVodUrls(value[backupKey]) : [];
+      if (backups.length > 0) {
+        lanes.push({
+          backupKey: backupKey,
+          backups: backups,
+          primaryId: candidateIdForUrl(value.url),
+          primaryKey: "url",
+          primaryUrl: value.url
+        });
+        coveredPrimary.url = true;
+      }
+    }
+    if (lanes.length === 0 || Object.keys(coveredPrimary).length !== primaryCount) {
+      return null;
+    }
+    for (index = 1; index < lanes.length; index += 1) {
+      if (lanes[index].primaryId !== lanes[0].primaryId) {
+        return null;
+      }
+    }
+    return lanes;
+  }
+
+  function laneUrlForCandidate(lane, candidateId) {
+    var index;
+    if (lane.primaryId === candidateId) {
+      return lane.primaryUrl;
+    }
+    for (index = 0; index < lane.backups.length; index += 1) {
+      if (candidateIdForUrl(lane.backups[index]) === candidateId) {
+        return lane.backups[index];
+      }
+    }
+    return "";
+  }
+
+  function rotateJsonAliasLane(value, lane, selectedId) {
+    var selectedUrl = laneUrlForCandidate(lane, selectedId);
+    var array = value[lane.backupKey];
+    var next = [lane.primaryUrl];
+    var index;
+    var item;
+    var itemId;
+    var changed = 0;
+    if (!selectedUrl || selectedId === lane.primaryId) {
+      return 0;
+    }
+    if (value[lane.primaryKey] !== selectedUrl) {
+      value[lane.primaryKey] = selectedUrl;
+      changed += 1;
+    }
+    for (index = 0; index < array.length; index += 1) {
+      item = array[index];
+      itemId = typeof item === "string" ? candidateIdForUrl(item) : null;
+      if (itemId === selectedId || itemId === lane.primaryId) {
+        continue;
+      }
+      next.push(item);
+    }
+    if (JSON.stringify(next) !== JSON.stringify(array)) {
+      value[lane.backupKey] = next;
+      changed += 1;
+    }
+    return changed;
+  }
+
+  function fixedCandidateOnCurrentObject(value, cdnHost) {
+    var lanes = jsonAliasLanes(value);
+    var selectedId = "";
+    var index;
+    var inner;
+    var parsed;
+    var candidateId;
+    var changed = 0;
+    if (!lanes) {
+      return 0;
+    }
+    for (index = 0; index < lanes.length; index += 1) {
+      candidateId = "";
+      for (inner = 0; inner < lanes[index].backups.length; inner += 1) {
+        parsed = parseHttpUrl(lanes[index].backups[inner]);
+        if (parsed && parsed.hostname === cdnHost) {
+          candidateId = candidateIdForUrl(lanes[index].backups[inner]);
+          break;
+        }
+      }
+      if (!candidateId || (selectedId && selectedId !== candidateId)) {
+        return 0;
+      }
+      selectedId = candidateId;
+    }
+    if (!selectedId || selectedId === lanes[0].primaryId) {
+      return 0;
+    }
+    for (index = 0; index < lanes.length; index += 1) {
+      if (!laneUrlForCandidate(lanes[index], selectedId)) {
+        return 0;
+      }
+    }
+    for (index = 0; index < lanes.length; index += 1) {
+      changed += rotateJsonAliasLane(value, lanes[index], selectedId);
+    }
+    return changed;
+  }
+
+  function walkSafeFixedJson(value, config, depth) {
+    var changed = 0;
+    var keys;
+    var index;
+    var key;
+    if (depth > MAX_JSON_DEPTH || value === null) {
+      return 0;
+    }
+    if (Array.isArray(value)) {
+      for (index = 0; index < value.length; index += 1) {
+        changed += walkSafeFixedJson(value[index], config, depth + 1);
+      }
+      return changed;
+    }
+    if (!isObject(value)) {
+      return 0;
+    }
+    changed += fixedCandidateOnCurrentObject(value, config.cdnHost);
+    keys = Object.keys(value);
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (!PRIMARY_URL_KEYS[key] && !BACKUP_URL_KEYS[key]) {
+        changed += walkSafeFixedJson(value[key], config, depth + 1);
+      }
+    }
+    return changed;
+  }
+
   function transformJsonText(text, config) {
     var input = typeof text === "string" ? text : "";
     var parsed;
@@ -497,7 +795,7 @@
       return { body: input, changed: 0, valid: false };
     }
 
-    rewriteJsonValue(parsed, config, state, 0);
+    state.changed = walkSafeFixedJson(parsed, config, 0);
     return {
       body: state.changed > 0 ? JSON.stringify(parsed) : input,
       changed: state.changed,
@@ -510,16 +808,29 @@
     var shift = 0;
     var position = offset;
     var current;
+    var contribution;
+    var safe = true;
 
     while (position < bytes.length && position - offset < 10) {
       current = bytes[position];
-      value += (current & 0x7f) * Math.pow(2, shift);
+      if (safe) {
+        contribution = (current & 0x7f) * Math.pow(2, shift);
+        if (
+          !Number.isSafeInteger(contribution) ||
+          value > Number.MAX_SAFE_INTEGER - contribution
+        ) {
+          safe = false;
+        } else {
+          value += contribution;
+        }
+      }
       position += 1;
       if ((current & 0x80) === 0) {
-        if (!Number.isSafeInteger(value)) {
-          return null;
-        }
-        return { end: position, value: value };
+        return {
+          end: position,
+          safe: safe,
+          value: safe ? value : null
+        };
       }
       shift += 7;
     }
@@ -692,7 +1003,7 @@
     while (offset < bytes.length) {
       tagStart = offset;
       tag = readVarint(bytes, offset);
-      if (!tag || tag.value === 0) {
+      if (!tag || !tag.safe || tag.value === 0) {
         return { bytes: bytes, changed: 0, valid: false };
       }
       fieldNumber = Math.floor(tag.value / 8);
@@ -717,7 +1028,11 @@
         chunks.push(bytes.subarray(tagStart, offset));
       } else if (wireType === 2) {
         lengthInfo = readVarint(bytes, offset);
-        if (!lengthInfo || lengthInfo.value > bytes.length - lengthInfo.end) {
+        if (
+          !lengthInfo ||
+          !lengthInfo.safe ||
+          lengthInfo.value > bytes.length - lengthInfo.end
+        ) {
           return { bytes: bytes, changed: 0, valid: false };
         }
         payloadStart = lengthInfo.end;
@@ -761,6 +1076,134 @@
         chunks.push(bytes.subarray(tagStart, offset));
       } else {
         return { bytes: bytes, changed: 0, valid: false };
+      }
+    }
+    return {
+      bytes: changed > 0 ? concatBytes(chunks) : bytes,
+      changed: changed,
+      valid: true
+    };
+  }
+
+  function fixedProtoLayout(fields, cdnHost) {
+    var layouts = [
+      { backupField: 2, primaryField: 1 },
+      { backupField: 3, primaryField: 2, requiresId: true },
+      { backupField: 5, primaryField: 4 }
+    ];
+    var layout;
+    var primaryUrls;
+    var backupUrls;
+    var index;
+    var inner;
+    var parsed;
+    for (index = 0; index < layouts.length; index += 1) {
+      layout = layouts[index];
+      if (
+        layout.requiresId &&
+        firstProtoVarint(fields, 1) === null
+      ) {
+        continue;
+      }
+      primaryUrls = protoUrlsForField(fields, layout.primaryField);
+      backupUrls = protoUrlsForField(fields, layout.backupField);
+      if (primaryUrls.length !== 1 || backupUrls.length === 0) {
+        continue;
+      }
+      for (inner = 0; inner < backupUrls.length; inner += 1) {
+        parsed = parseHttpUrl(backupUrls[inner]);
+        if (parsed && parsed.hostname === cdnHost) {
+          return {
+            backupField: layout.backupField,
+            primaryField: layout.primaryField,
+            primaryId: candidateIdForUrl(primaryUrls[0]),
+            primaryUrl: primaryUrls[0],
+            targetId: candidateIdForUrl(backupUrls[inner]),
+            targetUrl: backupUrls[inner]
+          };
+        }
+      }
+      parsed = parseHttpUrl(primaryUrls[0]);
+      if (parsed && parsed.hostname === cdnHost) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  function transformSafeFixedProtoMessage(bytes, config, depth, path) {
+    var fields;
+    var layout;
+    var chunks = [];
+    var changed = 0;
+    var index;
+    var field;
+    var nextPayload;
+    var nextChanges;
+    var nested;
+    var fieldId;
+    var pathState;
+    var childPath;
+    path = Array.isArray(path) ? path : [];
+    if (!bytes || depth > MAX_PROTO_DEPTH) {
+      return { bytes: bytes, changed: 0, valid: false };
+    }
+    fields = parseProtoFields(bytes);
+    if (!fields) {
+      return { bytes: bytes, changed: 0, valid: false };
+    }
+    pathState = protoPathState(config.grpcAdapter, path);
+    if (!pathState.prefix) {
+      return { bytes: bytes, changed: 0, valid: true };
+    }
+    layout = pathState.exact
+      ? fixedProtoLayout(fields, config.cdnHost)
+      : null;
+    for (index = 0; index < fields.length; index += 1) {
+      field = fields[index];
+      nextPayload = null;
+      nextChanges = 0;
+      if (field.wireType === 2) {
+        fieldId = field.text ? candidateIdForUrl(field.text) : null;
+        if (
+          layout &&
+          field.fieldNumber === layout.primaryField &&
+          fieldId === layout.primaryId
+        ) {
+          nextPayload = asciiStringToBytes(layout.targetUrl);
+          nextChanges = 1;
+        } else if (
+          layout &&
+          field.fieldNumber === layout.backupField &&
+          fieldId === layout.targetId
+        ) {
+          nextPayload = asciiStringToBytes(layout.primaryUrl);
+          nextChanges = 1;
+        } else if (!field.text && field.payload.length > 0) {
+          childPath = path.concat([field.fieldNumber]);
+          if (!protoPathState(config.grpcAdapter, childPath).prefix) {
+            chunks.push(bytes.subarray(field.rawStart, field.end));
+            continue;
+          }
+          nested = transformSafeFixedProtoMessage(
+            field.payload,
+            config,
+            depth + 1,
+            childPath
+          );
+          if (nested.valid && nested.changed > 0) {
+            nextPayload = nested.bytes;
+            nextChanges = nested.changed;
+          }
+        }
+      }
+      if (nextPayload) {
+        chunks.push(bytes.subarray(field.rawStart, field.tagEnd));
+        chunks.push(encodeVarint(nextPayload.length));
+        chunks.push(nextPayload);
+        changed += nextChanges;
+      } else {
+        chunks.push(bytes.subarray(field.rawStart, field.end));
       }
     }
     return {
@@ -918,15 +1361,45 @@
     return readNext();
   }
 
-  function decompressGrpcFrames(input) {
+  function grpcEncodingFromHeaders(headers) {
+    var keys;
+    var index;
+    if (!isObject(headers) || Array.isArray(headers)) {
+      return "";
+    }
+    keys = Object.keys(headers);
+    for (index = 0; index < keys.length; index += 1) {
+      if (String(keys[index]).toLowerCase() === "grpc-encoding") {
+        return String(headers[keys[index]] || "").trim().toLowerCase();
+      }
+    }
+    return "";
+  }
+
+  function hasGzipMagic(bytes) {
+    return Boolean(
+      bytes &&
+        bytes.length >= 2 &&
+        bytes[0] === 0x1f &&
+        bytes[1] === 0x8b
+    );
+  }
+
+  function decompressGrpcFrames(input, grpcEncoding) {
     var parsed = parseGrpcFrames(input);
     var original = parsed.body;
     var total = 0;
     var tasks;
+    var encoding =
+      typeof grpcEncoding === "string"
+        ? grpcEncoding.trim().toLowerCase()
+        : "";
+    var compressedFrames;
     if (!parsed.valid) {
       return Promise.resolve({
         body: original,
         changed: false,
+        reason: "invalid-framing",
         valid: false
       });
     }
@@ -934,7 +1407,31 @@
       return Promise.resolve({
         body: original,
         changed: false,
+        reason: "not-compressed",
         valid: true
+      });
+    }
+    if (encoding && encoding !== "gzip" && encoding !== "x-gzip") {
+      return Promise.resolve({
+        body: original,
+        changed: false,
+        reason: "unsupported-grpc-encoding",
+        valid: false
+      });
+    }
+    compressedFrames = parsed.frames.filter(function (frame) {
+      return frame.flag === 1;
+    });
+    if (
+      compressedFrames.some(function (frame) {
+        return !hasGzipMagic(original.slice(frame.payloadStart, frame.end));
+      })
+    ) {
+      return Promise.resolve({
+        body: original,
+        changed: false,
+        reason: "compression-mismatch",
+        valid: false
       });
     }
     tasks = parsed.frames.map(function (frame) {
@@ -962,6 +1459,7 @@
         return {
           body: concatBytes(chunks),
           changed: true,
+          reason: "gzip-decoded",
           valid: true
         };
       },
@@ -969,6 +1467,7 @@
         return {
           body: original,
           changed: false,
+          reason: "gzip-decode-failed",
           valid: false
         };
       }
@@ -1008,7 +1507,7 @@
       payload = bytes.subarray(offset + 5, frameEnd);
       transformed =
         flag === 0
-          ? transformProtoMessage(payload, config, 0)
+          ? transformSafeFixedProtoMessage(payload, config, 0, [])
           : { bytes: payload, changed: 0, valid: true };
 
       if (!transformed.valid) {
@@ -1035,7 +1534,7 @@
       return { body: bytes, changed: 0, valid: false };
     }
 
-    raw = transformProtoMessage(bytes, config, 0);
+    raw = transformSafeFixedProtoMessage(bytes, config, 0, []);
     return {
       body: raw.changed > 0 ? raw.bytes : bytes,
       changed: raw.changed,
@@ -1293,57 +1792,25 @@
   }
 
   function detectJsonMediaObject(value, kind, config, state, now) {
-    var keys = Object.keys(value);
-    var primaryKeys = [];
-    var primaryId = null;
-    var primaryUrl = null;
-    var backupKeys = [];
+    var lanes = jsonAliasLanes(value);
     var backupLists = [];
     var index;
-    var key;
-    var candidateId;
-    var backups;
     var descriptor;
     var selectedUrl;
     var selectedId;
     var changed = 0;
-    var array;
-    var nextArray;
-    var inner;
-    var itemId;
 
-    for (index = 0; index < keys.length; index += 1) {
-      key = keys[index];
-      if (
-        PRIMARY_URL_KEYS[key] &&
-        typeof value[key] === "string" &&
-        isVodMediaUrl(value[key])
-      ) {
-        candidateId = candidateIdForUrl(value[key]);
-        if (!primaryId) {
-          primaryId = candidateId;
-          primaryUrl = value[key];
-        } else if (candidateId !== primaryId) {
-          return null;
-        }
-        primaryKeys.push(key);
-      }
-      if (BACKUP_URL_KEYS[key] && Array.isArray(value[key])) {
-        backups = arrayOfVodUrls(value[key]);
-        if (backups.length > 0) {
-          backupKeys.push(key);
-          backupLists.push(backups);
-        }
-      }
-    }
-    if (!primaryUrl || backupLists.length === 0) {
+    if (!lanes) {
       return null;
+    }
+    for (index = 0; index < lanes.length; index += 1) {
+      backupLists.push(lanes[index].backups);
     }
 
     descriptor = buildMediaDescriptor(
       "json",
       kind,
-      primaryUrl,
+      lanes[0].primaryUrl,
       intersectBackupLists(backupLists),
       jsonMetadataSignature(value)
     );
@@ -1363,32 +1830,13 @@
       return { changed: 0, descriptor: descriptor };
     }
     selectedId = candidateIdForUrl(selectedUrl);
-    for (index = 0; index < primaryKeys.length; index += 1) {
-      key = primaryKeys[index];
-      if (value[key] !== selectedUrl) {
-        value[key] = selectedUrl;
-        changed += 1;
+    for (index = 0; index < lanes.length; index += 1) {
+      if (!laneUrlForCandidate(lanes[index], selectedId)) {
+        return { changed: 0, descriptor: descriptor };
       }
     }
-
-    for (index = 0; index < backupKeys.length; index += 1) {
-      key = backupKeys[index];
-      array = value[key];
-      nextArray = [primaryUrl];
-      for (inner = 0; inner < array.length; inner += 1) {
-        itemId =
-          typeof array[inner] === "string"
-            ? candidateIdForUrl(array[inner])
-            : null;
-        if (itemId === selectedId || itemId === primaryId) {
-          continue;
-        }
-        nextArray.push(array[inner]);
-      }
-      if (JSON.stringify(nextArray) !== JSON.stringify(array)) {
-        value[key] = nextArray;
-        changed += 1;
-      }
+    for (index = 0; index < lanes.length; index += 1) {
+      changed += rotateJsonAliasLane(value, lanes[index], selectedId);
     }
     return { changed: changed, descriptor: descriptor };
   }
@@ -1509,13 +1957,78 @@
     return {
       entries: {},
       lastProbeAt: 0,
+      lockTokens: {},
       locks: {},
-      version: 2
+      resetToken: "",
+      version: 3
     };
   }
 
   function boundedInteger(value, fallback, minimum, maximum) {
     return Math.floor(boundedNumber(value, fallback, minimum, maximum));
+  }
+
+  function median(values) {
+    var sorted;
+    var middle;
+    if (!Array.isArray(values) || values.length === 0) {
+      return 0;
+    }
+    sorted = values.slice().sort(function (left, right) {
+      return left - right;
+    });
+    middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+      ? (sorted[middle - 1] + sorted[middle]) / 2
+      : sorted[middle];
+  }
+
+  function summarizeProbeSamples(samples) {
+    var successful = samples.filter(function (sample) {
+      return sample.ok;
+    });
+    var elapsed = successful.map(function (sample) {
+      return sample.elapsedMs;
+    });
+    var throughput = successful.map(function (sample) {
+      return sample.throughputKbps;
+    });
+    var medianMs = median(elapsed);
+    var deviations = elapsed.map(function (value) {
+      return Math.abs(value - medianMs);
+    });
+    return {
+      failureRate: samples.length === 0
+        ? 0
+        : (samples.length - successful.length) / samples.length,
+      jitterMs: median(deviations),
+      medianMs: medianMs,
+      medianThroughputKbps: median(throughput),
+      sampleCount: samples.length,
+      successCount: successful.length
+    };
+  }
+
+  function sanitizeProbeSample(value) {
+    if (!isObject(value) || Array.isArray(value)) {
+      return null;
+    }
+    return {
+      at: boundedNumber(value.at, 0, 0, 9e15),
+      elapsedMs: boundedNumber(value.elapsedMs, 0, 0, 60000),
+      ok: Boolean(value.ok),
+      reason:
+        typeof value.reason === "string"
+          ? value.reason.slice(0, 48)
+          : "",
+      status: boundedInteger(value.status, 0, 0, 999),
+      throughputKbps: boundedNumber(
+        value.throughputKbps,
+        0,
+        0,
+        100000000
+      )
+    };
   }
 
   function sanitizeScoreMap(value) {
@@ -1524,6 +2037,9 @@
     var index;
     var key;
     var score;
+    var samples;
+    var sample;
+    var inner;
 
     if (!isObject(value) || Array.isArray(value)) {
       return output;
@@ -1537,11 +2053,30 @@
         isObject(score) &&
         !Array.isArray(score)
       ) {
+        samples = [];
+        if (Array.isArray(score.samples)) {
+          for (
+            inner = Math.max(
+              0,
+              score.samples.length - AUTO_SCORE_SAMPLE_LIMIT
+            );
+            inner < score.samples.length;
+            inner += 1
+          ) {
+            sample = sanitizeProbeSample(score.samples[inner]);
+            if (sample) {
+              samples.push(sample);
+            }
+          }
+        } else {
+          sample = sanitizeProbeSample(score);
+          if (sample) {
+            samples.push(sample);
+          }
+        }
         output[key] = {
-          at: boundedNumber(score.at, 0, 0, 9e15),
-          elapsedMs: boundedNumber(score.elapsedMs, 0, 0, 60000),
-          ok: Boolean(score.ok),
-          status: boundedInteger(score.status, 0, 0, 999)
+          metrics: summarizeProbeSamples(samples),
+          samples: samples
         };
       }
     }
@@ -1612,6 +2147,7 @@
     var index;
     var key;
     var lockUntil;
+    var lockToken;
 
     try {
       raw = services.read(AUTO_STATE_KEY);
@@ -1619,11 +2155,12 @@
     } catch (error) {
       parsed = null;
     }
-    if (!isObject(parsed) || parsed.version !== 2) {
+    if (!isObject(parsed) || parsed.version !== 3) {
       return state;
     }
 
     state.lastProbeAt = boundedNumber(parsed.lastProbeAt, 0, 0, 9e15);
+    state.resetToken = normalizeResetToken(parsed.resetToken);
     if (isObject(parsed.entries) && !Array.isArray(parsed.entries)) {
       keys = Object.keys(parsed.entries).slice(0, AUTO_CACHE_CAPACITY * 2);
       for (index = 0; index < keys.length; index += 1) {
@@ -1640,6 +2177,18 @@
         lockUntil = boundedNumber(parsed.locks[key], 0, 0, 9e15);
         if (/^r2_[0-9a-f]{32}$/.test(key) && lockUntil > 0) {
           state.locks[key] = lockUntil;
+          if (
+            isObject(parsed.lockTokens) &&
+            !Array.isArray(parsed.lockTokens)
+          ) {
+            lockToken =
+              typeof parsed.lockTokens[key] === "string"
+                ? parsed.lockTokens[key]
+                : "";
+            if (/^l2_[0-9a-f]{32}$/.test(lockToken)) {
+              state.lockTokens[key] = lockToken;
+            }
+          }
         }
       }
     }
@@ -1656,6 +2205,7 @@
     for (index = 0; index < lockKeys.length; index += 1) {
       if (state.locks[lockKeys[index]] <= now) {
         delete state.locks[lockKeys[index]];
+        delete state.lockTokens[lockKeys[index]];
       }
     }
     if (keys.length <= AUTO_CACHE_CAPACITY) {
@@ -1671,6 +2221,7 @@
     for (index = 0; index < removeCount; index += 1) {
       delete state.entries[keys[index]];
       delete state.locks[keys[index]];
+      delete state.lockTokens[keys[index]];
     }
   }
 
@@ -1702,31 +2253,44 @@
   }
 
   function ttlForConfig(config) {
-    var requested =
+    return (
       boundedNumber(
         config && config.intervalHours,
         DEFAULT_AUTO_INTERVAL_HOURS,
-        6,
-        72
+        RUNTIME_OPTION_LIMITS.intervalHours.minimum,
+        RUNTIME_OPTION_LIMITS.intervalHours.maximum
       ) *
       60 *
       60 *
-      1000;
-    var maximum =
-      normalizeNetworkProfile(config && config.networkProfile) === "auto"
-        ? 6 * 60 * 60 * 1000
-        : 24 * 60 * 60 * 1000;
-    return Math.min(requested, maximum);
+      1000
+    );
   }
 
-  function hasSafeServices(services) {
+  function applyResetToken(services, state, config, now) {
+    var token = normalizeResetToken(config && config.resetToken);
+    var reset;
+    if (!token || state.resetToken === token) {
+      return state;
+    }
+    reset = createEmptyAutoState();
+    reset.resetToken = token;
+    saveAutoState(services, reset, now);
+    return reset;
+  }
+
+  function hasStateServices(services) {
     return Boolean(
       services &&
         services.persistent !== false &&
         typeof services.now === "function" &&
         typeof services.read === "function" &&
-        typeof services.write === "function" &&
-        typeof services.probe === "function"
+        typeof services.write === "function"
+    );
+  }
+
+  function hasSafeServices(services) {
+    return Boolean(
+      hasStateServices(services) && typeof services.probe === "function"
     );
   }
 
@@ -1801,7 +2365,7 @@
     while (offset < bytes.length) {
       tagStart = offset;
       tag = readVarint(bytes, offset);
-      if (!tag || tag.value === 0) {
+      if (!tag || !tag.safe || tag.value === 0) {
         return null;
       }
       fieldNumber = Math.floor(tag.value / 8);
@@ -1822,7 +2386,8 @@
           fieldNumber: fieldNumber,
           rawStart: tagStart,
           tagEnd: tag.end,
-          value: valueInfo.value,
+          value: valueInfo.safe ? valueInfo.value : null,
+          valueSafe: valueInfo.safe,
           wireType: wireType
         });
       } else if (wireType === 1) {
@@ -1839,7 +2404,11 @@
         });
       } else if (wireType === 2) {
         lengthInfo = readVarint(bytes, offset);
-        if (!lengthInfo || lengthInfo.value > bytes.length - lengthInfo.end) {
+        if (
+          !lengthInfo ||
+          !lengthInfo.safe ||
+          lengthInfo.value > bytes.length - lengthInfo.end
+        ) {
           return null;
         }
         payloadStart = lengthInfo.end;
@@ -1899,7 +2468,8 @@
     for (index = 0; index < fields.length; index += 1) {
       if (
         fields[index].fieldNumber === fieldNumber &&
-        fields[index].wireType === 0
+        fields[index].wireType === 0 &&
+        fields[index].valueSafe !== false
       ) {
         return fields[index].value;
       }
@@ -1914,7 +2484,7 @@
 
     for (index = 0; index < fields.length; index += 1) {
       field = fields[index];
-      if (field.wireType === 0) {
+      if (field.wireType === 0 && field.valueSafe !== false) {
         output.push("v" + field.fieldNumber + "=" + field.value);
       } else if (
         field.wireType === 2 &&
@@ -2032,7 +2602,8 @@
     state,
     now,
     descriptors,
-    depth
+    depth,
+    path
   ) {
     var fields;
     var descriptor;
@@ -2043,6 +2614,10 @@
     var directPayload;
     var nested;
     var nextPayload;
+    var nextChanges;
+    var childPath;
+    var pathState;
+    path = Array.isArray(path) ? path : [];
 
     if (!bytes || depth > MAX_PROTO_DEPTH) {
       return { bytes: bytes, changed: 0, valid: false };
@@ -2052,33 +2627,48 @@
       return { bytes: bytes, changed: 0, valid: false };
     }
 
-    descriptor = detectProtoMedia(fields, config, state, now);
+    pathState = protoPathState(config.grpcAdapter, path);
+    if (!pathState.prefix) {
+      return { bytes: bytes, changed: 0, valid: true };
+    }
+    descriptor = pathState.exact
+      ? detectProtoMedia(fields, config, state, now)
+      : null;
     if (descriptor) {
       descriptors.push(descriptor);
     }
     for (index = 0; index < fields.length; index += 1) {
       field = fields[index];
       nextPayload = null;
+      nextChanges = 0;
 
       if (field.wireType === 2) {
         directPayload = transformDirectProtoField(field, descriptor);
         if (directPayload) {
           nextPayload = directPayload;
+          nextChanges = 1;
         } else if (
           !field.text &&
           depth < MAX_PROTO_DEPTH &&
           field.payload.length > 0
         ) {
+          childPath = path.concat([field.fieldNumber]);
+          if (!protoPathState(config.grpcAdapter, childPath).prefix) {
+            chunks.push(bytes.subarray(field.rawStart, field.end));
+            continue;
+          }
           nested = walkSafeProtoMessage(
             field.payload,
             config,
             state,
             now,
             descriptors,
-            depth + 1
+            depth + 1,
+            childPath
           );
           if (nested.valid && nested.changed > 0) {
             nextPayload = nested.bytes;
+            nextChanges = nested.changed;
           }
         }
       }
@@ -2087,7 +2677,7 @@
         chunks.push(bytes.subarray(field.rawStart, field.tagEnd));
         chunks.push(encodeVarint(nextPayload.length));
         chunks.push(nextPayload);
-        changed += 1;
+        changed += nextChanges;
       } else {
         chunks.push(bytes.subarray(field.rawStart, field.end));
       }
@@ -2136,7 +2726,8 @@
           state,
           now,
           descriptors,
-          0
+          0,
+          []
         );
         if (!transformed.valid) {
           return {
@@ -2187,7 +2778,8 @@
       state,
       now,
       descriptors,
-      0
+      0,
+      []
     );
     return {
       body: transformed.changed > 0 ? transformed.bytes : bytes,
@@ -2212,6 +2804,7 @@
 
   function findFirstGrpcVodUrl(input) {
     var config = parseArgument("cdn=auto");
+    config.grpcAdapter = "app-playurl-v1";
     var prepared = prepareSafeGrpc(
       input,
       config,
@@ -2274,6 +2867,52 @@
     return output;
   }
 
+  function probeBodyHash(body) {
+    var bytes = toUint8Array(body);
+    var hashes = [
+      0x811c9dc5,
+      0x9e3779b1,
+      0x85ebca6b,
+      0xc2b2ae35
+    ];
+    var primes = [0x01000193, 0x27d4eb2d, 0x165667b1, 0x9e3779b1];
+    var index;
+    var lane;
+    var code;
+    if (!bytes && typeof body !== "string") {
+      return "";
+    }
+    for (
+      index = 0;
+      index < (bytes ? bytes.length : body.length);
+      index += 1
+    ) {
+      code = bytes ? bytes[index] : body.charCodeAt(index) & 0xff;
+      for (lane = 0; lane < hashes.length; lane += 1) {
+        hashes[lane] ^= code + lane * 257;
+        hashes[lane] = imul32(hashes[lane], primes[lane]);
+        hashes[lane] ^= hashes[lane] >>> 13;
+      }
+    }
+    return (
+      "h2_" +
+      hex32(hashes[0]) +
+      hex32(hashes[1]) +
+      hex32(hashes[2]) +
+      hex32(hashes[3])
+    );
+  }
+
+  function probeContentClass(contentType) {
+    if (/^video\//.test(contentType)) {
+      return "video";
+    }
+    if (/^audio\//.test(contentType)) {
+      return "audio";
+    }
+    return "binary";
+  }
+
   function validateProbeResponse(result, expectedUrl) {
     var status = Number(
       result && (result.statusCode || result.status)
@@ -2284,7 +2923,9 @@
     var contentEncoding = headerValue(headers, "content-encoding").toLowerCase();
     var contentLengthHeader = headerValue(headers, "content-length");
     var rangeMatch;
+    var rangeStart;
     var rangeEnd;
+    var totalLength;
     var expectedLength;
     var contentLength;
     var actualLength;
@@ -2309,17 +2950,22 @@
       return { ok: false, reason: "content-encoding", status: status };
     }
 
-    rangeMatch = /^bytes\s+0-(\d+)\/(?:\d+|\*)$/i.exec(
+    rangeMatch = /^bytes\s+(\d+)-(\d+)\/(\d+)$/i.exec(
       contentRange.trim()
     );
     if (!rangeMatch) {
       return { ok: false, reason: "content-range", status: status };
     }
-    rangeEnd = Number(rangeMatch[1]);
+    rangeStart = Number(rangeMatch[1]);
+    rangeEnd = Number(rangeMatch[2]);
+    totalLength = Number(rangeMatch[3]);
     if (
+      rangeStart !== 0 ||
       !Number.isSafeInteger(rangeEnd) ||
+      !Number.isSafeInteger(totalLength) ||
       rangeEnd < 0 ||
-      rangeEnd > AUTO_RANGE_END
+      rangeEnd > AUTO_RANGE_END ||
+      totalLength <= rangeEnd
     ) {
       return { ok: false, reason: "range-size", status: status };
     }
@@ -2364,7 +3010,17 @@
     ) {
       return { ok: false, reason: "redirect", status: status };
     }
-    return { ok: true, reason: "validated", status: status };
+    return {
+      bodyLength: actualLength,
+      contentClass: probeContentClass(contentType),
+      ok: true,
+      rangeEnd: rangeEnd,
+      rangeStart: rangeStart,
+      reason: "validated",
+      sampleHash: probeBodyHash(result.body),
+      status: status,
+      totalLength: totalLength
+    };
   }
 
   function normalizeProbeResult(result, candidate) {
@@ -2376,25 +3032,89 @@
       60000
     );
     return {
+      bodyLength: validation.bodyLength || 0,
       candidateId: candidate.id,
+      contentClass: validation.contentClass || "",
       elapsedMs: Math.round(elapsedMs),
       ok: validation.ok,
+      rangeEnd:
+        Number.isSafeInteger(validation.rangeEnd)
+          ? validation.rangeEnd
+          : -1,
+      rangeStart:
+        Number.isSafeInteger(validation.rangeStart)
+          ? validation.rangeStart
+          : -1,
       reason: validation.reason,
-      status: validation.status
+      sampleHash: validation.sampleHash || "",
+      status: validation.status,
+      throughputKbps: validation.ok
+        ? Math.round(
+            ((validation.bodyLength || 0) * 8) / elapsedMs
+          )
+        : 0,
+      totalLength:
+        Number.isSafeInteger(validation.totalLength)
+          ? validation.totalLength
+          : 0
     };
+  }
+
+  function probePairEquivalent(primaryResult, alternativeResult) {
+    if (!primaryResult.ok || !alternativeResult.ok) {
+      return false;
+    }
+    if (
+      primaryResult.rangeStart !== alternativeResult.rangeStart ||
+      primaryResult.rangeEnd !== alternativeResult.rangeEnd ||
+      primaryResult.totalLength !== alternativeResult.totalLength ||
+      primaryResult.bodyLength !== alternativeResult.bodyLength ||
+      !primaryResult.sampleHash ||
+      primaryResult.sampleHash !== alternativeResult.sampleHash
+    ) {
+      return false;
+    }
+    return (
+      primaryResult.contentClass === alternativeResult.contentClass ||
+      primaryResult.contentClass === "binary" ||
+      alternativeResult.contentClass === "binary"
+    );
   }
 
   function recordProbeScore(entry, result, now) {
-    entry.scores[result.candidateId] = {
+    var score = entry.scores[result.candidateId];
+    var samples =
+      score && Array.isArray(score.samples)
+        ? score.samples.slice()
+        : [];
+    samples.push({
       at: now,
       elapsedMs: result.elapsedMs,
       ok: result.ok,
-      status: result.status
+      reason: result.reason,
+      status: result.status,
+      throughputKbps: result.throughputKbps || 0
+    });
+    if (samples.length > AUTO_SCORE_SAMPLE_LIMIT) {
+      samples = samples.slice(-AUTO_SCORE_SAMPLE_LIMIT);
+    }
+    entry.scores[result.candidateId] = {
+      metrics: summarizeProbeSamples(samples),
+      samples: samples
     };
   }
 
-  function alternativeQualifies(primaryResult, alternativeResult, config) {
+  function alternativeQualifies(
+    primaryResult,
+    alternativeResult,
+    config,
+    entry
+  ) {
     var gain;
+    var primaryScore;
+    var alternativeScore;
+    var primaryElapsed = primaryResult.elapsedMs;
+    var alternativeElapsed = alternativeResult.elapsedMs;
     var threshold = boundedNumber(
       config && config.switchThreshold,
       DEFAULT_SWITCH_THRESHOLD,
@@ -2406,11 +3126,48 @@
       return false;
     }
     if (!primaryResult.ok) {
-      return true;
+      return false;
+    }
+    primaryScore =
+      entry &&
+      entry.scores &&
+      entry.scores[primaryResult.candidateId];
+    alternativeScore =
+      entry &&
+      entry.scores &&
+      entry.scores[alternativeResult.candidateId];
+    if (
+      primaryScore &&
+      primaryScore.metrics &&
+      primaryScore.metrics.successCount > 0
+    ) {
+      primaryElapsed = primaryScore.metrics.medianMs;
+    }
+    if (
+      alternativeScore &&
+      alternativeScore.metrics &&
+      alternativeScore.metrics.successCount > 0
+    ) {
+      alternativeElapsed = alternativeScore.metrics.medianMs;
+      if (
+        alternativeScore.metrics.sampleCount >= 3 &&
+        (
+          alternativeScore.metrics.failureRate > 0.34 ||
+          (
+            alternativeScore.metrics.successCount >= 3 &&
+            alternativeScore.metrics.medianMs > 0 &&
+            alternativeScore.metrics.jitterMs /
+                alternativeScore.metrics.medianMs >
+              0.5
+          )
+        )
+      ) {
+        return false;
+      }
     }
     gain =
-      ((primaryResult.elapsedMs - alternativeResult.elapsedMs) /
-        primaryResult.elapsedMs) *
+      ((primaryElapsed - alternativeElapsed) /
+        primaryElapsed) *
       100;
     return gain >= threshold;
   }
@@ -2436,11 +3193,11 @@
     config,
     now
   ) {
-    var qualifies = alternativeQualifies(
+    var equivalent = probePairEquivalent(
       primaryResult,
-      alternativeResult,
-      config
+      alternativeResult
     );
+    var qualifies;
     var wasSelected =
       entry.candidateId === alternativeResult.candidateId;
     var expiredSelection =
@@ -2450,18 +3207,51 @@
     entry.lastUsedAt = now;
     recordProbeScore(entry, primaryResult, now);
     recordProbeScore(entry, alternativeResult, now);
+    qualifies =
+      equivalent &&
+      alternativeQualifies(
+        primaryResult,
+        alternativeResult,
+        config,
+        entry
+      );
+
+    if (!alternativeResult.ok) {
+      if (wasSelected) {
+        clearSelectedCandidate(entry);
+      }
+      clearPendingCandidate(entry);
+      entry.failureCount += 1;
+      entry.lastFailureAt = now;
+      entry.candidateCursor += 1;
+      entry.nextProbeAt = now + AUTO_RETRY_MS;
+      return wasSelected ? "selected-failed" : "alternative-failed";
+    }
+
+    if (!primaryResult.ok) {
+      clearPendingCandidate(entry);
+      entry.failureCount += 1;
+      entry.lastFailureAt = now;
+      entry.candidateCursor += 1;
+      entry.nextProbeAt = now + AUTO_RETRY_MS;
+      return "primary-failed";
+    }
+
+    if (!equivalent) {
+      if (wasSelected) {
+        clearSelectedCandidate(entry);
+      }
+      clearPendingCandidate(entry);
+      entry.failureCount += 1;
+      entry.lastFailureAt = now;
+      entry.candidateCursor += 1;
+      entry.nextProbeAt = now + AUTO_RETRY_MS;
+      return primaryResult.ok && alternativeResult.ok
+        ? "object-mismatch"
+        : "pair-unverified";
+    }
 
     if (wasSelected) {
-      if (!alternativeResult.ok) {
-        clearSelectedCandidate(entry);
-        clearPendingCandidate(entry);
-        entry.failureCount += 1;
-        entry.lastFailureAt = now;
-        entry.candidateCursor += 1;
-        entry.nextProbeAt = now + AUTO_RETRY_MS;
-        return "selected-failed";
-      }
-
       entry.successCount += 1;
       entry.failureCount = 0;
       entry.validatedAt = now;
@@ -2542,12 +3332,60 @@
     var alternativeCandidate;
     var results = {};
     var finished = false;
+    var callbackDelivered = false;
+    var claimedLockUntil = 0;
+    var claimedLockToken = "";
+
+    function deliver(result) {
+      var descriptors;
+      var families = {};
+      var candidateCount = 0;
+      var index;
+      var candidate;
+      var probeRows = [];
+      if (callbackDelivered) {
+        return;
+      }
+      descriptors =
+        prepared && Array.isArray(prepared.descriptors)
+          ? prepared.descriptors
+          : [];
+      for (index = 0; index < descriptors.length; index += 1) {
+        candidateCount += Array.isArray(descriptors[index].candidates)
+          ? descriptors[index].candidates.length
+          : 0;
+        if (descriptors[index].family) {
+          families[descriptors[index].family] = true;
+        }
+      }
+      [primaryCandidate, alternativeCandidate].forEach(function (item, lane) {
+        candidate = item && results[item.id];
+        if (candidate) {
+          probeRows.push(
+            String(lane) +
+              ":" +
+              String(candidate.status || 0) +
+              "/" +
+              String(candidate.elapsedMs || 0) +
+              "ms/" +
+              String(candidate.reason || "unknown")
+          );
+        }
+      });
+      result.candidateCount = candidateCount;
+      result.candidateFamilies = Object.keys(families).join(",") || "none";
+      result.probeSummary =
+        probeRows.join(";") ||
+        ((result.probeCount || 0) > 0 ? "started" : "none");
+      callbackDelivered = true;
+      callback(result);
+    }
 
     if (typeof callback !== "function") {
       return;
     }
-    if (!config || !config.valid || !config.auto || !hasSafeServices(services)) {
-      callback({
+    if (!config || !config.valid || !config.auto || !hasStateServices(services)) {
+      deliver({
         body: original,
         changed: 0,
         descriptors: 0,
@@ -2559,7 +3397,12 @@
     }
 
     now = services.now();
-    state = loadAutoState(services);
+    state = applyResetToken(
+      services,
+      loadAutoState(services),
+      config,
+      now
+    );
     prepared = binary
       ? prepareSafeGrpc(input, config, state, now)
       : prepareSafeJson(
@@ -2569,7 +3412,7 @@
           now
         );
     if (!prepared.valid) {
-      callback({
+      deliver({
         body: original,
         changed: 0,
         descriptors: 0,
@@ -2581,19 +3424,48 @@
     }
 
     /*
-     * Re-read immediately before claiming a probe. Response parsing can take
-     * time, and another script invocation may have claimed the global slot or
-     * this resource while the current body was being inspected.
+     * Cache application is always independent from probing. "off" is a
+     * deterministic cache-only mode, while a runtime without $httpClient can
+     * still reuse an already verified selection.
      */
-    state = loadAutoState(services);
-    descriptor = findProbeDescriptor(prepared.descriptors, state, now);
-    if (!descriptor) {
-      callback({
+    if (config.probeMode === "off" || !hasSafeServices(services)) {
+      deliver({
         body: prepared.body,
         changed: prepared.changed,
         descriptors: prepared.descriptors.length,
         probed: false,
+        probeCount: 0,
+        reason:
+          config.probeMode === "off"
+            ? "probe-disabled"
+            : "probe-unavailable",
+        scriptElapsedMs: Math.max(0, services.now() - now),
+        valid: true
+      });
+      return;
+    }
+
+    /*
+     * Re-read immediately before claiming a probe. Response parsing can take
+     * time, and another script invocation may have claimed the global slot or
+     * this resource while the current body was being inspected.
+     */
+    state = applyResetToken(
+      services,
+      loadAutoState(services),
+      config,
+      services.now()
+    );
+    descriptor = findProbeDescriptor(prepared.descriptors, state, now);
+    if (!descriptor) {
+      deliver({
+        body: prepared.body,
+        changed: prepared.changed,
+        descriptors: prepared.descriptors.length,
+        probed: false,
+        probeCount: 0,
         reason: "cache-or-throttle",
+        scriptElapsedMs: Math.max(0, services.now() - now),
         valid: true
       });
       return;
@@ -2611,26 +3483,40 @@
     primaryCandidate = descriptor.candidates[0];
     alternativeCandidate = chooseAlternativeCandidate(descriptor, entry);
     if (!alternativeCandidate) {
-      callback({
+      deliver({
         body: prepared.body,
         changed: prepared.changed,
         descriptors: prepared.descriptors.length,
         probed: false,
+        probeCount: 0,
         reason: "no-alternative",
+        scriptElapsedMs: Math.max(0, services.now() - now),
         valid: true
       });
       return;
     }
 
-    state.locks[descriptor.resourceKey] = now + AUTO_LOCK_MS;
+    claimedLockUntil = now + AUTO_LOCK_MS;
+    claimedLockToken = stableHash(
+      "l",
+      descriptor.resourceKey +
+        "|" +
+        now +
+        "|" +
+        String(Math.random())
+    );
+    state.locks[descriptor.resourceKey] = claimedLockUntil;
+    state.lockTokens[descriptor.resourceKey] = claimedLockToken;
     state.lastProbeAt = now;
     if (!saveAutoState(services, state, now)) {
-      callback({
+      deliver({
         body: prepared.body,
         changed: prepared.changed,
         descriptors: prepared.descriptors.length,
         probed: false,
+        probeCount: 0,
         reason: "state-write-failed",
+        scriptElapsedMs: Math.max(0, services.now() - now),
         valid: true
       });
       return;
@@ -2652,6 +3538,24 @@
       finished = true;
       completedAt = services.now();
       latestState = loadAutoState(services);
+      if (
+        latestState.locks[descriptor.resourceKey] !== claimedLockUntil ||
+        latestState.lockTokens[descriptor.resourceKey] !== claimedLockToken
+      ) {
+        if (config.probeMode === "blocking") {
+          deliver({
+            body: prepared.body,
+            changed: prepared.changed,
+            descriptors: prepared.descriptors.length,
+            probed: true,
+            probeCount: 2,
+            reason: "stale-probe",
+            scriptElapsedMs: Math.max(0, completedAt - now),
+            valid: true
+          });
+        }
+        return;
+      }
       latestEntry = latestState.entries[descriptor.resourceKey];
       if (!latestEntry) {
         latestEntry = sanitizeAutoEntry(null);
@@ -2668,16 +3572,23 @@
         config,
         completedAt
       );
-      delete latestState.locks[descriptor.resourceKey];
+      if (latestState.locks[descriptor.resourceKey] === claimedLockUntil) {
+        delete latestState.locks[descriptor.resourceKey];
+        delete latestState.lockTokens[descriptor.resourceKey];
+      }
       saveAutoState(services, latestState, completedAt);
-      callback({
-        body: prepared.body,
-        changed: prepared.changed,
-        descriptors: prepared.descriptors.length,
-        probed: true,
-        reason: updateReason,
-        valid: true
-      });
+      if (config.probeMode === "blocking") {
+        deliver({
+          body: prepared.body,
+          changed: prepared.changed,
+          descriptors: prepared.descriptors.length,
+          probed: true,
+          probeCount: 2,
+          reason: updateReason,
+          scriptElapsedMs: Math.max(0, completedAt - now),
+          valid: true
+        });
+      }
     }
 
     function receive(candidate, result) {
@@ -2707,6 +3618,25 @@
         });
       }
     });
+
+    /*
+     * The default path never waits for Range probes. Shadowrocket may keep the
+     * best-effort callbacks alive after $done(); if it does not, the lock
+     * expires and no unverified state is ever applied. Users can explicitly
+     * opt into "blocking" for a deterministic learning run.
+     */
+    if (config.probeMode !== "blocking") {
+      deliver({
+        body: prepared.body,
+        changed: prepared.changed,
+        descriptors: prepared.descriptors.length,
+        probed: true,
+        probeCount: 2,
+        reason: "probe-started-nonblocking",
+        scriptElapsedMs: Math.max(0, services.now() - now),
+        valid: true
+      });
+    }
   }
 
   function createShadowrocketServices() {
@@ -2870,7 +3800,17 @@
                 ", descriptors=" +
                 result.descriptors +
                 ", changed=" +
-                result.changed
+                result.changed +
+                ", probes=" +
+                (result.probeCount || 0) +
+                ", candidates=" +
+                (result.candidateCount || 0) +
+                ", families=" +
+                (result.candidateFamilies || "none") +
+                ", probe_summary=" +
+                (result.probeSummary || "none") +
+                ", elapsed_ms=" +
+                (result.scriptElapsedMs || 0)
             );
           }
           if (result.valid && result.changed > 0) {
@@ -2910,6 +3850,7 @@
     var body;
     var binary;
     var grpcResponse;
+    var grpcEncoding;
 
     try {
       config = parseArgument(
@@ -2932,10 +3873,8 @@
         typeof $request !== "undefined" && $request && $request.url
           ? String($request.url)
           : "";
-      grpcResponse =
-        /\/bilibili\.[a-z0-9.]+\/(?:PlayView|PlayViewUnite)(?:\?|$)/i.test(
-          requestUrl
-        );
+      config.grpcAdapter = classifyGrpcAdapter(requestUrl);
+      grpcResponse = Boolean(config.grpcAdapter);
       body =
         typeof $response !== "undefined" && $response
           ? (
@@ -2949,11 +3888,17 @@
       binary = isByteView(body) || grpcResponse;
 
       if (binary && hasCompressedGrpcFrame(body)) {
-        decompressGrpcFrames(body).then(function (decoded) {
+        grpcEncoding = grpcEncodingFromHeaders(
+          typeof $response !== "undefined" && $response
+            ? $response.headers
+            : null
+        );
+        decompressGrpcFrames(body, grpcEncoding).then(function (decoded) {
           if (!decoded.valid) {
             if (config.debug) {
               safeLog(
-                "compressed gRPC response could not be decoded; left unchanged"
+                "compressed gRPC response could not be decoded; reason=" +
+                  decoded.reason
               );
             }
             $done({});

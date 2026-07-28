@@ -37,6 +37,8 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /CDN \+ Enhanced/);
   assert.match(html, /仅 CDN Switcher/);
   assert.match(html, /播放页只保留普通视频/);
+  assert.match(html, /不阻塞首播（推荐）/);
+  assert.match(html, /生成重置令牌/);
   assert.match(html, /一键安装到 Shadowrocket/);
   assert.match(html, /明确的安全边界/);
   assert.doesNotMatch(html, /Your site is taking shape|SkeletonPreview/);
@@ -103,12 +105,14 @@ test("catalog and custom module routes use only fixed repository sources", async
     assert.match(enhancedText, /Bilibili Enhance JSON/);
 
     const cdnResponse = await request(
-      "/module.sgmodule?variant=cdn&cdn=auto&routingPolicy=DIRECT&pcdnPolicy=REJECT&networkProfile=cellular&intervalHours=12&switchThreshold=20&debug=false",
+      "/module.sgmodule?variant=cdn&cdn=auto&routingPolicy=DIRECT&pcdnPolicy=REJECT&networkProfile=cellular&probeMode=off&resetToken=reset_20260728&intervalHours=12&switchThreshold=20&debug=false",
     );
     assert.equal(cdnResponse.status, 200);
     const cdnText = await cdnResponse.text();
     assert.match(cdnText, /PCDN策略:REJECT/);
     assert.match(cdnText, /网络档案:cellular/);
+    assert.match(cdnText, /测速方式:off/);
+    assert.match(cdnText, /重置令牌:reset_20260728/);
     assert.doesNotMatch(cdnText, /Bilibili Enhance/);
 
     const reviewedFixedResponse = await request(
@@ -172,6 +176,21 @@ test("custom module route rejects unknown and injection-style parameters", async
       "/module.sgmodule?variant=cdn&intervalHours=12&intervalHours=24",
     );
     assert.equal(duplicate.status, 400);
+
+    const invalidProfile = await request(
+      "/module.sgmodule?variant=cdn&networkProfile=home.wifi",
+    );
+    assert.equal(invalidProfile.status, 400);
+
+    const invalidProbeMode = await request(
+      "/module.sgmodule?variant=cdn&probeMode=fast",
+    );
+    assert.equal(invalidProbeMode.status, 400);
+
+    const invalidResetToken = await request(
+      "/module.sgmodule?variant=cdn&resetToken=..",
+    );
+    assert.equal(invalidResetToken.status, 400);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -2,6 +2,54 @@
 
 All notable changes to this project are documented here.
 
+## [3.3.0] - 2026-07-28
+
+- Repair matcher/classifier drift so all four splash endpoints, `myinfo`,
+  VIP material/report, `Mine/DeviceFeature`, and resource `Module/List` reach
+  their intended runtime adapter instead of being silently skipped.
+- Replace the previous broad pause/end-page neutralization with conservative
+  field-level handling: `PlayPause` removes only fields carrying explicit
+  commercial evidence, while `ViewEndPage` filters verified
+  `ViewEndPageCard.relate(1)` cards and preserves ordinary AV and unknown wire
+  fields.
+- Return distinct, idempotent success contracts for each splash endpoint and
+  for VIP material retrieval versus material reporting; clear creative keep
+  IDs and hashes without forcing network failure or retry loops.
+- Expand request-side cache protection to splash, feed/story, view,
+  mine/mine-ipad/myinfo, and VIP material/report requests so cold start,
+  refresh, pagination, and foreground resume each receive a fresh response
+  that traverses the response filter.
+- Make Mine target matching prefer stable IDs, actions, exact schemes, and
+  known containers before Chinese-title fallback; keep `DeviceFeature` and
+  `Module/List` diagnostic-only until a captured fixture proves a safe action
+  mutation.
+- Add default nonblocking CDN learning: a verified cache is applied
+  immediately, while a cache miss returns the current server response without
+  waiting for two Range probes. Add explicit `blocking` and cache-only `off`
+  modes plus an idempotent reset token.
+- Require paired probes to prove identical Range bounds, total length, actual
+  sample length, sample hash, and compatible media type, while rejecting
+  compression, redirects, and HTML/JSON/XML/error bodies before any candidate
+  can be confirmed.
+- Isolate cached choices by audio/video, DASH/segment, quality, codec,
+  representation, network profile, object, candidate set, and JSON alias
+  lane; never copy a signed camelCase URL into a snake_case lane or reuse a
+  token from a previous response.
+- Split exact gRPC media adapters for app PlayURL, PlayerUnite, PGC v1, PGC
+  v2, and Cheese/PUGV. PGC v2 no longer guesses an unsupported field-9
+  lossless-audio path; unsafe uint64 values and unknown wire bytes are
+  preserved.
+- Harden fixed mode so it can only promote a complete target-host URL already
+  present in every current alias lane. A missing or mismatched target fails
+  open instead of synthesizing a host or breaking a signed media object.
+- Align the published 6–72 hour interval with the runtime TTL, serialize
+  probe locks/tokens for concurrent invocations, reset corrupt state safely,
+  and expose sanitized probe/cache/script-time diagnostics.
+- Add regressions for endpoint contracts, delayed reinjection paths,
+  multi-frame/gzip/bodyBytes behavior, unknown-schema pass-through,
+  nonblocking first play, pair equivalence, alias-signature isolation,
+  adapter paths, state reset, TTL, and fixed-mode fallback.
+
 ## [3.2.0] - 2026-07-28
 
 - Target Bilibili iOS 9.4.0 build

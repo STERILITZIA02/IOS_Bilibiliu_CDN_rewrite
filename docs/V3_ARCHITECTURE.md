@@ -1,6 +1,6 @@
 # v3 架构、数据流与安全边界
 
-> 适用版本：`3.2.0`
+> 适用版本：`3.3.0`
 >
 > 本文描述仓库当前实现，不代表所有 Bilibili App/iOS 组合已完成真机验证。
 > 9.4.0 专项入口以用户报告构建
@@ -71,19 +71,26 @@ flowchart LR
 1. 用资源路径、媒体类型、清晰度/表示元数据、编码、带宽、候选集合和网络档案
    生成不含签名 query 的固定长度摘要；
 2. 只在相同普通 CDN、MCDN 或 PCDN 家族内比较；
-3. 每次响应最多选择一个媒体对象，同时验证主路线和一个备用路线；
-4. 使用 `GET` 与 `Range: bytes=0-65535`，只接受与请求 URL 一致、没有重定向、
-   没有内容编码、状态为 `206` 且长度合理的媒体响应；
-5. 备用路线需至少间隔 10 分钟成功两次，并达到 `切换阈值`；
-6. 学习请求本身不改写，只有后续重新获取的播放地址可以使用已确认选择；
-7. 晋升备用 URL 后保留原始主 URL 作为备用，不复用过期签名；
-8. 全局探测至少间隔 2 分钟；单资源有锁、失败退避和探索间隔；
-9. 状态最多 64 项；只保存摘要、候选 ID、计数和时间戳。
+3. 已验证且未过期的缓存立即应用；没有缓存时默认立即返回本次服务端响应；
+4. 默认 `probeMode=nonblocking` 不等待探测完成；`blocking` 只用于明确的一次
+   确定性学习，`off` 只复用现有已验证缓存；
+5. 每次响应最多选择一个媒体对象，同时验证主路线和一个备用路线；
+6. 使用 `GET` 与 `Range: bytes=0-65535`，两端必须同时满足：状态 `206`、
+   Content-Range 起止相同、总文件长度相同、实际样本长度相同、样本 hash 相同、
+   Content-Type 兼容、没有内容编码、重定向或 HTML/JSON/XML/错误页；
+7. 备用路线需至少间隔 10 分钟成功两次，并达到 `切换阈值`；
+8. 学习请求本身不改写，只有后续重新获取的播放地址可以使用已确认选择；
+9. 晋升备用 URL 后保留原始主 URL 作为备用；完整签名 URL 只能来自当前响应的
+   同一 alias lane，不复用过期 query，也不把 camelCase 签名写进 snake_case；
+10. 全局探测至少间隔 2 分钟；单资源使用持久化锁和令牌、失败退避及探索间隔；
+11. 状态最多 64 项；TTL 严格等于用户选择的 6–72 小时，只保存摘要、候选 ID、
+    计数和时间戳；改变 `resetToken` 会幂等清空一次学习状态。
 
 存储、HTTP、解析、超时或持久化任一环节异常时，脚本返回原始响应。
 JSON 和 gRPC 入口都优先使用 Shadowrocket 提供的二进制正文；受支持的 gzip
-gRPC 消息在 4 MiB 上限内解压，修改后封装为标准未压缩消息。固定主机模式只接受
-Bilibili 媒体域，任意第三方主机参数会失败关闭。
+gRPC 消息在 4 MiB 上限内逐帧解压，修改后封装为标准未压缩消息。固定主机模式
+只接受已审核媒体域，并且只提升当前媒体对象已经返回的完整目标-host URL；目标
+host 不在当前候选或任一 alias lane 不匹配时原样放行，不执行 host 拼接。
 
 ### 3. Enhanced 响应过滤
 
@@ -109,9 +116,11 @@ Bilibili 媒体域，任意第三方主机参数会失败关闭。
 - `界面精简=false` 时保留各逐项选择，但不执行首页/“我的”入口删除。
 
 播放过程会再次请求旧版与新版 `ViewProgress`。Enhanced 分别移除旧版
-`video_guide(1)` 与新版 `dm(4)` 运营容器；9.4.0 的
-`View/PlayPause` 与 `View/ViewEndPage` 专用运营响应在进入渲染层前中和为空
-gRPC 消息。Chronos、视频快照、进度点和播放地址不在删除目标中。
+`video_guide(1)` 与新版 `dm(4)` 运营容器；9.4.0 的 `View/PlayPause`
+只删除含明确商业 URL/creative/广告字段证据的 length-delimited 字段，
+`View/ViewEndPage` 只过滤已验证 `ViewEndPageCard.relate(1)` 中的广告或
+非普通 AV 关系卡。Chronos、视频快照、进度点、播放地址、普通 AV、未知顶层
+wire bytes 和无商业证据的暂停字段不在删除目标中。未知 schema 原样放行。
 “我的”页另对明确的 `vip_section`、`vip_section_v2`、
 `modular_vip_section` 容器及 `/x/vip/ads/materials` 专用响应做独立处理，
 但不修改 `vip` 会员状态对象。后台恢复时异步返回的
@@ -125,9 +134,16 @@ gRPC 消息。Chronos、视频快照、进度点和播放地址不在删除目�
 9.4.0 使用的 `bilibili.app.show.v1.Popular/Index` 备用流执行相同边界：只接受
 标准小/大封面 AV oneof、明确 `av/video` 类型且带视频身份的卡，最多保留 6 条。
 
-`src/bilibili-refresh.js` 只在 Home/Story/Mine 三条易变请求上移除 ETag/时间
-条件校验头并设置 `no-cache`。它不改 URL、查询参数、正文或签名；目标是让后台
-恢复后的新服务端响应再次进入过滤链，而不是依赖可能绕过响应脚本的旧缓存。
+`src/bilibili-refresh.js` 只在四个 splash、Home/Story、View、
+Mine/Mine-iPad/myinfo 与 VIP materials/material-report 易变请求上移除 ETag/
+时间条件校验头，并设置 `no-cache, no-store`。它不改 URL、查询参数、正文或
+签名；目标是让冷/热启动、刷新和后台恢复后的新服务端响应再次进入过滤链，而
+不是依赖可能绕过响应脚本的 304/旧缓存。
+
+`/x/v2/account/myinfo`、`Mine/DeviceFeature` 与
+`bilibili.app.resource.v1.Module/List` 当前只做结构诊断并逐字节透传：
+`DeviceFeatureResp.actionData(1)` 会执行严格 UTF-8/JSON 验证，但在没有脱敏
+fixture 证明具体 action 安全之前不会修改；`Module/List` 不阻断资源模块更新。
 
 专用广告素材接口使用与其协议匹配的空安全响应，包括资源顶部/补丁活动、
 PGC 活动物料、直播购物信息和 Biligame 直播大卡素材；精确主机和路径以外的请求
