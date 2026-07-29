@@ -1365,7 +1365,7 @@ test("VIP materials and reports use distinct idempotent success contracts", () =
   });
 });
 
-test("dedicated activity, shopping, and game material APIs return empty safe shapes", () => {
+test("reviewed activity, search, manga, shopping, and game APIs return safe empty shapes", () => {
   const fixtures = [
     {
       endpoint: `${appRoot}/x/resource/top/activity`,
@@ -1396,6 +1396,21 @@ test("dedicated activity, shopping, and game material APIs return empty safe sha
       endpoint:
         "https://line3-h5-mobile-api.biligame.com/game/live/large_card_material",
       expected: { code: 0, message: "success" },
+    },
+    {
+      endpoint:
+        "https://api.vc.bilibili.com/search_svr/v3/Search/recommend_words",
+      expected: {},
+    },
+    {
+      endpoint:
+        "https://manga.bilibili.com/twirp/comic.v1.Comic/Flash",
+      expected: {},
+    },
+    {
+      endpoint:
+        "https://manga.bilibili.com/twirp/comic.v2.Comic/ListFlash",
+      expected: {},
     },
   ];
 
@@ -1428,6 +1443,20 @@ test("dedicated activity, shopping, and game material APIs return empty safe sha
     '{"liveShopping":false}',
   );
   assert.equal(shoppingDisabled.changed, 0);
+
+  const searchDisabled = transform(
+    "https://api.vc.bilibili.com/search_svr/v3/Search/recommend_words",
+    { code: 0, data: { title: "运营搜索词" } },
+    '{"searchPromotions":false}',
+  );
+  assert.equal(searchDisabled.changed, 0);
+
+  const mangaStillFiltered = transform(
+    "https://manga.bilibili.com/twirp/comic.v1.Comic/Flash",
+    { code: 0, data: { creative_id: 1 } },
+    '{"searchPromotions":false}',
+  );
+  assert.deepEqual(JSON.parse(mangaStillFiltered.body), {});
 });
 
 test("JSON cleanup is idempotent across repeated refresh responses", () => {
@@ -2722,6 +2751,34 @@ test("gRPC dynamic, search, and reply filters use endpoint-specific fields", () 
   assert.match(typedText, /typed-normal/);
   assert.doesNotMatch(typedText, /typed-special-business/);
   assert.doesNotMatch(typedText, /typed-purchase/);
+
+  const defaultWordsUrl =
+    "https://grpc.biliapi.net/bilibili.app.interface.v1.Search/DefaultWords";
+  const defaultWords = enhance.transformGrpcBody(
+    grpcFrame(
+      bytes(
+        stringField(1, "tracking"),
+        stringField(4, "运营搜索词"),
+        stringField(9, "bilibili://search"),
+      ),
+    ),
+    defaultWordsUrl,
+    enhance.parseArgument(""),
+  );
+  assert.equal(defaultWords.endpoint, "grpc-search-default-words");
+  assert.equal(defaultWords.changed, 1);
+  assert.equal(grpcPayload(defaultWords.body).length, 0);
+
+  const defaultWordsDisabled = enhance.transformGrpcBody(
+    grpcFrame(stringField(4, "keep")),
+    defaultWordsUrl,
+    enhance.parseArgument('{"searchPromotions":false}'),
+  );
+  assert.equal(defaultWordsDisabled.changed, 0);
+  assert.match(
+    Buffer.from(grpcPayload(defaultWordsDisabled.body)).toString("latin1"),
+    /keep/,
+  );
 
   const normalContent = stringField(1, "normal pinned reply");
   const commercialContent = stringField(

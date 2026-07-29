@@ -573,6 +573,18 @@
     ) {
       return "game-live-material";
     }
+    if (
+      parsed.host === "api.vc.bilibili.com" &&
+      /^\/search_svr\/v\d+\/Search\/recommend_words$/.test(path)
+    ) {
+      return "search-recommend-words";
+    }
+    if (
+      parsed.host === "manga.bilibili.com" &&
+      /^\/twirp\/comic\.v\d+\.Comic\/(?:Flash|ListFlash)$/.test(path)
+    ) {
+      return "manga-flash";
+    }
     return "";
   }
 
@@ -627,6 +639,8 @@
         return "grpc-search-all";
       case "/bilibili.polymer.app.search.v1.Search/SearchByType":
         return "grpc-search-by-type";
+      case "/bilibili.app.interface.v1.Search/DefaultWords":
+        return "grpc-search-default-words";
       case "/bilibili.main.community.reply.v1.Reply/MainList":
         return "grpc-reply";
       default:
@@ -649,6 +663,12 @@
       return (
         config.ads !== false ||
         config.homeFeedVideoOnly !== false
+      );
+    }
+    if (endpoint === "grpc-search-default-words") {
+      return Boolean(
+        config.ads !== false &&
+          config.searchPromotions !== false
       );
     }
     if (endpoint === "grpc-mine-pub-module") {
@@ -2226,6 +2246,16 @@
         ? replaceRootObject(body, {})
         : 0;
     }
+    if (endpoint === "search-recommend-words") {
+      return config.ads && config.searchPromotions
+        ? replaceRootObject(body, {})
+        : 0;
+    }
+    if (endpoint === "manga-flash") {
+      return config.ads
+        ? replaceRootObject(body, {})
+        : 0;
+    }
     if (!config.ads) {
       return 0;
     }
@@ -2851,7 +2881,9 @@
       endpoint === "resource-promotion" ||
       endpoint === "pgc-activity-material" ||
       endpoint === "live-shopping-material" ||
-      endpoint === "game-live-material"
+      endpoint === "game-live-material" ||
+      endpoint === "search-recommend-words" ||
+      endpoint === "manga-flash"
     ) {
       return handleDedicatedPromotion(body, endpoint, config);
     }
@@ -4217,6 +4249,15 @@
     );
   }
 
+  function transformEmptyKnownGrpcReply(input) {
+    var original = toUint8Array(input) || new Uint8Array();
+    return {
+      body: original.length > 0 ? new Uint8Array() : original,
+      changed: original.length > 0 ? 1 : 0,
+      valid: true
+    };
+  }
+
   function isCommercialTopReply(input) {
     var bytes = toUint8Array(input);
     var content = findProtoField(bytes, 12, 2);
@@ -4311,6 +4352,8 @@
         return transformSearch(input, 4);
       case "grpc-search-by-type":
         return transformSearch(input, 6);
+      case "grpc-search-default-words":
+        return transformEmptyKnownGrpcReply(input);
       case "grpc-reply":
         return transformReply(input);
       default:
@@ -4814,6 +4857,8 @@
       [
         "feed",
         "mine",
+        "manga-flash",
+        "search-recommend-words",
         "splash-list",
         "splash-show",
         "splash-event-list2",

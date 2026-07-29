@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented here.
 
+## [3.6.0] - 2026-07-30
+
+- Reset automatic learning to `safeAuto.v6` and increase paired media samples
+  from 256 KiB to 1 MiB so a fast first packet cannot by itself promote a CDN
+  with poor sustained throughput.
+- Require a candidate to meet both the configured relative improvement and an
+  absolute audio/video/segment throughput floor, including 1.35x headroom over
+  a declared representation bandwidth.
+- Revalidate selected routes after at most eight minutes and add a bounded,
+  anonymized host-health circuit breaker. Hard failures back off immediately;
+  two consecutive slow verified samples also pause that host across objects,
+  without sharing media URLs, signatures, or selections.
+- Keep cache misses and stale selections nonblocking and fail open to the
+  server primary. Preserve exact object/hash/Range equivalence, alias-lane,
+  audio/video, representation, codec, signed-query, fixed-mode, and live URL
+  isolation.
+- Remove the DNS-decommissioned `upos-sz-mirrorhwov.bilivideo.com` from fixed
+  candidate guidance. Akamai remains eligible only when Bilibili supplied its
+  complete signed URL for the current object; blind host substitution remains
+  prohibited.
+- Add exact, cache-safe handling for gRPC `Search/DefaultWords`, legacy
+  `Search/recommend_words`, and manga `Comic/Flash`/`ListFlash` responses.
+  Preserve ordinary search results and all unknown endpoints.
+- Document current mall microfrontend findings and keep the whole membership
+  shopping domain outside MITM because observed popups also carry account,
+  seller-migration, and regulatory workflow data.
+- Add regressions for sustained-throughput headroom, stale selection fallback,
+  cross-object host circuit breaking, state privacy, new exact ad endpoints,
+  module matcher coverage, and update-keyed distribution artifacts.
+
 ## [3.5.0] - 2026-07-30
 
 - Route `/x/v2/feed/index/story` and `/story/cart` through one generated

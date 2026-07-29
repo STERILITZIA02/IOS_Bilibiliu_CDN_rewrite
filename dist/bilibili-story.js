@@ -575,6 +575,18 @@ this.__BILIFLOW_COMBINED__ = true;
     ) {
       return "game-live-material";
     }
+    if (
+      parsed.host === "api.vc.bilibili.com" &&
+      /^\/search_svr\/v\d+\/Search\/recommend_words$/.test(path)
+    ) {
+      return "search-recommend-words";
+    }
+    if (
+      parsed.host === "manga.bilibili.com" &&
+      /^\/twirp\/comic\.v\d+\.Comic\/(?:Flash|ListFlash)$/.test(path)
+    ) {
+      return "manga-flash";
+    }
     return "";
   }
 
@@ -629,6 +641,8 @@ this.__BILIFLOW_COMBINED__ = true;
         return "grpc-search-all";
       case "/bilibili.polymer.app.search.v1.Search/SearchByType":
         return "grpc-search-by-type";
+      case "/bilibili.app.interface.v1.Search/DefaultWords":
+        return "grpc-search-default-words";
       case "/bilibili.main.community.reply.v1.Reply/MainList":
         return "grpc-reply";
       default:
@@ -651,6 +665,12 @@ this.__BILIFLOW_COMBINED__ = true;
       return (
         config.ads !== false ||
         config.homeFeedVideoOnly !== false
+      );
+    }
+    if (endpoint === "grpc-search-default-words") {
+      return Boolean(
+        config.ads !== false &&
+          config.searchPromotions !== false
       );
     }
     if (endpoint === "grpc-mine-pub-module") {
@@ -2228,6 +2248,16 @@ this.__BILIFLOW_COMBINED__ = true;
         ? replaceRootObject(body, {})
         : 0;
     }
+    if (endpoint === "search-recommend-words") {
+      return config.ads && config.searchPromotions
+        ? replaceRootObject(body, {})
+        : 0;
+    }
+    if (endpoint === "manga-flash") {
+      return config.ads
+        ? replaceRootObject(body, {})
+        : 0;
+    }
     if (!config.ads) {
       return 0;
     }
@@ -2853,7 +2883,9 @@ this.__BILIFLOW_COMBINED__ = true;
       endpoint === "resource-promotion" ||
       endpoint === "pgc-activity-material" ||
       endpoint === "live-shopping-material" ||
-      endpoint === "game-live-material"
+      endpoint === "game-live-material" ||
+      endpoint === "search-recommend-words" ||
+      endpoint === "manga-flash"
     ) {
       return handleDedicatedPromotion(body, endpoint, config);
     }
@@ -4219,6 +4251,15 @@ this.__BILIFLOW_COMBINED__ = true;
     );
   }
 
+  function transformEmptyKnownGrpcReply(input) {
+    var original = toUint8Array(input) || new Uint8Array();
+    return {
+      body: original.length > 0 ? new Uint8Array() : original,
+      changed: original.length > 0 ? 1 : 0,
+      valid: true
+    };
+  }
+
   function isCommercialTopReply(input) {
     var bytes = toUint8Array(input);
     var content = findProtoField(bytes, 12, 2);
@@ -4313,6 +4354,8 @@ this.__BILIFLOW_COMBINED__ = true;
         return transformSearch(input, 4);
       case "grpc-search-by-type":
         return transformSearch(input, 6);
+      case "grpc-search-default-words":
+        return transformEmptyKnownGrpcReply(input);
       case "grpc-reply":
         return transformReply(input);
       default:
@@ -4816,6 +4859,8 @@ this.__BILIFLOW_COMBINED__ = true;
       [
         "feed",
         "mine",
+        "manga-flash",
+        "search-recommend-words",
         "splash-list",
         "splash-show",
         "splash-event-list2",
@@ -5245,7 +5290,7 @@ this.__BILIFLOW_COMBINED__ = true;
 })(this);
 
 /*
- * Bilibili CDN Switcher v5 for Shadowrocket
+ * Bilibili CDN Switcher v6 for Shadowrocket
  *
  * Default auto mode is deliberately conservative:
  * - it only considers the primary and backup URLs returned for one media item;
@@ -5263,7 +5308,7 @@ this.__BILIFLOW_COMBINED__ = true;
 
   var NAME = "BiliCDN";
   var DEFAULT_CDN = "upos-sz-mirrorali.bilivideo.com";
-  var AUTO_STATE_KEY = "BiliCDN.safeAuto.v5";
+  var AUTO_STATE_KEY = "BiliCDN.safeAuto.v6";
   var DEFAULT_AUTO_INTERVAL_HOURS = 12;
   var DEFAULT_SWITCH_THRESHOLD = 20;
   var RUNTIME_OPTION_LIMITS = {
@@ -5279,19 +5324,27 @@ this.__BILIFLOW_COMBINED__ = true;
     }
   };
   var AUTO_CACHE_CAPACITY = 64;
+  var AUTO_HOST_CAPACITY = 48;
   var AUTO_CONFIRM_DELAY_MS = 2 * 60 * 1000;
   var AUTO_EXPLORE_DELAY_MS = 30 * 60 * 1000;
   var AUTO_GLOBAL_PROBE_GAP_MS = 2 * 60 * 1000;
+  var AUTO_HOST_BACKOFF_BASE_MS = 15 * 60 * 1000;
+  var AUTO_HOST_BACKOFF_MAX_MS = 2 * 60 * 60 * 1000;
   var AUTO_LOCK_MS = 10 * 1000;
   var AUTO_PROBE_TIMEOUT_MS = 5000;
-  var AUTO_RANGE_END = 262143;
+  var AUTO_RANGE_END = 1048575;
   var AUTO_RETRY_MS = 30 * 60 * 1000;
-  var AUTO_SELECTED_REVALIDATE_MS = 30 * 60 * 1000;
+  var AUTO_SELECTED_REVALIDATE_MS = 8 * 60 * 1000;
   var MAX_GRPC_DECOMPRESSED_BYTES = 4 * 1024 * 1024;
   var MAX_PROTO_DEPTH = 32;
   var MAX_URL_BYTES = 65536;
   var MAX_JSON_DEPTH = 64;
   var AUTO_SCORE_SAMPLE_LIMIT = 5;
+  var AUTO_HOST_SCORE_SAMPLE_LIMIT = 8;
+  var AUTO_MIN_AUDIO_THROUGHPUT_KBPS = 256;
+  var AUTO_MIN_SEGMENT_THROUGHPUT_KBPS = 1500;
+  var AUTO_MIN_VIDEO_THROUGHPUT_KBPS = 2500;
+  var AUTO_REPRESENTATION_HEADROOM = 1.35;
 
   /*
    * This list is documentation and fixed-mode input guidance only. Safe auto
@@ -5303,7 +5356,6 @@ this.__BILIFLOW_COMBINED__ = true;
     "upos-sz-mirrorhw.bilivideo.com",
     "upos-sz-mirroraliov.bilivideo.com",
     "upos-sz-mirrorcosov.bilivideo.com",
-    "upos-sz-mirrorhwov.bilivideo.com",
     "cn-hk-eq-01-01.bilivideo.com",
     "cn-hk-eq-01-03.bilivideo.com",
     "cn-hk-eq-01-09.bilivideo.com",
@@ -5355,7 +5407,8 @@ this.__BILIFLOW_COMBINED__ = true;
     "frame_rate",
     "frameRate",
     "width",
-    "height"
+    "height",
+    "bandwidth"
   ];
   /*
    * Verified against the public PlayView/PlayViewUnite schemas. Every method
@@ -6910,7 +6963,34 @@ this.__BILIFLOW_COMBINED__ = true;
     return output.join("&");
   }
 
-  function buildMediaDescriptor(format, kind, primaryUrl, backupUrls, metadata) {
+  function requiredThroughputKbps(kind, bandwidthBitsPerSecond) {
+    var bandwidth = boundedNumber(
+      bandwidthBitsPerSecond,
+      0,
+      0,
+      1000000000
+    );
+    var representationFloor =
+      bandwidth > 0
+        ? Math.ceil((bandwidth / 1000) * AUTO_REPRESENTATION_HEADROOM)
+        : 0;
+    if (kind === "audio") {
+      return Math.max(AUTO_MIN_AUDIO_THROUGHPUT_KBPS, representationFloor);
+    }
+    if (kind === "segment") {
+      return Math.max(AUTO_MIN_SEGMENT_THROUGHPUT_KBPS, representationFloor);
+    }
+    return Math.max(AUTO_MIN_VIDEO_THROUGHPUT_KBPS, representationFloor);
+  }
+
+  function buildMediaDescriptor(
+    format,
+    kind,
+    primaryUrl,
+    backupUrls,
+    metadata,
+    bandwidthBitsPerSecond
+  ) {
     var primaryParsed = parseHttpUrl(primaryUrl);
     var primaryFamily = candidateFamilyForUrl(primaryUrl);
     var candidates = [];
@@ -6978,6 +7058,10 @@ this.__BILIFLOW_COMBINED__ = true;
       kind: kind || "unknown",
       primaryId: candidates[0].id,
       primaryUrl: primaryUrl,
+      requiredKbps: requiredThroughputKbps(
+        kind || "unknown",
+        bandwidthBitsPerSecond
+      ),
       reusableRepresentation: reusableRepresentation
     };
   }
@@ -6989,6 +7073,16 @@ this.__BILIFLOW_COMBINED__ = true;
         "\u0000" +
         descriptor.keyMaterial
     );
+  }
+
+  function isHostCircuitOpen(state, candidateId, now) {
+    var health =
+      state &&
+      state.hosts &&
+      /^c2_[0-9a-f]{32}$/.test(candidateId || "")
+        ? state.hosts[candidateId]
+        : null;
+    return Boolean(health && health.openUntil > now);
   }
 
   function selectedUrlForDescriptor(descriptor, config, state, now) {
@@ -7003,7 +7097,13 @@ this.__BILIFLOW_COMBINED__ = true;
       !entry.candidateId ||
       entry.candidateId === descriptor.primaryId ||
       entry.expiresAt <= now ||
-      entry.validatedAt <= 0
+      entry.validatedAt <= 0 ||
+      isHostCircuitOpen(state, entry.candidateId, now) ||
+      (
+        config &&
+        config.probeMode !== "off" &&
+        entry.validatedAt + AUTO_SELECTED_REVALIDATE_MS <= now
+      )
     ) {
       return null;
     }
@@ -7072,7 +7172,8 @@ this.__BILIFLOW_COMBINED__ = true;
       kind,
       lanes[0].primaryUrl,
       intersectBackupLists(backupLists),
-      jsonMetadataSignature(value)
+      jsonMetadataSignature(value),
+      value.bandwidth
     );
     if (!descriptor) {
       return null;
@@ -7216,11 +7317,12 @@ this.__BILIFLOW_COMBINED__ = true;
   function createEmptyAutoState() {
     return {
       entries: {},
+      hosts: {},
       lastProbeAt: 0,
       lockTokens: {},
       locks: {},
       resetToken: "",
-      version: 5
+      version: 6
     };
   }
 
@@ -7399,6 +7501,83 @@ this.__BILIFLOW_COMBINED__ = true;
     return entry;
   }
 
+  function sanitizeHostHealth(value) {
+    var health = {
+      failureStreak: 0,
+      lastFailureAt: 0,
+      lastSuccessAt: 0,
+      lastUsedAt: 0,
+      metrics: summarizeProbeSamples([]),
+      openUntil: 0,
+      samples: [],
+      slowStreak: 0
+    };
+    var samples = [];
+    var index;
+    var sample;
+
+    if (!isObject(value) || Array.isArray(value)) {
+      return health;
+    }
+    if (Array.isArray(value.samples)) {
+      for (
+        index = Math.max(
+          0,
+          value.samples.length - AUTO_HOST_SCORE_SAMPLE_LIMIT
+        );
+        index < value.samples.length;
+        index += 1
+      ) {
+        sample = sanitizeProbeSample(value.samples[index]);
+        if (sample) {
+          samples.push(sample);
+        }
+      }
+    }
+    health.failureStreak = boundedInteger(
+      value.failureStreak,
+      0,
+      0,
+      16
+    );
+    health.lastFailureAt = boundedNumber(
+      value.lastFailureAt,
+      0,
+      0,
+      9e15
+    );
+    health.lastSuccessAt = boundedNumber(
+      value.lastSuccessAt,
+      0,
+      0,
+      9e15
+    );
+    health.lastUsedAt = boundedNumber(value.lastUsedAt, 0, 0, 9e15);
+    health.openUntil = boundedNumber(value.openUntil, 0, 0, 9e15);
+    health.samples = samples;
+    health.metrics = summarizeProbeSamples(samples);
+    health.slowStreak = boundedInteger(value.slowStreak, 0, 0, 2);
+    return health;
+  }
+
+  function sanitizeHostMap(value) {
+    var output = {};
+    var keys;
+    var index;
+    var key;
+    if (!isObject(value) || Array.isArray(value)) {
+      return output;
+    }
+    keys = Object.keys(value).slice(0, AUTO_HOST_CAPACITY * 2);
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (/^c2_[0-9a-f]{32}$/.test(key)) {
+        output[key] = sanitizeHostHealth(value[key]);
+      }
+    }
+    return output;
+  }
+
   function loadAutoState(services) {
     var state = createEmptyAutoState();
     var raw;
@@ -7415,12 +7594,13 @@ this.__BILIFLOW_COMBINED__ = true;
     } catch (error) {
       parsed = null;
     }
-    if (!isObject(parsed) || parsed.version !== 5) {
+    if (!isObject(parsed) || parsed.version !== 6) {
       return state;
     }
 
     state.lastProbeAt = boundedNumber(parsed.lastProbeAt, 0, 0, 9e15);
     state.resetToken = normalizeResetToken(parsed.resetToken);
+    state.hosts = sanitizeHostMap(parsed.hosts);
     if (isObject(parsed.entries) && !Array.isArray(parsed.entries)) {
       keys = Object.keys(parsed.entries).slice(0, AUTO_CACHE_CAPACITY * 2);
       for (index = 0; index < keys.length; index += 1) {
@@ -7458,6 +7638,7 @@ this.__BILIFLOW_COMBINED__ = true;
 
   function pruneAutoState(state, now) {
     var keys = Object.keys(state.entries);
+    var hostKeys = Object.keys(state.hosts || {});
     var lockKeys = Object.keys(state.locks);
     var removeCount;
     var index;
@@ -7466,6 +7647,18 @@ this.__BILIFLOW_COMBINED__ = true;
       if (state.locks[lockKeys[index]] <= now) {
         delete state.locks[lockKeys[index]];
         delete state.lockTokens[lockKeys[index]];
+      }
+    }
+    if (hostKeys.length > AUTO_HOST_CAPACITY) {
+      hostKeys.sort(function (left, right) {
+        return (
+          (state.hosts[left].lastUsedAt || 0) -
+          (state.hosts[right].lastUsedAt || 0)
+        );
+      });
+      removeCount = hostKeys.length - AUTO_HOST_CAPACITY;
+      for (index = 0; index < removeCount; index += 1) {
+        delete state.hosts[hostKeys[index]];
       }
     }
     if (keys.length <= AUTO_CACHE_CAPACITY) {
@@ -7574,7 +7767,14 @@ this.__BILIFLOW_COMBINED__ = true;
       if (
         !entry ||
         entry.candidateSetHash !== descriptor.candidateSetHash ||
-        entry.nextProbeAt <= now
+        entry.nextProbeAt <= now ||
+        (
+          entry.candidateId &&
+          (
+            isHostCircuitOpen(state, entry.candidateId, now) ||
+            entry.validatedAt + AUTO_SELECTED_REVALIDATE_MS <= now
+          )
+        )
       ) {
         return descriptor;
       }
@@ -7582,27 +7782,66 @@ this.__BILIFLOW_COMBINED__ = true;
     return null;
   }
 
-  function chooseAlternativeCandidate(descriptor, entry) {
+  function hostPreferenceScore(state, candidateId) {
+    var health =
+      state && state.hosts
+        ? state.hosts[candidateId]
+        : null;
+    var metrics = health && health.metrics;
+    if (!metrics || metrics.successCount < 2) {
+      return -1;
+    }
+    return (
+      (metrics.medianThroughputKbps || 0) *
+      Math.max(0, 1 - (metrics.failureRate || 0)) /
+      Math.max(1, 1 + (metrics.jitterMs || 0) / 100)
+    );
+  }
+
+  function chooseAlternativeCandidate(descriptor, entry, state, now) {
     var backupCandidates = descriptor.candidates.slice(1);
+    var eligible = [];
+    var preferred = null;
+    var preferredScore = -1;
+    var score;
     var index;
 
     if (entry.candidateId) {
       for (index = 0; index < backupCandidates.length; index += 1) {
-        if (backupCandidates[index].id === entry.candidateId) {
+        if (
+          backupCandidates[index].id === entry.candidateId &&
+          !isHostCircuitOpen(state, backupCandidates[index].id, now)
+        ) {
           return backupCandidates[index];
         }
       }
     }
     if (entry.pendingCandidateId) {
       for (index = 0; index < backupCandidates.length; index += 1) {
-        if (backupCandidates[index].id === entry.pendingCandidateId) {
+        if (
+          backupCandidates[index].id === entry.pendingCandidateId &&
+          !isHostCircuitOpen(state, backupCandidates[index].id, now)
+        ) {
           return backupCandidates[index];
         }
       }
     }
-    return backupCandidates[
-      entry.candidateCursor % backupCandidates.length
-    ];
+    for (index = 0; index < backupCandidates.length; index += 1) {
+      if (!isHostCircuitOpen(state, backupCandidates[index].id, now)) {
+        eligible.push(backupCandidates[index]);
+        score = hostPreferenceScore(state, backupCandidates[index].id);
+        if (score > preferredScore) {
+          preferredScore = score;
+          preferred = backupCandidates[index];
+        }
+      }
+    }
+    if (preferred) {
+      return preferred;
+    }
+    return eligible.length > 0
+      ? eligible[entry.candidateCursor % eligible.length]
+      : null;
   }
 
   function parseProtoFields(bytes) {
@@ -7744,6 +7983,7 @@ this.__BILIFLOW_COMBINED__ = true;
     var backupField;
     var kind;
     var representationId;
+    var bandwidth = 0;
     var stableMetadata = "";
     var descriptor;
 
@@ -7753,6 +7993,7 @@ this.__BILIFLOW_COMBINED__ = true;
       primaryField = 1;
       backupField = 2;
       kind = "video";
+      bandwidth = firstProtoVarint(fields, 3) || 0;
     } else {
       primaryUrls = protoUrlsForField(fields, 2);
       backupUrls = protoUrlsForField(fields, 3);
@@ -7774,6 +8015,7 @@ this.__BILIFLOW_COMBINED__ = true;
         if (kind === "video" || kind === "audio") {
           stableMetadata = "representation=" + representationId;
         }
+        bandwidth = firstProtoVarint(fields, 4) || 0;
       } else {
         primaryUrls = protoUrlsForField(fields, 4);
         backupUrls = protoUrlsForField(fields, 5);
@@ -7792,7 +8034,8 @@ this.__BILIFLOW_COMBINED__ = true;
       kind,
       primaryUrls[0],
       backupUrls,
-      stableMetadata
+      stableMetadata,
+      bandwidth
     );
     if (!descriptor) {
       return null;
@@ -8346,11 +8589,88 @@ this.__BILIFLOW_COMBINED__ = true;
     };
   }
 
+  function hostBackoffMs(failureStreak) {
+    return Math.min(
+      AUTO_HOST_BACKOFF_MAX_MS,
+      AUTO_HOST_BACKOFF_BASE_MS *
+        Math.pow(2, Math.max(0, Math.min(3, failureStreak - 1)))
+    );
+  }
+
+  function recordHostProbe(state, result, descriptor, now, verdict) {
+    var health;
+    var samples;
+    var sufficient;
+    if (
+      !state ||
+      !result ||
+      !/^c2_[0-9a-f]{32}$/.test(result.candidateId || "") ||
+      verdict === "neutral"
+    ) {
+      return;
+    }
+    if (!isObject(state.hosts) || Array.isArray(state.hosts)) {
+      state.hosts = {};
+    }
+    health = sanitizeHostHealth(state.hosts[result.candidateId]);
+    samples = health.samples.slice();
+    samples.push({
+      at: now,
+      elapsedMs: result.elapsedMs,
+      ok: verdict === "verified",
+      reason:
+        verdict === "mismatch"
+          ? "object-mismatch"
+          : result.reason,
+      status: result.status,
+      throughputKbps: result.throughputKbps || 0
+    });
+    if (samples.length > AUTO_HOST_SCORE_SAMPLE_LIMIT) {
+      samples = samples.slice(-AUTO_HOST_SCORE_SAMPLE_LIMIT);
+    }
+    health.samples = samples;
+    health.metrics = summarizeProbeSamples(samples);
+    health.lastUsedAt = now;
+
+    if (verdict !== "verified") {
+      health.failureStreak = Math.min(16, health.failureStreak + 1);
+      health.slowStreak = 0;
+      health.lastFailureAt = now;
+      health.openUntil = Math.max(
+        health.openUntil,
+        now + hostBackoffMs(health.failureStreak)
+      );
+      state.hosts[result.candidateId] = health;
+      return;
+    }
+
+    health.lastSuccessAt = now;
+    health.failureStreak = 0;
+    sufficient =
+      (result.throughputKbps || 0) >=
+      Math.max(1, descriptor.requiredKbps || 0);
+    if (sufficient) {
+      health.slowStreak = 0;
+      health.openUntil = 0;
+    } else {
+      health.slowStreak = Math.min(2, health.slowStreak + 1);
+      if (health.slowStreak >= 2) {
+        health.lastFailureAt = now;
+        health.openUntil = Math.max(
+          health.openUntil,
+          now + AUTO_HOST_BACKOFF_BASE_MS
+        );
+      }
+    }
+    state.hosts[result.candidateId] = health;
+  }
+
   function alternativeQualifies(
     primaryResult,
     alternativeResult,
     config,
-    entry
+    entry,
+    descriptor
   ) {
     var gain;
     var primaryScore;
@@ -8370,6 +8690,13 @@ this.__BILIFLOW_COMBINED__ = true;
       return false;
     }
     if (!primaryResult.ok) {
+      return false;
+    }
+    if (
+      descriptor &&
+      (alternativeResult.throughputKbps || 0) <
+        Math.max(1, descriptor.requiredKbps || 0)
+    ) {
       return false;
     }
     primaryScore =
@@ -8449,6 +8776,7 @@ this.__BILIFLOW_COMBINED__ = true;
   }
 
   function updateEntryAfterProbe(
+    state,
     entry,
     descriptor,
     primaryResult,
@@ -8470,13 +8798,27 @@ this.__BILIFLOW_COMBINED__ = true;
     entry.lastUsedAt = now;
     recordProbeScore(entry, primaryResult, now);
     recordProbeScore(entry, alternativeResult, now);
+    recordHostProbe(
+      state,
+      alternativeResult,
+      descriptor,
+      now,
+      !alternativeResult.ok
+        ? "failure"
+        : (
+            !primaryResult.ok
+              ? "neutral"
+              : (equivalent ? "verified" : "mismatch")
+          )
+    );
     qualifies =
       equivalent &&
       alternativeQualifies(
         primaryResult,
         alternativeResult,
         config,
-        entry
+        entry,
+        descriptor
       );
 
     if (!alternativeResult.ok) {
@@ -8755,7 +9097,12 @@ this.__BILIFLOW_COMBINED__ = true;
     }
     entry.lastUsedAt = now;
     primaryCandidate = descriptor.candidates[0];
-    alternativeCandidate = chooseAlternativeCandidate(descriptor, entry);
+    alternativeCandidate = chooseAlternativeCandidate(
+      descriptor,
+      entry,
+      state,
+      now
+    );
     if (!alternativeCandidate) {
       deliver({
         body: prepared.body,
@@ -8839,6 +9186,7 @@ this.__BILIFLOW_COMBINED__ = true;
         resetAutoEntryForDescriptor(latestEntry, descriptor);
       }
       updateReason = updateEntryAfterProbe(
+        latestState,
         latestEntry,
         descriptor,
         results[primaryCandidate.id],
@@ -9206,6 +9554,8 @@ this.__BILIFLOW_COMBINED__ = true;
 
   var api = {
     AUTO_CACHE_CAPACITY: AUTO_CACHE_CAPACITY,
+    AUTO_HOST_BACKOFF_BASE_MS: AUTO_HOST_BACKOFF_BASE_MS,
+    AUTO_HOST_CAPACITY: AUTO_HOST_CAPACITY,
     FIXED_CDN_CANDIDATES: FIXED_CDN_CANDIDATES,
     AUTO_CONFIRM_DELAY_MS: AUTO_CONFIRM_DELAY_MS,
     AUTO_GLOBAL_PROBE_GAP_MS: AUTO_GLOBAL_PROBE_GAP_MS,
@@ -9241,6 +9591,7 @@ this.__BILIFLOW_COMBINED__ = true;
     processSafeAutoResponse: processSafeAutoResponse,
     queryFreeCandidateFingerprint: queryFreeCandidateFingerprint,
     readVarint: readVarint,
+    requiredThroughputKbps: requiredThroughputKbps,
     rewriteVodUrl: rewriteVodUrl,
     runShadowrocket: runShadowrocket,
     stableHash: stableHash,

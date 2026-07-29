@@ -49,6 +49,37 @@ PCDN 网络规则只采用 Maasea 模块中可交叉核实的窄匹配
 默认 `DIRECT` 不改变默认直连分流，用户显式选择 `REJECT` 时才阻断。由于存在
 已记录的播放兼容风险，本项目没有加入 `mcdn.bilivideo.cn` 拦截。
 
+## 2026-07-30 CDN 在线抽样与论坛经验
+
+本次从新西兰奥克兰网络对公开、未登录的 5 个视频、12 个媒体对象做了相同
+256 KiB Range 对照（该数值只是调研工具样本，v3.6.0 运行时已提高到 1 MiB）：
+服务端原生返回的 `upos-sz-mirrorcosov.bilivideo.com` 与
+`upos-hz-mirrorakam.akamaized.net` 完整签名 URL 均为 `206`，Range、总长度和
+样本 hash 一致；该路径的中位总耗时约为 523 ms 与 27 ms。这只能证明
+**Akamai 在此次路径、这些服务端签名对象上可用**，不能外推为全球固定最快。
+
+同一媒体 URL 的兼容性审计还确认：
+
+- 把 cosov 的完整签名 URL 直接替换成 Akamai host 会返回 `403`/HTML；这与
+  [BiliUniverse/Redirect 当前请求实现](https://github.com/BiliUniverse/Redirect/blob/main/src/request.js)
+  中“Akamai 会校验参数”的注释一致。安全模式因此只使用响应原生返回的 Akamai
+  完整 URL，绝不盲换 host。
+- `upos-sz-mirrorhwov.bilivideo.com` 在 Cloudflare、Google 与阿里公共 DNS 均为
+  NXDOMAIN，已从固定候选指导清单移除。
+- 上游曾列出的 `upos-sz-mirrorawsov.bilivideo.com` 仍有 CloudFront CNAME，但
+  目标在三组公共 DNS 都没有 A/AAAA，继续不加入清单。
+- `cn-hk-eq-01-03.bilivideo.com` 仍可解析，但本次路径的 6.5 秒探测超时；这只
+  是地区性结果，不能据此宣告全球停用，因此保留为用户显式固定模式的地区候选，
+  不会被自动模式凭静态清单注入。
+
+论坛与历史开发经验只作为问题线索：
+[USCardForum 海外 CDN 讨论](https://www.uscardforum.com/t/topic/402750) 记录了
+“测速很好但持续 4K 吞吐差”的 Akamai 个案；
+[V2EX MCDN 低延迟但卡住](https://v2ex.com/t/834673) 与
+[V2EX PCDN 缓冲限制](https://www.v2ex.com/t/1106060) 也说明 RTT/首包不是播放
+质量的充分条件。v3.6.0 因此把运行时样本从 256 KiB 提高到 1 MiB，加入表示带宽
+余量、8 分钟复核和匿名失败/连续低速熔断，但仍不跨对象共享 URL 或签名。
+
 ## 已核实的接口与字段
 
 ### 高置信广告
@@ -66,7 +97,13 @@ PCDN 网络规则只采用 Maasea 模块中可交叉核实的窄匹配
 - 搜索：`SearchAll.item(4)` 与 `SearchByType.items(6)` 中的
   `banner(9)`、`game(11)`、`purchase(12)`、`cm(25)`、`top_game(29)`；
   `special(7)`、`pedia(26)`、`pedia_inline(31)`、`av(37)` 只有在各自明确
-  `CardBusinessBadge` 字段存在时才作为商业卡删除。
+   `CardBusinessBadge` 字段存在时才作为商业卡删除。
+- [`SK-415/bilireq` 的公开 search.proto](https://github.com/SK-415/bilireq/blob/main/bilireq/grpc/protos/bilibili/app/interfaces/v1/search.proto)
+  证明 `bilibili.app.interface.v1.Search/DefaultWords` 的 reply 只包含运营默认词、
+  展示、跟踪和跳转字段，空 protobuf 消息是合法默认值。BiliUniverse/ADBlock
+  当前模板还持续覆盖 `api.vc.bilibili.com/search_svr/vN/Search/recommend_words`
+  与漫画 `Comic/Flash`/`ListFlash` 专用接口。本项目只为这些精确主机/路径返回
+  合法空结果，不扩展到搜索、漫画或 API 整域。
 
 仅名字类似、仅 URL 含模糊关键词或只命中单一弱特征时不删除。
 
@@ -108,11 +145,19 @@ BiliUniverse/ADBlock 当前实现确认直播 `getInfoByRoom` 的
 `new_tab_info.outer_list.biz_id=33`。本项目在这些字段之外只进入同一响应的上述
 已知 UI 容器，普通互动组件不删除。
 
-会员购当前 `mall.bilibili.com/neul-next/index.html` 是动态加载的微前端。现有
-测试日志没有捕获会员购内部弹窗的精确 API/响应 fixture，公开启动页也不足以证明
-哪个资源只承载广告。因此 v3.5.0 不把整个会员购域加入 MITM，也不注入网页脚本，
-避免误伤登录、订单、支付和已购权益；会员购内部未知接口继续安全透传。若仍出现
-弹窗，需要一份只覆盖“进入会员购并出现弹窗”的脱敏日志后才能增加精确 matcher。
+会员购当前
+[`mall.bilibili.com/neul-next/index.html`](https://mall.bilibili.com/neul-next/index.html)
+是动态加载的微前端，公开
+[`application.js`](https://s1.hdslb.com/bfs/neul/mall/config/application.js)
+会继续加载店铺/工房模块。当前公开前端可确认
+`/mall-up-c/my/shop/index` 的 `bannerList/noticeList/showPublicityToast`、
+`/mall-up-c/my/shop/gfmove/show` 的迁移提醒，以及
+`/mall-up-shop/api/b-web/jzb/checkSubjectChangePopup` 的主体变更弹窗；这些载荷
+同时承载商家通知、合规迁移或账号业务，不能证明是纯广告接口。现有测试日志也只
+看到会员购域连接，没有解密后的精确广告请求/响应 fixture。因此 v3.6.0 仍不把
+整个会员购域加入 MITM，不注入网页脚本，也不清空这些业务 API，避免误伤登录、
+订单、支付、店铺迁移和已购权益。若仍出现广告弹窗，需要一份只覆盖该弹窗的脱敏
+精确路径与最小响应结构后再增加 matcher。
 
 ### 首页导航
 

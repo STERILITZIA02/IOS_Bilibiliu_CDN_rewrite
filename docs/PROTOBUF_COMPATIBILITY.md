@@ -54,16 +54,20 @@ app PlayURL、PlayerUnite、PGC v1 与 Cheese/PUGV 使用已核对的 reply fiel
 下媒体路径 `5.2`、`5.3.1`、`6`、`7.2`、`9.2`；PGC v2 只使用其公开 schema
 存在的 `5.2`、`5.3.1`、`6`、`7.2`，不会把未知 field `9` 猜成无损音频。
 
-| 结构 | 主 URL | 备用 URL | 隔离元数据 |
-| --- | --- | --- | --- |
-| `DashVideo` | `base_url(1)` | `backup_url(2)` | 缺少已确认表示 ID，因此按精确对象路径隔离 |
-| `DashItem` | `base_url(2)` | `backup_url(3)` | `id(1)` 参与表示隔离；音频/视频及每个精确对象路径分别缓存 |
-| `ResponseUrl` | `url(4)` | `backup_url(5)` | 分段 URL 始终按精确对象路径隔离 |
+| 结构 | 主 URL | 备用 URL | 吞吐元数据 | 隔离元数据 |
+| --- | --- | --- | --- | --- |
+| `DashVideo` | `base_url(1)` | `backup_url(2)` | `bandwidth(3)` | 缺少已确认表示 ID，因此按精确对象路径隔离 |
+| `DashItem` | `base_url(2)` | `backup_url(3)` | `bandwidth(4)` | `id(1)` 参与表示隔离；音频/视频及每个精确对象路径分别缓存 |
+| `ResponseUrl` | `url(4)` | `backup_url(5)` | 无 | 分段 URL 始终按精确对象路径隔离 |
 
 `DashItem.id >= 30000` 作为音频表示，常规较小清晰度 ID 作为视频表示；无把握
 的 ID 使用独立 `unknown` 类型，仍不会与已识别音频/视频共享缓存。稳定表示 ID、
 候选集合、网络档案、媒体类型和每个精确资源路径共同参与固定长度缓存摘要；不会
 因两个视频的表示 ID 相同而跨对象复用选择。
+
+v6 只读取上述已经确认的 bandwidth field，并要求备用线路的 1 MiB 样本吞吐至少
+达到表示码率的 1.35 倍；字段缺失时使用按音频、视频或分段划分的保守绝对下限。
+超过 JavaScript safe integer、未知 wire type 或未知结构不会被强制转换为码率。
 
 自动模式只提升该消息自己的当前备用完整 URL，并把原始主 URL 放入对应备用
 字段；不会把一个 Protobuf 消息的候选用于另一个消息。

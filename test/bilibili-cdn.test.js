@@ -510,7 +510,7 @@ test("safe auto maps a cached fingerprint to current server URLs without reusing
   );
 });
 
-test("v5 never reuses a verified host across different media objects", async () => {
+test("v6 never reuses a verified URL or signature across media objects", async () => {
   const firstInput = JSON.stringify(videoFixture());
   const environment = makeEnvironment({
     responder(candidate, callNumber) {
@@ -553,7 +553,7 @@ test("v5 never reuses a verified host across different media objects", async () 
   );
   const output = JSON.parse(result.body).data.dash.video[0];
 
-  assert.equal(cdn.AUTO_STATE_KEY, "BiliCDN.safeAuto.v5");
+  assert.equal(cdn.AUTO_STATE_KEY, "BiliCDN.safeAuto.v6");
   assert.notEqual(firstDescriptor.resourceKey, nextDescriptor.resourceKey);
   assert.equal(
     cdn.candidateIdForUrl(originalUrl),
@@ -826,7 +826,7 @@ test("strict probe validator rejects non-media, ignored ranges, redirects, encod
   );
 });
 
-test("probe scoring uses sustained sample throughput and a 256 KiB range", () => {
+test("probe scoring uses sustained sample throughput and a 1 MiB range", () => {
   const primary = {
     candidateId: cdn.candidateIdForUrl(originalUrl),
     elapsedMs: 100,
@@ -864,7 +864,7 @@ test("probe scoring uses sustained sample throughput and a 256 KiB range", () =>
     },
   };
 
-  assert.equal(cdn.AUTO_RANGE_END, 262143);
+  assert.equal(cdn.AUTO_RANGE_END, 1048575);
   assert.equal(
     cdn.alternativeQualifies(
       primary,
@@ -897,6 +897,56 @@ test("probe scoring uses sustained sample throughput and a 256 KiB range", () =>
       unstableEntry,
     ),
     false,
+  );
+});
+
+test("auto promotion requires representation-aware sustained throughput headroom", () => {
+  const descriptor = cdn.buildMediaDescriptor(
+    "json",
+    "video",
+    originalUrl,
+    [backupUrl],
+    "id=80&bandwidth=4000000",
+    4000000,
+  );
+  const primary = {
+    candidateId: cdn.candidateIdForUrl(originalUrl),
+    elapsedMs: 1000,
+    ok: true,
+    throughputKbps: 1000,
+  };
+  const tooSlow = {
+    candidateId: cdn.candidateIdForUrl(backupUrl),
+    elapsedMs: 200,
+    ok: true,
+    throughputKbps: 5000,
+  };
+  const sufficient = {
+    ...tooSlow,
+    elapsedMs: 150,
+    throughputKbps: 6000,
+  };
+
+  assert.equal(descriptor.requiredKbps, 5400);
+  assert.equal(
+    cdn.alternativeQualifies(
+      primary,
+      tooSlow,
+      { switchThreshold: 20 },
+      { scores: {} },
+      descriptor,
+    ),
+    false,
+  );
+  assert.equal(
+    cdn.alternativeQualifies(
+      primary,
+      sufficient,
+      { switchThreshold: 20 },
+      { scores: {} },
+      descriptor,
+    ),
+    true,
   );
 });
 
@@ -1098,6 +1148,118 @@ test("failed alternatives back off and state capacity is bounded", async () => {
   assert.equal(Object.keys(loaded.entries).length, cdn.AUTO_CACHE_CAPACITY);
 });
 
+test("a failed CDN host is circuit-broken across media objects without sharing URLs", async () => {
+  let failAlternative = true;
+  const environment = makeEnvironment({
+    responder(candidate) {
+      if (
+        failAlternative &&
+        candidate.id === cdn.candidateIdForUrl(backupUrl)
+      ) {
+        return {
+          body: "",
+          elapsedMs: 5000,
+          error: true,
+          headers: {},
+          status: 0,
+          url: candidate.url,
+        };
+      }
+      return validProbe(
+        candidate,
+        candidate.id === cdn.candidateIdForUrl(originalUrl) ? 500 : 100,
+      );
+    },
+  });
+  const firstInput = JSON.stringify(videoFixture());
+  const first = await processAuto(
+    firstInput,
+    false,
+    autoConfig,
+    environment,
+  );
+  const storedAfterFailure = JSON.parse(
+    environment.storage[cdn.AUTO_STATE_KEY],
+  );
+  const hostHealth =
+    storedAfterFailure.hosts[cdn.candidateIdForUrl(backupUrl)];
+
+  assert.equal(first.reason, "alternative-failed");
+  assert.ok(hostHealth.openUntil > environment.now);
+  assert.doesNotMatch(
+    environment.storage[cdn.AUTO_STATE_KEY],
+    /bilivideo|akamaized|upgcxcode|token=|deadline=/,
+  );
+
+  const nextPath = "/upgcxcode/44/55/665544/next.m4s";
+  const nextInput = JSON.stringify(
+    videoFixture({
+      primary: originalUrl.replace(vodPath, nextPath),
+      backup: backupUrl.replace(vodPath, nextPath),
+    }),
+  );
+  environment.advance(cdn.AUTO_GLOBAL_PROBE_GAP_MS);
+  const callsBeforeCircuitCheck = environment.calls.length;
+  const circuitResult = await processAuto(
+    nextInput,
+    false,
+    autoConfig,
+    environment,
+  );
+  assert.equal(circuitResult.reason, "no-alternative");
+  assert.equal(environment.calls.length, callsBeforeCircuitCheck);
+  assert.equal(circuitResult.body, nextInput);
+
+  failAlternative = false;
+  environment.advance(cdn.AUTO_HOST_BACKOFF_BASE_MS);
+  const retried = await processAuto(
+    nextInput,
+    false,
+    autoConfig,
+    environment,
+  );
+  assert.equal(retried.reason, "alternative-pending");
+  assert.equal(environment.calls.length, callsBeforeCircuitCheck + 2);
+});
+
+test("probe mode falls back to the server URL when a selection is stale", () => {
+  const input = JSON.stringify(videoFixture());
+  const now = Date.UTC(2026, 6, 30, 8, 0, 0);
+  const state = cdn.createEmptyAutoState();
+  const descriptor = cdn.prepareSafeJson(
+    input,
+    autoConfig,
+    state,
+    now,
+  ).descriptors[0];
+  state.entries[descriptor.resourceKey] = descriptorStateEntry(
+    descriptor,
+    descriptor.candidates[1].id,
+    now - cdn.AUTO_SELECTED_REVALIDATE_MS,
+    now + 12 * 60 * 60 * 1000,
+  );
+
+  const probing = cdn.prepareSafeJson(
+    input,
+    autoConfig,
+    state,
+    now,
+  );
+  const cacheOnly = cdn.prepareSafeJson(
+    input,
+    { ...autoConfig, probeMode: "off" },
+    state,
+    now,
+  );
+
+  assert.equal(probing.changed, 0);
+  assert.equal(probing.body, input);
+  assert.equal(
+    JSON.parse(cacheOnly.body).data.dash.video[0].base_url,
+    backupUrl,
+  );
+});
+
 test("corrupted state fails open and a changed reset token clears learning exactly once", async () => {
   const input = JSON.stringify(videoFixture());
   const environment = makeEnvironment();
@@ -1161,7 +1323,7 @@ test("configured interval is the exact selection TTL with bounded revalidation",
   assert.ok(entry.nextProbeAt < entry.expiresAt);
 });
 
-test("selected CDN degradation is revalidated and cleared after 30 minutes", async () => {
+test("selected CDN degradation is revalidated and cleared after eight minutes", async () => {
   const input = JSON.stringify(videoFixture());
   let selectedShouldFail = false;
   const environment = makeEnvironment({

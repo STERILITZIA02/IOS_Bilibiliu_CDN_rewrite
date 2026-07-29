@@ -77,6 +77,8 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(moduleText, /grpc\.biliapi\.net/);
   assert.match(moduleText, /api\.live\.bilibili\.com/);
   assert.match(moduleText, /line3-h5-mobile-api\.biligame\.com/);
+  assert.match(moduleText, /api\.vc\.bilibili\.com/);
+  assert.match(moduleText, /manga\.bilibili\.com/);
   const mitmHostnameLine = moduleText
     .split(/\r?\n/)
     .find((line) => line.startsWith("hostname = "));
@@ -164,6 +166,8 @@ test("fresh UI request guard covers every reviewed cache-sensitive metadata API"
     "https://app.biliapi.net/x/v2/splash/event/list2",
     "https://app.bilibili.com/x/vip/ads/materials",
     "https://api.biliapi.net/x/vip/ads/material/report",
+    "https://api.vc.bilibili.com/search_svr/v3/Search/recommend_words",
+    "https://manga.bilibili.com/twirp/comic.v1.Comic/ListFlash",
   ]) {
     assert.match(url, pattern);
   }
@@ -205,6 +209,7 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
     "https://grpc.biliapi.net/bilibili.app.dynamic.v2.Dynamic/DynAll",
     "https://grpc.biliapi.net/bilibili.polymer.app.search.v1.Search/SearchAll",
     "https://grpc.biliapi.net/bilibili.polymer.app.search.v1.Search/SearchByType",
+    "https://grpc.biliapi.net/bilibili.app.interface.v1.Search/DefaultWords",
     "https://grpc.bilibili.com/bilibili.main.community.reply.v1.Reply/MainList",
   ]) {
     assert.match(url, pattern);
@@ -491,6 +496,9 @@ test("enhancement response pattern covers only reviewed API endpoints", () => {
     "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByRoom",
     "https://api.live.bilibili.com/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info",
     "https://line3-h5-mobile-api.biligame.com/game/live/large_card_material",
+    "https://api.vc.bilibili.com/search_svr/v3/Search/recommend_words",
+    "https://manga.bilibili.com/twirp/comic.v1.Comic/Flash",
+    "https://manga.bilibili.com/twirp/comic.v2.Comic/ListFlash",
   ]) {
     assert.match(url, pattern);
   }
