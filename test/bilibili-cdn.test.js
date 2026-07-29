@@ -510,7 +510,7 @@ test("safe auto maps a cached fingerprint to current server URLs without reusing
   );
 });
 
-test("v4 safely reuses a verified host profile across objects of one representation", async () => {
+test("v5 never reuses a verified host across different media objects", async () => {
   const firstInput = JSON.stringify(videoFixture());
   const environment = makeEnvironment({
     responder(candidate, callNumber) {
@@ -553,8 +553,8 @@ test("v4 safely reuses a verified host profile across objects of one representat
   );
   const output = JSON.parse(result.body).data.dash.video[0];
 
-  assert.equal(cdn.AUTO_STATE_KEY, "BiliCDN.safeAuto.v4");
-  assert.equal(firstDescriptor.resourceKey, nextDescriptor.resourceKey);
+  assert.equal(cdn.AUTO_STATE_KEY, "BiliCDN.safeAuto.v5");
+  assert.notEqual(firstDescriptor.resourceKey, nextDescriptor.resourceKey);
   assert.equal(
     cdn.candidateIdForUrl(originalUrl),
     cdn.candidateIdForUrl(nextPrimary),
@@ -563,8 +563,8 @@ test("v4 safely reuses a verified host profile across objects of one representat
     cdn.queryFreeCandidateFingerprint(originalUrl),
     cdn.queryFreeCandidateFingerprint(nextPrimary),
   );
-  assert.equal(output.base_url, nextBackup);
-  assert.deepEqual(output.backup_url, [nextPrimary]);
+  assert.equal(output.base_url, nextPrimary);
+  assert.deepEqual(output.backup_url, [nextBackup]);
   assert.doesNotMatch(result.body, /old-primary|old-backup/);
   assert.doesNotMatch(
     environment.storage[cdn.AUTO_STATE_KEY],

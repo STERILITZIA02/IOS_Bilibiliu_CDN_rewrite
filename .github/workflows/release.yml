@@ -54,5 +54,7 @@ jobs:
           dist/bilibili-cdn.js
           dist/bilibili-enhance.js
           dist/bilibili-refresh.js
+          dist/bilibili-story.js
+          dist/bilibili-story-cdn.js
           dist/module-options.json
           dist/SHA256SUMS.txt

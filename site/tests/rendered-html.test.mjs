@@ -37,6 +37,7 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /CDN \+ Enhanced/);
   assert.match(html, /仅 CDN Switcher/);
   assert.match(html, /播放页只保留普通视频/);
+  assert.match(html, /Story\/搜索商业卡/);
   assert.match(html, /不阻塞首播（推荐）/);
   assert.match(html, /生成重置令牌/);
   assert.match(html, /一键安装到 Shadowrocket/);
@@ -103,6 +104,8 @@ test("catalog and custom module routes use only fixed repository sources", async
     assert.match(enhancedText, /推荐仅普通视频:true/);
     assert.match(enhancedText, /测速间隔:24/);
     assert.match(enhancedText, /Bilibili Enhance JSON/);
+    assert.match(enhancedText, /Bilibili Story Safe Pipeline/);
+    assert.match(enhancedText, /"enhanceStory":true/);
 
     const cdnResponse = await request(
       "/module.sgmodule?variant=cdn&cdn=auto&routingPolicy=DIRECT&pcdnPolicy=REJECT&networkProfile=cellular&probeMode=off&resetToken=reset_20260728&intervalHours=12&switchThreshold=20&debug=false",
@@ -113,6 +116,8 @@ test("catalog and custom module routes use only fixed repository sources", async
     assert.match(cdnText, /网络档案:cellular/);
     assert.match(cdnText, /测速方式:off/);
     assert.match(cdnText, /重置令牌:reset_20260728/);
+    assert.match(cdnText, /Bilibili Story Safe Pipeline/);
+    assert.match(cdnText, /"enhanceStory":false/);
     assert.doesNotMatch(cdnText, /Bilibili Enhance/);
 
     const reviewedFixedResponse = await request(

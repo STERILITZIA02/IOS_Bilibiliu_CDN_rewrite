@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented here.
 
+## [3.5.0] - 2026-07-30
+
+- Route `/x/v2/feed/index/story` and `/story/cart` through one generated
+  filter-then-CDN runtime so two Shadowrocket response scripts cannot race or
+  overwrite one another. Strict Story filtering now requires a usable
+  `vertical_av` identity and rejects commercial badges or deleted-state AV
+  shells.
+- Add exact cache protection and conservative known-container filtering for
+  the asynchronous Story cart response. Unknown payloads remain untouched.
+- Extend JSON search filtering and gRPC coverage from `SearchAll` to
+  `SearchByType`; remove confirmed banner, game, purchase, CM, top-game, and
+  nested `CardBusinessBadge` variants while preserving unknown wire bytes.
+- Extend the exact live `getInfoByRoom` adapter to filter delayed commercial
+  items only inside reviewed UI containers. Normal interaction widgets,
+  playback, account, order, and payment data remain outside the matcher.
+- Reset CDN learning to `safeAuto.v5` and bind every selection to the exact
+  query-free media-object path in addition to media kind, representation,
+  codec, network profile, family, and candidate set. A host learned for one
+  video can no longer be applied to a different video with similar metadata.
+- Preserve nonblocking first play, server-provided complete signed URLs,
+  audio/video and alias-lane isolation, paired 256 KiB hash/length validation,
+  live fail-open behavior, fixed-mode safety, and all existing UI switches.
+- Add generated `bilibili-story.js` and smaller CDN-only
+  `bilibili-story-cdn.js` release artifacts. Add regressions for disguised
+  Story AVs, Story cart reinjection, JSON/gRPC search variants, delayed live
+  popups, single-pipeline execution, CDN-only purity, and cross-object CDN
+  isolation.
+
 ## [3.4.0] - 2026-07-29
 
 - Target Bilibili iOS 9.5.0 (`build=90500100`) without changing the existing

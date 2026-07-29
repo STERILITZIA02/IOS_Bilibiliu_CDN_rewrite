@@ -1,6 +1,6 @@
 # Bilibili Shadowrocket 增强升级：上游调研基线
 
-> 调研日期：2026-07-29
+> 调研日期：2026-07-30
 > 用途：记录 v3 升级采用的来源、许可证和安全边界。本文不是功能完成声明。
 
 ## 调研结论
@@ -23,7 +23,8 @@
 
 | 项目 | 调研提交 | 许可证 | 本项目采用方式 |
 | --- | --- | --- | --- |
-| [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock) | `43b07841fa55ba77e29d478cab0be44c8b49a3c2`（2026-07-26 读取 `main`） | Apache-2.0 | 参考当前 Feed/Story/View/TFInfo/ViewUnite 接口覆盖范围与高置信广告特征，重新实现 |
+| [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock) | `43b07841fa55ba77e29d478cab0be44c8b49a3c2`（2026-07-30 读取 `main`） | Apache-2.0 | 参考当前 Feed/Story/View/TFInfo/ViewUnite 接口覆盖范围与高置信广告特征，重新实现 |
+| [SK-415/bilireq](https://github.com/SK-415/bilireq) | `4151478d2765eebe8d91280685b462bdab56e9ea` | 仓库声明为准 | 核对当前公开 `SearchAll`/`SearchByType` reply 重复项与搜索卡 oneof/商业角标字段；不打包 schema |
 | [BiliUniverse/Enhanced](https://github.com/BiliUniverse/Enhanced) | `6fcb1be0fb6d` | Apache-2.0 | 参考导航字段含义；不采用其覆盖服务端数组的方式 |
 | [BiliUniverse/Redirect](https://github.com/BiliUniverse/Redirect) | `7e4462847909` | Apache-2.0 | 参考 CDN 家族、海外内容和 MCDN 兼容边界 |
 | [BiliUniverse/Universe](https://github.com/BiliUniverse/Universe) | `913bb91c5f4c` | Apache-2.0 | 交叉核对模块结构与许可证 |
@@ -62,6 +63,10 @@ PCDN 网络规则只采用 Maasea 模块中可交叉核实的窄匹配
   `vertical_pgc` 是当前维护规则标记的大会员专享卡。
 - Web 推荐：`goto === "ad"`。
 - 直播间：`activity_banner_info`，以及业务编号明确为广告位的外部标签。
+- 搜索：`SearchAll.item(4)` 与 `SearchByType.items(6)` 中的
+  `banner(9)`、`game(11)`、`purchase(12)`、`cm(25)`、`top_game(29)`；
+  `special(7)`、`pedia(26)`、`pedia_inline(31)`、`av(37)` 只有在各自明确
+  `CardBusinessBadge` 字段存在时才作为商业卡删除。
 
 仅名字类似、仅 URL 含模糊关键词或只命中单一弱特征时不删除。
 
@@ -88,6 +93,26 @@ BiliUniverse/ADBlock 固定提交
 仍不足则保留实际数量，不伪造、不跨历史响应复用，也不修改
 `auto_refresh_time`。标题文本不参与类型判定，避免把标题含“广告”“纪录片”的
 普通 UP 视频误删。
+
+### Story 购物响应、直播和会员购边界
+
+9.5.0 设备日志确认 `/x/v2/feed/index/story/cart` 会在 Story 主响应之后异步
+请求，因此仅过滤 `/story` 不能阻止购物卡重新注入。v3.5.0 精确匹配该路径，
+但由于公开 schema 与脱敏正文 fixture 不足，只删除已知 `ad/cm/creative/
+promotion` 载荷，以及 `items/cards/list/modules/banners/popups/widgets` 已知
+UI 容器内具有商业标记、商业动作或 mall URI 的项目；未知对象和未知容器原样
+保留。
+
+BiliUniverse/ADBlock 当前实现确认直播 `getInfoByRoom` 的
+`activity_banner_info`、`shopping_info.is_show` 和
+`new_tab_info.outer_list.biz_id=33`。本项目在这些字段之外只进入同一响应的上述
+已知 UI 容器，普通互动组件不删除。
+
+会员购当前 `mall.bilibili.com/neul-next/index.html` 是动态加载的微前端。现有
+测试日志没有捕获会员购内部弹窗的精确 API/响应 fixture，公开启动页也不足以证明
+哪个资源只承载广告。因此 v3.5.0 不把整个会员购域加入 MITM，也不注入网页脚本，
+避免误伤登录、订单、支付和已购权益；会员购内部未知接口继续安全透传。若仍出现
+弹窗，需要一份只覆盖“进入会员购并出现弹窗”的脱敏日志后才能增加精确 matcher。
 
 ### 首页导航
 

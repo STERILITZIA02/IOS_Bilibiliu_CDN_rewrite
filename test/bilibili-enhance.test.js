@@ -483,18 +483,39 @@ test("strict Story filtering keeps only ordinary vertical videos", () => {
       code: 0,
       data: {
         items: [
-          { card_goto: "vertical_av", title: "正常视频" },
+          {
+            bvid: "BV1normal",
+            card_goto: "vertical_av",
+            title: "正常视频",
+            uri: "bilibili://video/BV1normal",
+          },
           { card_goto: "vertical_ad_picture" },
           { card_goto: "vertical_pgc", title: "正常番剧内容" },
           { card_goto: "future_type", ad_info: { source: "cm" } },
           { card_goto: "future_type", title: "未知结构" },
+          {
+            bvid: "BV1badge",
+            card_business_badge: { text: "AD" },
+            card_goto: "vertical_av",
+            uri: "bilibili://video/BV1badge",
+          },
+          {
+            card_goto: "vertical_av",
+            title: "missing identity",
+          },
+          {
+            bvid: "BV1deleted",
+            card_goto: "vertical_av",
+            state: -2,
+            uri: "bilibili://video/BV1deleted",
+          },
         ],
       },
     },
   );
   const output = JSON.parse(result.body);
 
-  assert.equal(result.changed, 4);
+  assert.equal(result.changed, 7);
   assert.deepEqual(
     output.data.items.map((item) => item.title),
     ["正常视频"],
@@ -506,7 +527,12 @@ test("strict Story filtering keeps only ordinary vertical videos", () => {
       code: 0,
       data: {
         items: [
-          { card_goto: "vertical_av", title: "正常视频" },
+          {
+            bvid: "BV1normal",
+            card_goto: "vertical_av",
+            title: "正常视频",
+            uri: "bilibili://video/BV1normal",
+          },
           { card_goto: "vertical_ad_picture" },
           { card_goto: "vertical_pgc", title: "大会员番剧" },
           { card_goto: "future_type", title: "未知结构" },
@@ -518,6 +544,66 @@ test("strict Story filtering keeps only ordinary vertical videos", () => {
   assert.deepEqual(
     JSON.parse(relaxed.body).data.items.map((item) => item.title),
     ["正常视频", "未知结构"],
+  );
+});
+
+test("Story cart removes only verified commercial payloads and containers", () => {
+  const fixture = {
+    code: 0,
+    data: {
+      ad_info: { creative_id: 1 },
+      cards: [
+        {
+          card_business_badge: { text: "AD" },
+          title: "commercial",
+        },
+        {
+          title: "normal",
+          uri: "bilibili://video/BV1normal",
+        },
+      ],
+      popups: [
+        {
+          title: "mall",
+          uri: "bilibili://mall/home",
+        },
+        {
+          title: "normal interaction",
+          uri: "bilibili://live/123",
+        },
+      ],
+      unknown_payload: {
+        ad_info: { creative_id: 99 },
+        account_id: 7,
+      },
+    },
+  };
+  const result = transform(
+    `${appRoot}/x/v2/feed/index/story/cart`,
+    fixture,
+  );
+  const data = JSON.parse(result.body).data;
+
+  assert.equal("ad_info" in data, false);
+  assert.deepEqual(data.cards, [
+    {
+      title: "normal",
+      uri: "bilibili://video/BV1normal",
+    },
+  ]);
+  assert.deepEqual(data.popups, [
+    {
+      title: "normal interaction",
+      uri: "bilibili://live/123",
+    },
+  ]);
+  assert.deepEqual(data.unknown_payload, fixture.data.unknown_payload);
+  assert.equal(
+    transform(
+      `${appRoot}/x/v2/feed/index/story/cart`,
+      JSON.parse(result.body),
+    ).changed,
+    0,
   );
 });
 
@@ -599,6 +685,45 @@ test("search promotion and advertisement switches remain independent", () => {
     JSON.parse(adsOnly.body).data.map((item) => item.type),
     ["trending", "history"],
   );
+});
+
+test("JSON video search removes disguised commercial result variants", () => {
+  const result = transform(
+    `${appRoot}/x/v2/search/type?type=7&keyword=test`,
+    {
+      code: 0,
+      data: {
+        items: [
+          {
+            bvid: "BV1normal",
+            goto: "av",
+            title: "normal",
+            uri: "bilibili://video/BV1normal",
+          },
+          { game: { id: 1 }, title: "game" },
+          { purchase: { id: 2 }, title: "purchase" },
+          {
+            bvid: "BV1shell",
+            card_business_badge: { text: "AD" },
+            goto: "av",
+            uri: "bilibili://video/BV1shell",
+          },
+          {
+            title: "mall promotion",
+            uri: "bilibili://mall/home",
+          },
+        ],
+        unknown: [{ ad_info: { creative_id: 3 } }],
+      },
+    },
+  );
+  const data = JSON.parse(result.body).data;
+
+  assert.deepEqual(
+    data.items.map((item) => item.title),
+    ["normal"],
+  );
+  assert.deepEqual(data.unknown, [{ ad_info: { creative_id: 3 } }]);
 });
 
 test("removes only the requested navigation entries and compacts positions", () => {
@@ -1456,6 +1581,16 @@ test("handles view, reply, PGC, web feed, and live ads conservatively", () => {
           ],
         },
         room_info: { room_id: 1 },
+        popups: [
+          {
+            card_business_badge: { text: "AD" },
+            title: "promotion",
+          },
+          {
+            title: "normal interaction",
+            uri: "bilibili://live/1",
+          },
+        ],
       },
     },
   );
@@ -1466,6 +1601,12 @@ test("handles view, reply, PGC, web feed, and live ads conservatively", () => {
     { biz_id: 8, title: "正常互动" },
   ]);
   assert.deepEqual(liveData.room_info, { room_id: 1 });
+  assert.deepEqual(liveData.popups, [
+    {
+      title: "normal interaction",
+      uri: "bilibili://live/1",
+    },
+  ]);
 
   const liveShoppingDisabled = transform(
     "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByRoom",
@@ -2502,6 +2643,34 @@ test("gRPC dynamic, search, and reply filters use endpoint-specific fields", () 
       4,
       bytes(stringField(1, "game-search"), messageField(11, new Uint8Array())),
     ),
+    messageField(
+      4,
+      bytes(
+        stringField(1, "banner-search"),
+        messageField(9, new Uint8Array()),
+      ),
+    ),
+    messageField(
+      4,
+      bytes(
+        stringField(1, "purchase-search"),
+        messageField(12, new Uint8Array()),
+      ),
+    ),
+    messageField(
+      4,
+      bytes(
+        stringField(1, "top-game-search"),
+        messageField(29, new Uint8Array()),
+      ),
+    ),
+    messageField(
+      4,
+      bytes(
+        stringField(1, "video-business-badge"),
+        messageField(37, messageField(7, stringField(1, "AD"))),
+      ),
+    ),
   );
   const search = enhance.transformGrpcBody(
     grpcFrame(searchReply),
@@ -2514,6 +2683,45 @@ test("gRPC dynamic, search, and reply filters use endpoint-specific fields", () 
   assert.match(searchText, /normal-search/);
   assert.doesNotMatch(searchText, /cm-search/);
   assert.doesNotMatch(searchText, /game-search/);
+  assert.doesNotMatch(searchText, /banner-search/);
+  assert.doesNotMatch(searchText, /purchase-search/);
+  assert.doesNotMatch(searchText, /top-game-search/);
+  assert.doesNotMatch(searchText, /video-business-badge/);
+
+  const typedReply = bytes(
+    messageField(
+      6,
+      bytes(
+        stringField(1, "typed-normal"),
+        messageField(37, new Uint8Array()),
+      ),
+    ),
+    messageField(
+      6,
+      bytes(
+        stringField(1, "typed-special-business"),
+        messageField(7, messageField(4, stringField(1, "AD"))),
+      ),
+    ),
+    messageField(
+      6,
+      bytes(
+        stringField(1, "typed-purchase"),
+        messageField(12, new Uint8Array()),
+      ),
+    ),
+  );
+  const typed = enhance.transformGrpcBody(
+    grpcFrame(typedReply),
+    "https://grpc.biliapi.net/bilibili.polymer.app.search.v1.Search/SearchByType",
+    enhance.parseArgument(""),
+  );
+  const typedText = Buffer.from(grpcPayload(typed.body)).toString(
+    "latin1",
+  );
+  assert.match(typedText, /typed-normal/);
+  assert.doesNotMatch(typedText, /typed-special-business/);
+  assert.doesNotMatch(typedText, /typed-purchase/);
 
   const normalContent = stringField(1, "normal pinned reply");
   const commercialContent = stringField(

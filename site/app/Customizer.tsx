@@ -469,8 +469,8 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.4.0 已覆盖 Bilibili iOS
-              9.5.0 的后台恢复、字段级暂停/结束页广告与首页六条补齐。
+              使用本站同版本的已审核快照。Enhanced 3.5.0 已覆盖 Bilibili iOS
+              9.5.0 的 Story/搜索商业卡、直播购物弹层、后台广告恢复与首页六条补齐。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
@@ -516,7 +516,7 @@ export function Customizer({
                 </strong>
                 <small>
                   {variant === "enhanced"
-                    ? "CDN、9.5.0 暂停广告、六条 AV 与界面过滤"
+                    ? "CDN、9.5.0 Story/搜索广告、六条 AV 与界面过滤"
                     : "仅 CDN 与流量分流"}
                 </small>
               </div>
@@ -593,7 +593,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>CDN + Enhanced</strong>
-                    <small>推荐 · 9.5.0 后台/暂停去广告、六条 AV 与 CDN</small>
+                    <small>推荐 · 9.5.0 Story/搜索/后台去广告、六条 AV 与 CDN</small>
                   </span>
                   <span className="radio-dot">
                     {variant === "enhanced" && <span />}
@@ -837,7 +837,7 @@ export function Customizer({
                       <option value="off">关闭探测，仅使用缓存</option>
                     </select>
                     <small>
-                      升级后若要立即建立 v4 缓存，可临时选择此项并在至少间隔
+                      升级后若要立即建立 v5 对象级缓存，可临时选择此项并在至少间隔
                       2 分钟的两次播放中完成验证，再改回“不阻塞首播”。已选线路
                       最多每 30 分钟非阻塞健康复核一次。
                     </small>

@@ -1,3 +1,5 @@
+"use strict";
+this.__BILIFLOW_COMBINED__ = true;
 /*
  * Bilibili CDN Switcher v5 for Shadowrocket
  *
@@ -4017,5 +4019,107 @@
     root.__BILIFLOW_COMBINED__ !== true
   ) {
     runShadowrocket();
+  }
+})(this);
+
+(function (root) {
+  "use strict";
+
+  function noStoreHeaders(headers) {
+    var output = {};
+    var keys =
+      headers && typeof headers === "object"
+        ? Object.keys(headers)
+        : [];
+    var index;
+    var key;
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (
+        !/^(?:age|cache-control|content-length|etag|expires|last-modified|pragma)$/i.test(
+          key
+        )
+      ) {
+        output[key] = headers[key];
+      }
+    }
+    output["Cache-Control"] = "no-store, no-cache, must-revalidate";
+    output.Pragma = "no-cache";
+    output.Expires = "0";
+    return output;
+  }
+
+  function complete(body, changed) {
+    var headers =
+      typeof $response !== "undefined" && $response
+        ? $response.headers
+        : null;
+    var result = { headers: noStoreHeaders(headers) };
+    if (changed > 0 && typeof body === "string") {
+      result.body = body;
+    }
+    $done(result);
+  }
+
+  function run() {
+    var rawArgument =
+      typeof $argument === "string" ? $argument : "";
+    var original =
+      typeof $response !== "undefined" &&
+      $response &&
+      typeof $response.body === "string"
+        ? $response.body
+        : "";
+    var config = root.BiliCdnSwitcher.parseArgument(rawArgument);
+    var fixedResult;
+    if (!config.valid || (!config.auto && !config.cdnHost)) {
+      complete(original, 0);
+      return;
+    }
+    config.grpcAdapter = "";
+    if (config.auto) {
+      root.BiliCdnSwitcher.processSafeAutoResponse(
+        original,
+        false,
+        config,
+        root.BiliCdnSwitcher.createShadowrocketServices(),
+        function (cdnResult) {
+          var changed =
+            cdnResult && cdnResult.valid
+              ? Number(cdnResult.changed || 0)
+              : 0;
+          complete(
+            changed > 0 ? cdnResult.body : original,
+            changed
+          );
+        }
+      );
+      return;
+    }
+    fixedResult = root.BiliCdnSwitcher.transformJsonText(
+      original,
+      config
+    );
+    complete(
+      fixedResult.valid && fixedResult.changed > 0
+        ? fixedResult.body
+        : original,
+      fixedResult.valid
+        ? Number(fixedResult.changed || 0)
+        : 0
+    );
+  }
+
+  try {
+    run();
+  } catch (error) {
+    complete(
+      typeof $response !== "undefined" &&
+      $response &&
+      typeof $response.body === "string"
+        ? $response.body
+        : "",
+      0
+    );
   }
 })(this);

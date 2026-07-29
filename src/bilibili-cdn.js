@@ -1,5 +1,5 @@
 /*
- * Bilibili CDN Switcher v4 for Shadowrocket
+ * Bilibili CDN Switcher v5 for Shadowrocket
  *
  * Default auto mode is deliberately conservative:
  * - it only considers the primary and backup URLs returned for one media item;
@@ -17,7 +17,7 @@
 
   var NAME = "BiliCDN";
   var DEFAULT_CDN = "upos-sz-mirrorali.bilivideo.com";
-  var AUTO_STATE_KEY = "BiliCDN.safeAuto.v4";
+  var AUTO_STATE_KEY = "BiliCDN.safeAuto.v5";
   var DEFAULT_AUTO_INTERVAL_HOURS = 12;
   var DEFAULT_SWITCH_THRESHOLD = 20;
   var RUNTIME_OPTION_LIMITS = {
@@ -1704,16 +1704,20 @@
 
     sortedIds = candidateIds.slice().sort();
     candidateSetHash = stableHash("s", sortedIds.join("|"));
-    reusableRepresentation =
-      (kind === "video" || kind === "audio") && Boolean(metadata);
+    /*
+     * A representation signature is not a media-object identity. Reusing a
+     * selected host across two videos that happen to share quality/codec can
+     * route the next signed object through a candidate that was never
+     * validated for it. Always bind learned state to the exact query-free
+     * media path while still including representation metadata.
+     */
+    reusableRepresentation = false;
     resourceMaterial = [
       format,
       kind || "unknown",
       primaryFamily,
-      reusableRepresentation
-        ? "representation"
-        : "object:" + primaryParsed.path,
-      reusableRepresentation ? metadata : "",
+      "object:" + primaryParsed.path,
+      metadata || "",
       candidateSetHash
     ].join("\u0000");
 
@@ -1970,7 +1974,7 @@
       lockTokens: {},
       locks: {},
       resetToken: "",
-      version: 4
+      version: 5
     };
   }
 
@@ -2165,7 +2169,7 @@
     } catch (error) {
       parsed = null;
     }
-    if (!isObject(parsed) || parsed.version !== 4) {
+    if (!isObject(parsed) || parsed.version !== 5) {
       return state;
     }
 
@@ -3972,6 +3976,7 @@
     candidateIdForUrl: candidateIdForUrl,
     concatBytes: concatBytes,
     createEmptyAutoState: createEmptyAutoState,
+    createShadowrocketServices: createShadowrocketServices,
     descriptorResourceKey: descriptorResourceKey,
     decompressGrpcFrames: decompressGrpcFrames,
     encodeVarint: encodeVarint,
@@ -4008,7 +4013,8 @@
 
   if (
     typeof $done === "function" &&
-    typeof $response !== "undefined"
+    typeof $response !== "undefined" &&
+    root.__BILIFLOW_COMBINED__ !== true
   ) {
     runShadowrocket();
   }

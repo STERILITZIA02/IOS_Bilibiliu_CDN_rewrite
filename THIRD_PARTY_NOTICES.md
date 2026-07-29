@@ -49,6 +49,15 @@ their source code is not incorporated into this repository.
 - Use: advertisement response features were cross-checked; filtering code and
   rule collections were not copied.
 
+## SK-415/bilireq
+
+- Repository: https://github.com/SK-415/bilireq
+- Reviewed commit: `4151478d2765eebe8d91280685b462bdab56e9ea`
+- License: repository declaration applies.
+- Use: public `SearchAll`/`SearchByType` reply and search-card field numbers
+  were inspected only as interoperability facts. No `.proto` schema,
+  generated implementation, comments, or fixture data is incorporated.
+
 ## bilibili-API-collect public mirror
 
 - Repository: https://gitea.s1f.ren/shiran/bilibili-API-collect

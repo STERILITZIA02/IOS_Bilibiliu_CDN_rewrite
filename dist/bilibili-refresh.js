@@ -58,6 +58,9 @@
       if (parsed.path === "/x/v2/feed/index/story") {
         return "feed-story";
       }
+      if (parsed.path === "/x/v2/feed/index/story/cart") {
+        return "feed-story-cart";
+      }
       if (parsed.path === "/x/v2/view") {
         return "view-json";
       }

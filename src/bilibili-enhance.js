@@ -506,6 +506,9 @@
       if (path === "/x/v2/feed/index/story") {
         return "story";
       }
+      if (path === "/x/v2/feed/index/story/cart") {
+        return "story-cart";
+      }
       if (path === "/x/v2/search/square") {
         return "search-square";
       }
@@ -621,7 +624,9 @@
       case "/bilibili.app.dynamic.v2.Dynamic/DynAll":
         return "grpc-dynamic";
       case "/bilibili.polymer.app.search.v1.Search/SearchAll":
-        return "grpc-search";
+        return "grpc-search-all";
+      case "/bilibili.polymer.app.search.v1.Search/SearchByType":
+        return "grpc-search-by-type";
       case "/bilibili.main.community.reply.v1.Reply/MainList":
         return "grpc-reply";
       default:
@@ -813,6 +818,16 @@
       "commercialId",
       "commercial_mark",
       "commercialMark",
+      "ad_data",
+      "adData",
+      "ad_type",
+      "adType",
+      "cm_info",
+      "cmInfo",
+      "card_business_badge",
+      "cardBusinessBadge",
+      "commercial_button",
+      "commercialButton",
       "business_info",
       "businessInfo"
     ];
@@ -902,12 +917,20 @@
   function hasNestedCommercialEvidence(item, depth) {
     var keys = [
       "ad",
+      "ad_data",
+      "adData",
       "ad_info",
       "adInfo",
       "cm",
+      "cm_info",
+      "cmInfo",
       "commercial",
+      "commercial_button",
+      "commercialButton",
       "commercial_info",
       "commercialInfo",
+      "card_business_badge",
+      "cardBusinessBadge",
       "creative",
       "creative_info",
       "creativeInfo",
@@ -930,9 +953,15 @@
       }
       if (
         keys[index] === "ad" ||
+        keys[index] === "ad_data" ||
+        keys[index] === "adData" ||
         keys[index] === "ad_info" ||
         keys[index] === "adInfo" ||
-        keys[index] === "cm"
+        keys[index] === "cm" ||
+        keys[index] === "cm_info" ||
+        keys[index] === "cmInfo" ||
+        keys[index] === "card_business_badge" ||
+        keys[index] === "cardBusinessBadge"
       ) {
         return true;
       }
@@ -1372,6 +1401,59 @@
     };
   }
 
+  function hasUnavailableVideoState(item) {
+    var nodes;
+    var index;
+    var node;
+    var state;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    if (
+      item.is_deleted === true ||
+      item.is_deleted === 1 ||
+      item.deleted === true ||
+      item.deleted === 1 ||
+      item.is_available === false ||
+      item.is_available === 0 ||
+      item.available === false ||
+      item.available === 0
+    ) {
+      return true;
+    }
+    nodes = [
+      item,
+      item.archive,
+      item.basic,
+      item.video,
+      item.player_args,
+      item.playerArgs
+    ];
+    for (index = 0; index < nodes.length; index += 1) {
+      node = nodes[index];
+      if (!isPlainObject(node) || !hasOwn.call(node, "state")) {
+        continue;
+      }
+      state = Number(node.state);
+      if (Number.isFinite(state) && state < 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isPlainStoryVideo(item) {
+    return Boolean(
+      isPlainObject(item) &&
+      String(item.card_goto || "").toLowerCase() === "vertical_av" &&
+      !hasUnavailableVideoState(item) &&
+      !isHighConfidencePromotion(item) &&
+      !hasCommercialAction(item) &&
+      isPlainVideoRecommendation(item) &&
+      hasOrdinaryVideoIdentity(item)
+    );
+  }
+
   function handleStory(body, config) {
     if (!isPlainObject(body.data)) {
       return 0;
@@ -1385,10 +1467,135 @@
         includes(STORY_AD_TYPES, String(item.card_goto || "")) ||
         (
           config.homeFeedVideoOnly !== false &&
-          String(item.card_goto || "") !== "vertical_av"
+          !isPlainStoryVideo(item)
         )
       );
     });
+  }
+
+  function shouldRemoveCommercialUiItem(item, includeCommercialLinks) {
+    return Boolean(
+      isPlainObject(item) &&
+      (
+        isHighConfidencePromotion(item) ||
+        (
+          includeCommercialLinks &&
+          isCommercialUri(objectLink(item))
+        )
+      )
+    );
+  }
+
+  function filterKnownCommercialUiContainers(
+    node,
+    depth,
+    includeCommercialLinks
+  ) {
+    var containerKeys = {
+      banners: true,
+      cards: true,
+      items: true,
+      list: true,
+      modules: true,
+      popups: true,
+      widgets: true
+    };
+    var keys;
+    var index;
+    var key;
+    var value;
+    var changes = 0;
+    if (!isPlainObject(node) || depth > 6) {
+      return 0;
+    }
+    keys = Object.keys(node);
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (!containerKeys[key]) {
+        continue;
+      }
+      value = node[key];
+      if (Array.isArray(value)) {
+        changes += replaceFilteredArray(node, key, function (item) {
+          return shouldRemoveCommercialUiItem(
+            item,
+            includeCommercialLinks
+          );
+        });
+        node[key].forEach(function (item) {
+          if (isPlainObject(item)) {
+            changes += filterKnownCommercialUiContainers(
+              item,
+              depth + 1,
+              includeCommercialLinks
+            );
+          }
+        });
+      } else if (isPlainObject(value)) {
+        if (
+          shouldRemoveCommercialUiItem(
+            value,
+            includeCommercialLinks
+          )
+        ) {
+          delete node[key];
+          changes += 1;
+        } else {
+          changes += filterKnownCommercialUiContainers(
+            value,
+            depth + 1,
+            includeCommercialLinks
+          );
+        }
+      }
+    }
+    return changes;
+  }
+
+  function deleteKnownCommercialPayloads(node) {
+    var keys = [
+      "ad",
+      "ad_data",
+      "adData",
+      "ad_info",
+      "adInfo",
+      "cm",
+      "cm_info",
+      "cmInfo",
+      "commercial",
+      "commercial_info",
+      "commercialInfo",
+      "creative",
+      "creative_info",
+      "creativeInfo",
+      "promotion"
+    ];
+    var index;
+    var changes = 0;
+    if (!isPlainObject(node)) {
+      return 0;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      if (
+        hasOwn.call(node, keys[index]) &&
+        hasMarkerValue(node[keys[index]])
+      ) {
+        delete node[keys[index]];
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
+  function handleStoryCart(body) {
+    var data = isPlainObject(body.data) ? body.data : null;
+    var changes = 0;
+    if (!data) {
+      return 0;
+    }
+    changes += deleteKnownCommercialPayloads(data);
+    changes += filterKnownCommercialUiContainers(data, 0, true);
+    return changes;
   }
 
   function handleSearchSquare(body, config) {
@@ -1412,11 +1619,54 @@
     return changes;
   }
 
+  function isSearchPromotion(item) {
+    var directKeys = [
+      "ad",
+      "ad_info",
+      "adInfo",
+      "banner",
+      "cm",
+      "game",
+      "purchase",
+      "promotion",
+      "top_game",
+      "topGame"
+    ];
+    var marker;
+    var index;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    if (isHighConfidencePromotion(item)) {
+      return true;
+    }
+    for (index = 0; index < directKeys.length; index += 1) {
+      if (
+        hasOwn.call(item, directKeys[index]) &&
+        hasMarkerValue(item[directKeys[index]])
+      ) {
+        return true;
+      }
+    }
+    marker = recommendationMarker(
+      item,
+      ["goto", "card_goto", "type", "card_type", "card_type_en"]
+    );
+    return (
+      /(?:^|\|)(?:ad|banner|cm|commercial|game_ad|purchase|promotion|top_game)(?:\||$)/i.test(
+        marker
+      ) ||
+      hasMarkerValue(item.card_business_badge) ||
+      hasMarkerValue(item.cardBusinessBadge) ||
+      isCommercialUri(objectLink(item))
+    );
+  }
+
   function filterSearchArray(parent, key) {
     return replaceFilteredArray(
       parent,
       key,
-      isHighConfidencePromotion
+      isSearchPromotion
     );
   }
 
@@ -1427,7 +1677,7 @@
       return replaceFilteredArray(
         body,
         "data",
-        isHighConfidencePromotion
+        isSearchPromotion
       );
     }
     if (!isPlainObject(data)) {
@@ -2194,15 +2444,15 @@
 
     explicitAv =
       includes(
-        ["av", "video"],
+        ["av", "video", "vertical_av"],
         String(item.goto || "").toLowerCase()
       ) ||
       includes(
-        ["av", "video"],
+        ["av", "video", "vertical_av"],
         String(item.card_goto || "").toLowerCase()
       ) ||
       includes(
-        ["av", "video"],
+        ["av", "video", "vertical_av"],
         String(item.type || "").toLowerCase()
       );
     playerType =
@@ -2563,6 +2813,13 @@
         }
       );
     }
+    if (config.ads !== false || config.liveShopping) {
+      changes += filterKnownCommercialUiContainers(
+        data,
+        0,
+        Boolean(config.liveShopping)
+      );
+    }
     return changes;
   }
 
@@ -2614,6 +2871,8 @@
         return handleFeed(body, config);
       case "story":
         return handleStory(body, config);
+      case "story-cart":
+        return handleStoryCart(body);
       case "search-results":
         return handleSearchResults(body);
       case "view":
@@ -3928,15 +4187,34 @@
     });
   }
 
-  function isSearchAd(input) {
+  function hasNestedProtoMessageField(input, outerNumber, innerNumber) {
+    var outer = findProtoField(input, outerNumber, 2);
     return Boolean(
-      findProtoField(input, 25, 2) ||
-      findProtoField(input, 11, 2)
+      outer &&
+      findProtoField(protoPayload(input, outer), innerNumber, 2)
     );
   }
 
-  function transformSearch(input) {
-    return filterRepeatedMessage(input, 4, isSearchAd);
+  function isSearchAd(input) {
+    return Boolean(
+      findProtoField(input, 9, 2) ||
+      findProtoField(input, 11, 2) ||
+      findProtoField(input, 12, 2) ||
+      findProtoField(input, 25, 2) ||
+      findProtoField(input, 29, 2) ||
+      hasNestedProtoMessageField(input, 7, 4) ||
+      hasNestedProtoMessageField(input, 26, 7) ||
+      hasNestedProtoMessageField(input, 31, 3) ||
+      hasNestedProtoMessageField(input, 37, 7)
+    );
+  }
+
+  function transformSearch(input, itemFieldNumber) {
+    return filterRepeatedMessage(
+      input,
+      itemFieldNumber,
+      isSearchAd
+    );
   }
 
   function isCommercialTopReply(input) {
@@ -4029,8 +4307,10 @@
         return transformPopular(input, config);
       case "grpc-dynamic":
         return transformDynamic(input);
-      case "grpc-search":
-        return transformSearch(input);
+      case "grpc-search-all":
+        return transformSearch(input, 4);
+      case "grpc-search-by-type":
+        return transformSearch(input, 6);
       case "grpc-reply":
         return transformReply(input);
       default:
@@ -4539,6 +4819,7 @@
         "splash-event-list2",
         "splash-brand-list",
         "story",
+        "story-cart",
         "view",
         "vip-materials",
         "vip-material-report"
@@ -4954,7 +5235,8 @@
 
   if (
     typeof $done === "function" &&
-    typeof $response !== "undefined"
+    typeof $response !== "undefined" &&
+    root.__BILIFLOW_COMBINED__ !== true
   ) {
     runShadowrocket();
   }

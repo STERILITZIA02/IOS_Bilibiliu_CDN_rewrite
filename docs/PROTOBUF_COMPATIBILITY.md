@@ -1,6 +1,6 @@
 # Protobuf/gRPC 兼容性记录
 
-> 字段核对日期：2026-07-29
+> 字段核对日期：2026-07-30
 > 过滤器实现：`src/bilibili-enhance.js`
 >
 > 播放地址实现：`src/bilibili-cdn.js`
@@ -36,7 +36,8 @@
 | `bilibili.app.resource.v1.Module/List` | 公开 schema 确认 `ListReply.env(1)`、`pools(2)`、`list_version(3)`；该资源更新入口仅做结构诊断，永不清空、拒绝或阻断 |
 | `bilibili.app.show.v1.Popular/Index` | 重复 `Card(1)` 最多保留前 6 个明确普通 AV；仅接受 `smallCoverV5(1)`/`largeCoverV1(2)`，拒绝 `rcmdOneItem(10)`、`smallCoverV5Ad(11)`、`ad_info(12)` 和非 AV/无视频身份卡 |
 | `bilibili.app.dynamic.v2.Dynamic/DynAll` | 仅移除 `DynamicItem.card_type == 15 (ad)` |
-| `bilibili.polymer.app.search.v1.Search/SearchAll` | 仅移除 oneof 为 `game(11)` 或 `cm(25)` 的搜索卡 |
+| `bilibili.polymer.app.search.v1.Search/SearchAll` | 在重复 `item(4)` 中移除商业 oneof `banner(9)`、`game(11)`、`purchase(12)`、`cm(25)`、`top_game(29)`；另仅在 `special(7).card_business_badge(4)`、`pedia_card(26).card_business_badge(7)`、`pedia_card_inline(31).card_business_badge(3)` 或 `av(37).card_business_badge(7)` 存在时移除该卡。其他 oneof 与未知字段保留 |
+| `bilibili.polymer.app.search.v1.Search/SearchByType` | 对重复 `items(6)` 使用与 `SearchAll` 相同的商业 oneof/商业角标判据；普通分类结果与未知字段保留 |
 | `bilibili.main.community.reply.v1.Reply/MainList` | 删除顶层 `cm(11)`；仅移除正文或 URL map 明确含 `b23.tv/cm`、`b23.tv/mall` 的置顶评论 |
 
 ## 播放地址互操作字段
@@ -56,13 +57,13 @@ app PlayURL、PlayerUnite、PGC v1 与 Cheese/PUGV 使用已核对的 reply fiel
 | 结构 | 主 URL | 备用 URL | 隔离元数据 |
 | --- | --- | --- | --- |
 | `DashVideo` | `base_url(1)` | `backup_url(2)` | 缺少已确认表示 ID，因此按精确对象路径隔离 |
-| `DashItem` | `base_url(2)` | `backup_url(3)` | `id(1)` 作为稳定表示身份；音频/视频分别复用匿名主机评分 |
+| `DashItem` | `base_url(2)` | `backup_url(3)` | `id(1)` 参与表示隔离；音频/视频及每个精确对象路径分别缓存 |
 | `ResponseUrl` | `url(4)` | `backup_url(5)` | 分段 URL 始终按精确对象路径隔离 |
 
 `DashItem.id >= 30000` 作为音频表示，常规较小清晰度 ID 作为视频表示；无把握
 的 ID 使用独立 `unknown` 类型，仍不会与已识别音频/视频共享缓存。稳定表示 ID、
-候选集合、网络档案和媒体类型共同参与固定长度缓存摘要；无法确认表示身份时还会
-加入精确资源路径。
+候选集合、网络档案、媒体类型和每个精确资源路径共同参与固定长度缓存摘要；不会
+因两个视频的表示 ID 相同而跨对象复用选择。
 
 自动模式只提升该消息自己的当前备用完整 URL，并把原始主 URL 放入对应备用
 字段；不会把一个 Protobuf 消息的候选用于另一个消息。

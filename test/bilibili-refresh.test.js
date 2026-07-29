@@ -12,6 +12,7 @@ test("cache guard is exact to reviewed volatile Bilibili metadata", () => {
   for (const url of [
     "https://app.bilibili.com/x/v2/feed/index?device=phone",
     "https://app.biliapi.net/x/v2/feed/index/story?pull=1",
+    "https://app.biliapi.net/x/v2/feed/index/story/cart?pull=1",
     "https://app.bilibili.com/x/v2/splash/list",
     "https://app.biliapi.net/x/v2/splash/show",
     "https://app.bilibili.com/x/v2/splash/event/list2",

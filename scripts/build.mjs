@@ -333,6 +333,250 @@ const enhanceArgumentKeys = [
 ];
 const cdnScriptArgument = scriptArgument(networkArgumentKeys);
 const enhanceScriptArgument = scriptArgument(enhanceArgumentKeys);
+const storyArgumentKeys = [
+  ...new Set([...networkArgumentKeys, ...enhanceArgumentKeys]),
+];
+
+function storyScriptArgument(includeEnhancements) {
+  const common = scriptArgument(
+    includeEnhancements ? storyArgumentKeys : networkArgumentKeys,
+  );
+  return `${common.slice(0, -1)},"enhanceStory":${
+    includeEnhancements ? "true" : "false"
+  }}`;
+}
+
+const combinedStoryScript = [
+  '"use strict";\nthis.__BILIFLOW_COMBINED__ = true;',
+  enhanceScript,
+  sourceScript,
+  `(function (root) {
+  "use strict";
+
+  function noStoreHeaders() {
+    var headers =
+      typeof $response !== "undefined" && $response
+        ? $response.headers
+        : null;
+    return root.BiliEnhance.noStoreResponseHeaders(headers);
+  }
+
+  function complete(body, changed) {
+    var result = { headers: noStoreHeaders() };
+    if (changed > 0 && typeof body === "string") {
+      result.body = body;
+    }
+    $done(result);
+  }
+
+  function enhancementEnabled(rawArgument) {
+    return /"enhanceStory"\\s*:\\s*true/.test(
+      String(rawArgument || "")
+    );
+  }
+
+  function run() {
+    var rawArgument =
+      typeof $argument === "string" ? $argument : "";
+    var original =
+      typeof $response !== "undefined" &&
+      $response &&
+      typeof $response.body === "string"
+        ? $response.body
+        : "";
+    var requestUrl =
+      typeof $request !== "undefined" && $request
+        ? String($request.url || "")
+        : "";
+    var working = original;
+    var enhanceChanges = 0;
+    var enhanceConfig;
+    var enhanceResult;
+    var cdnConfig;
+    var fixedResult;
+
+    if (!root.BiliEnhance || !root.BiliCdnSwitcher) {
+      complete(original, 0);
+      return;
+    }
+
+    if (enhancementEnabled(rawArgument)) {
+      enhanceConfig = root.BiliEnhance.parseArgument(rawArgument);
+      if (enhanceConfig.valid) {
+        enhanceResult = root.BiliEnhance.transformJsonText(
+          original,
+          requestUrl,
+          enhanceConfig
+        );
+        if (enhanceResult.valid && enhanceResult.changed > 0) {
+          working = enhanceResult.body;
+          enhanceChanges = enhanceResult.changed;
+        }
+      }
+    }
+
+    cdnConfig = root.BiliCdnSwitcher.parseArgument(rawArgument);
+    if (!cdnConfig.valid || (!cdnConfig.auto && !cdnConfig.cdnHost)) {
+      complete(working, enhanceChanges);
+      return;
+    }
+    cdnConfig.grpcAdapter = "";
+    if (cdnConfig.auto) {
+      root.BiliCdnSwitcher.processSafeAutoResponse(
+        working,
+        false,
+        cdnConfig,
+        root.BiliCdnSwitcher.createShadowrocketServices(),
+        function (cdnResult) {
+          var cdnChanges =
+            cdnResult && cdnResult.valid
+              ? Number(cdnResult.changed || 0)
+              : 0;
+          complete(
+            cdnChanges > 0 ? cdnResult.body : working,
+            enhanceChanges + cdnChanges
+          );
+        }
+      );
+      return;
+    }
+    fixedResult = root.BiliCdnSwitcher.transformJsonText(
+      working,
+      cdnConfig
+    );
+    complete(
+      fixedResult.valid && fixedResult.changed > 0
+        ? fixedResult.body
+        : working,
+      enhanceChanges +
+        (
+          fixedResult.valid
+            ? Number(fixedResult.changed || 0)
+            : 0
+        )
+    );
+  }
+
+  try {
+    run();
+  } catch (error) {
+    complete(
+      typeof $response !== "undefined" &&
+      $response &&
+      typeof $response.body === "string"
+        ? $response.body
+        : "",
+      0
+    );
+  }
+})(this);`,
+].join("\n");
+
+const cdnOnlyStoryScript = [
+  '"use strict";\nthis.__BILIFLOW_COMBINED__ = true;',
+  sourceScript,
+  `(function (root) {
+  "use strict";
+
+  function noStoreHeaders(headers) {
+    var output = {};
+    var keys =
+      headers && typeof headers === "object"
+        ? Object.keys(headers)
+        : [];
+    var index;
+    var key;
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (
+        !/^(?:age|cache-control|content-length|etag|expires|last-modified|pragma)$/i.test(
+          key
+        )
+      ) {
+        output[key] = headers[key];
+      }
+    }
+    output["Cache-Control"] = "no-store, no-cache, must-revalidate";
+    output.Pragma = "no-cache";
+    output.Expires = "0";
+    return output;
+  }
+
+  function complete(body, changed) {
+    var headers =
+      typeof $response !== "undefined" && $response
+        ? $response.headers
+        : null;
+    var result = { headers: noStoreHeaders(headers) };
+    if (changed > 0 && typeof body === "string") {
+      result.body = body;
+    }
+    $done(result);
+  }
+
+  function run() {
+    var rawArgument =
+      typeof $argument === "string" ? $argument : "";
+    var original =
+      typeof $response !== "undefined" &&
+      $response &&
+      typeof $response.body === "string"
+        ? $response.body
+        : "";
+    var config = root.BiliCdnSwitcher.parseArgument(rawArgument);
+    var fixedResult;
+    if (!config.valid || (!config.auto && !config.cdnHost)) {
+      complete(original, 0);
+      return;
+    }
+    config.grpcAdapter = "";
+    if (config.auto) {
+      root.BiliCdnSwitcher.processSafeAutoResponse(
+        original,
+        false,
+        config,
+        root.BiliCdnSwitcher.createShadowrocketServices(),
+        function (cdnResult) {
+          var changed =
+            cdnResult && cdnResult.valid
+              ? Number(cdnResult.changed || 0)
+              : 0;
+          complete(
+            changed > 0 ? cdnResult.body : original,
+            changed
+          );
+        }
+      );
+      return;
+    }
+    fixedResult = root.BiliCdnSwitcher.transformJsonText(
+      original,
+      config
+    );
+    complete(
+      fixedResult.valid && fixedResult.changed > 0
+        ? fixedResult.body
+        : original,
+      fixedResult.valid
+        ? Number(fixedResult.changed || 0)
+        : 0
+    );
+  }
+
+  try {
+    run();
+  } catch (error) {
+    complete(
+      typeof $response !== "undefined" &&
+      $response &&
+      typeof $response.body === "string"
+        ? $response.body
+        : "",
+      0
+    );
+  }
+})(this);`,
+].join("\n");
 
 const ruleList = [
   "# NAME: Bilibili",
@@ -350,11 +594,13 @@ const jsonPattern =
 const grpcPattern =
   String.raw`^https?:\/\/(?:(?:grpc|app)\.(?:bilibili\.com|biliapi\.net))\/(?:bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite|bilibili\.app\.playurl\.v1\.PlayURL\/PlayView|bilibili\.(?:pgc\.gateway\.player\.(?:v1|v2)|cheese\.gateway\.player\.v1)\.PlayURL\/PlayView)(?:\?|$)`;
 const enhancePattern =
-  String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index(?:\/story)?|search(?:\/square|\/type)?|view|account\/(?:mine(?:\/ipad)?|myinfo))|x\/(?:resource\/(?:show\/tab\/v2|top\/activity|patch\/tab(?:\/v2)?)|vip\/ads\/(?:materials|material\/report)))|(?:api\.bilibili\.com|api\.biliapi\.net)\/(?:pgc\/(?:page\/(?:bangumi|cinema\/tab)|activity\/deliver\/material\/receive)|x\/(?:resource\/(?:top\/activity|patch\/tab(?:\/v2)?)|vip\/(?:web\/vip_center\/combine|ads\/(?:materials|material\/report))|web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd|v2\/reply\/main))|api\.live\.bilibili\.com\/xlive\/(?:app-room\/v1\/index\/getInfoByRoom|e-commerce-interface\/v1\/ecommerce-user\/get_shopping_info)|line3-h5-mobile-api\.biligame\.com\/game\/live\/large_card_material)(?:\?|$)`;
+  String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index|search(?:\/square|\/type)?|view|account\/(?:mine(?:\/ipad)?|myinfo))|x\/(?:resource\/(?:show\/tab\/v2|top\/activity|patch\/tab(?:\/v2)?)|vip\/ads\/(?:materials|material\/report)))|(?:api\.bilibili\.com|api\.biliapi\.net)\/(?:pgc\/(?:page\/(?:bangumi|cinema\/tab)|activity\/deliver\/material\/receive)|x\/(?:resource\/(?:top\/activity|patch\/tab(?:\/v2)?)|vip\/(?:web\/vip_center\/combine|ads\/(?:materials|material\/report))|web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd|v2\/reply\/main))|api\.live\.bilibili\.com\/xlive\/(?:app-room\/v1\/index\/getInfoByRoom|e-commerce-interface\/v1\/ecommerce-user\/get_shopping_info)|line3-h5-mobile-api\.biligame\.com\/game\/live\/large_card_material)(?:\?|$)`;
+const storyPattern =
+  String.raw`^https?:\/\/(?:app\.bilibili\.com|app\.biliapi\.net)\/x\/v2\/feed\/index\/story(?:\/cart)?(?:\?|$)`;
 const enhanceGrpcPattern =
-  String.raw`^https?:\/\/(?:(?:grpc|app)\.bilibili\.com|(?:grpc|app)\.biliapi\.net)\/(?:bilibili\.app\.(?:view\.v1\.View\/(?:View|ViewProgress|RelatesFeed|TFInfo)|viewunite\.v1\.View\/(?:View|ViewProgress|PlayPause|ViewEndPage|RelatesFeed)|mine\.v1\.Mine\/(?:PubModule|DeviceFeature)|resource\.v1\.Module\/List|show\.v1\.Popular\/Index|dynamic\.v2\.Dynamic\/DynAll)|bilibili\.polymer\.app\.search\.v1\.Search\/SearchAll|bilibili\.main\.community\.reply\.v1\.Reply\/MainList)(?:\?|$)`;
+  String.raw`^https?:\/\/(?:(?:grpc|app)\.bilibili\.com|(?:grpc|app)\.biliapi\.net)\/(?:bilibili\.app\.(?:view\.v1\.View\/(?:View|ViewProgress|RelatesFeed|TFInfo)|viewunite\.v1\.View\/(?:View|ViewProgress|PlayPause|ViewEndPage|RelatesFeed)|mine\.v1\.Mine\/(?:PubModule|DeviceFeature)|resource\.v1\.Module\/List|show\.v1\.Popular\/Index|dynamic\.v2\.Dynamic\/DynAll)|bilibili\.polymer\.app\.search\.v1\.Search\/(?:SearchAll|SearchByType)|bilibili\.main\.community\.reply\.v1\.Reply\/MainList)(?:\?|$)`;
 const refreshPattern =
-  String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index(?:\/story)?|view|account\/(?:mine(?:\/ipad)?|myinfo))|x\/vip\/ads\/(?:materials|material\/report))|(?:api\.bilibili\.com|api\.biliapi\.net)\/x\/vip\/ads\/(?:materials|material\/report))(?:\?|$)`;
+  String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index(?:\/story(?:\/cart)?)?|view|account\/(?:mine(?:\/ipad)?|myinfo))|x\/vip\/ads\/(?:materials|material\/report))|(?:api\.bilibili\.com|api\.biliapi\.net)\/x\/vip\/ads\/(?:materials|material\/report))(?:\?|$)`;
 
 function versionedRaw(relativePath) {
   return `${rawRoot}/${relativePath}?v=${assetVersion}`;
@@ -384,6 +630,15 @@ function enhanceScriptLines() {
     `Bilibili Enhance Fresh UI = type=http-request,pattern=${refreshPattern},timeout=3,engine=jsc,script-path=${versionedRaw("dist/bilibili-refresh.js")},argument="{"debug":{{{调试日志}}}}"`,
     `Bilibili Enhance JSON = type=http-response,pattern=${enhancePattern},requires-body=1,max-size=4194304,timeout=8,engine=jsc,script-path=${versionedRaw("dist/bilibili-enhance.js")},argument="${enhanceScriptArgument}"`,
     `Bilibili Enhance gRPC = type=http-response,pattern=${enhanceGrpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${versionedRaw("dist/bilibili-enhance.js")},argument="${enhanceScriptArgument}"`,
+  ];
+}
+
+function storyScriptLines(includeEnhancements) {
+  const runtime = includeEnhancements
+    ? "dist/bilibili-story.js"
+    : "dist/bilibili-story-cdn.js";
+  return [
+    `Bilibili Story Safe Pipeline = type=http-response,pattern=${storyPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${versionedRaw(runtime)},argument="${storyScriptArgument(includeEnhancements)}"`,
   ];
 }
 
@@ -422,6 +677,7 @@ function buildModule({
     "",
     "[Script]",
     ...(includeEnhancements ? enhanceScriptLines() : []),
+    ...storyScriptLines(includeEnhancements),
     ...cdnScriptLines(),
     "",
     "[MITM]",
@@ -460,6 +716,8 @@ const outputs = new Map([
   ["dist/bilibili-cdn.js", sourceScript],
   ["dist/bilibili-enhance.js", enhanceScript],
   ["dist/bilibili-refresh.js", refreshScript],
+  ["dist/bilibili-story.js", combinedStoryScript],
+  ["dist/bilibili-story-cdn.js", cdnOnlyStoryScript],
   ["dist/module-options.json", publishedCatalog],
 ]);
 

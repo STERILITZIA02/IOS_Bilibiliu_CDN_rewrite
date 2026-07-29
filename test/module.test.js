@@ -5,6 +5,7 @@ const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
 const cdn = require("../src/bilibili-cdn.js");
 
 const root = path.resolve(__dirname, "..");
@@ -35,6 +36,14 @@ const cdnSource = fs.readFileSync(
   path.join(root, "src", "bilibili-cdn.js"),
   "utf8",
 );
+const storySource = fs.readFileSync(
+  path.join(root, "dist", "bilibili-story.js"),
+  "utf8",
+);
+const cdnStorySource = fs.readFileSync(
+  path.join(root, "dist", "bilibili-story-cdn.js"),
+  "utf8",
+);
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(root, "package.json"), "utf8"),
 );
@@ -58,6 +67,7 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(moduleText, /Bilibili Enhance Fresh UI = type=http-request/);
   assert.match(moduleText, /Bilibili Enhance JSON = type=http-response/);
   assert.match(moduleText, /Bilibili Enhance gRPC = type=http-response/);
+  assert.match(moduleText, /Bilibili Story Safe Pipeline = type=http-response/);
   assert.match(moduleText, /Bilibili CDN JSON = type=http-response/);
   assert.match(moduleText, /Bilibili CDN gRPC = type=http-response/);
   assert.match(moduleText, /binary-body-mode=1/);
@@ -114,7 +124,13 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(cdnOnlyModule, /\[Rule\]/);
   assert.match(cdnOnlyModule, /Bilibili CDN JSON = type=http-response/);
   assert.match(cdnOnlyModule, /Bilibili CDN gRPC = type=http-response/);
+  assert.match(
+    cdnOnlyModule,
+    /Bilibili Story Safe Pipeline = type=http-response/,
+  );
   assert.doesNotMatch(cdnOnlyModule, /Bilibili Enhance/);
+  assert.match(cdnOnlyModule, /"enhanceStory":false/);
+  assert.match(cdnOnlyModule, /bilibili-story-cdn\.js\?v=/);
   assert.doesNotMatch(cdnOnlyModule, /广告过滤|界面精简|隐藏我的钱包/);
   const cdnMitmHostnameLine = cdnOnlyModule
     .split(/\r?\n/)
@@ -139,6 +155,7 @@ test("fresh UI request guard covers every reviewed cache-sensitive metadata API"
   for (const url of [
     "https://app.bilibili.com/x/v2/feed/index?pull=1",
     "https://app.biliapi.net/x/v2/feed/index/story?pull=1",
+    "https://app.biliapi.net/x/v2/feed/index/story/cart?pull=1",
     "https://app.bilibili.com/x/v2/account/mine?build=9400000",
     "https://app.biliapi.net/x/v2/account/mine/ipad",
     "https://app.bilibili.com/x/v2/account/myinfo",
@@ -187,6 +204,7 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
     "https://grpc.biliapi.net/bilibili.app.show.v1.Popular/Index",
     "https://grpc.biliapi.net/bilibili.app.dynamic.v2.Dynamic/DynAll",
     "https://grpc.biliapi.net/bilibili.polymer.app.search.v1.Search/SearchAll",
+    "https://grpc.biliapi.net/bilibili.polymer.app.search.v1.Search/SearchByType",
     "https://grpc.bilibili.com/bilibili.main.community.reply.v1.Reply/MainList",
   ]) {
     assert.match(url, pattern);
@@ -224,6 +242,187 @@ test("every generated remote runtime URL is version-keyed for module updates", (
       assert.match(line, new RegExp(`\\?v=${packageJson.version.replaceAll(".", "\\.")}`));
     }
   }
+});
+
+test("Story uses one exact filter-then-CDN response pipeline", () => {
+  const storyLine = moduleText
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("Bilibili Story Safe Pipeline = "));
+  const enhanceLine = moduleText
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("Bilibili Enhance JSON = "));
+  assert.ok(storyLine);
+  assert.ok(enhanceLine);
+  const storyMatch = storyLine.match(/,pattern=(.+?),requires-body=1,/);
+  const enhanceMatch = enhanceLine.match(/,pattern=(.+?),requires-body=1,/);
+  assert.ok(storyMatch);
+  assert.ok(enhanceMatch);
+  const storyPattern = new RegExp(storyMatch[1]);
+  const enhancePattern = new RegExp(enhanceMatch[1]);
+
+  for (const url of [
+    "https://app.bilibili.com/x/v2/feed/index/story",
+    "https://app.biliapi.net/x/v2/feed/index/story/cart?pull=1",
+  ]) {
+    assert.match(url, storyPattern);
+    assert.doesNotMatch(url, enhancePattern);
+  }
+  assert.doesNotMatch(
+    "https://app.bilibili.com/x/v2/feed/index/story/unknown",
+    storyPattern,
+  );
+  assert.match(storyLine, /"enhanceStory":true/);
+  assert.match(storyLine, /bilibili-story\.js\?v=/);
+  assert.match(storySource, /__BILIFLOW_COMBINED__/);
+  assert.match(storySource, /processSafeAutoResponse/);
+});
+
+test("combined Story runtime filters ads once and preserves current URLs", () => {
+  const primary =
+    "https://upos-sz-mirrorcosov.bilivideo.com/upgcxcode/1/2/story.m4s?token=current-primary";
+  const backup =
+    "https://upos-hz-mirrorakam.akamaized.net/upgcxcode/1/2/story.m4s?token=current-backup";
+  const fixture = {
+    code: 0,
+    data: {
+      items: [
+        {
+          bvid: "BV1normal",
+          card_goto: "vertical_av",
+          player_args: {
+            dash: {
+              video: [
+                {
+                  backup_url: [backup],
+                  base_url: primary,
+                  codecid: 7,
+                  id: 80,
+                },
+              ],
+            },
+          },
+          uri: "bilibili://video/BV1normal",
+        },
+        {
+          ad_info: { creative_id: 1 },
+          card_goto: "vertical_av",
+        },
+      ],
+    },
+  };
+  const completions = [];
+  const storage = {};
+  const context = {
+    $argument:
+      '{"cdn":"auto","probeMode":"off","enhanceStory":true}',
+    $done(value) {
+      completions.push(value);
+    },
+    $persistentStore: {
+      read(key) {
+        return storage[key] || null;
+      },
+      write(value, key) {
+        storage[key] = value;
+        return true;
+      },
+    },
+    $request: {
+      url: "https://app.bilibili.com/x/v2/feed/index/story",
+    },
+    $response: {
+      body: JSON.stringify(fixture),
+      headers: { ETag: '"stale"', "Content-Type": "application/json" },
+    },
+    Array,
+    ArrayBuffer,
+    Boolean,
+    Date,
+    JSON,
+    Math,
+    Number,
+    Object,
+    Promise,
+    RegExp,
+    String,
+    Uint8Array,
+    clearTimeout,
+    console: { log() {} },
+    setTimeout,
+  };
+
+  vm.runInNewContext(storySource, context, {
+    filename: "bilibili-story.js",
+  });
+  assert.equal(completions.length, 1);
+  const output = JSON.parse(completions[0].body);
+  assert.equal(output.data.items.length, 1);
+  assert.equal(
+    output.data.items[0].player_args.dash.video[0].base_url,
+    primary,
+  );
+  assert.deepEqual(
+    Array.from(output.data.items[0].player_args.dash.video[0].backup_url),
+    [backup],
+  );
+  assert.equal(completions[0].headers.ETag, undefined);
+  assert.equal(
+    completions[0].headers["Cache-Control"],
+    "no-store, no-cache, must-revalidate",
+  );
+});
+
+test("CDN-only Story runtime contains no enhancement handler", () => {
+  assert.doesNotMatch(cdnStorySource, /BiliEnhance|handleStoryCart/);
+  assert.ok(cdnStorySource.length < storySource.length);
+  const completions = [];
+  const context = {
+    $argument:
+      '{"cdn":"auto","probeMode":"off","enhanceStory":false}',
+    $done(value) {
+      completions.push(value);
+    },
+    $persistentStore: {
+      read() {
+        return null;
+      },
+      write() {
+        return true;
+      },
+    },
+    $request: {
+      url: "https://app.bilibili.com/x/v2/feed/index/story",
+    },
+    $response: {
+      body: JSON.stringify({
+        data: {
+          items: [{ ad_info: { creative_id: 1 } }],
+        },
+      }),
+      headers: { ETag: '"stale"' },
+    },
+    Array,
+    ArrayBuffer,
+    Boolean,
+    Date,
+    JSON,
+    Math,
+    Number,
+    Object,
+    Promise,
+    RegExp,
+    String,
+    Uint8Array,
+    clearTimeout,
+    console: { log() {} },
+    setTimeout,
+  };
+  vm.runInNewContext(cdnStorySource, context, {
+    filename: "bilibili-story-cdn.js",
+  });
+  assert.equal(completions.length, 1);
+  assert.equal(completions[0].body, undefined);
+  assert.equal(completions[0].headers.ETag, undefined);
 });
 
 test("generated response patterns compile and cover current playback APIs", () => {
@@ -275,7 +474,7 @@ test("enhancement response pattern covers only reviewed API endpoints", () => {
 
   for (const url of [
     "https://app.bilibili.com/x/v2/splash/show",
-    "https://app.biliapi.net/x/v2/feed/index/story?device=phone",
+    "https://app.biliapi.net/x/v2/feed/index?device=phone",
     "https://app.bilibili.com/x/resource/show/tab/v2",
     "https://app.bilibili.com/x/resource/top/activity",
     "https://api.biliapi.net/x/resource/patch/tab/v2",
@@ -297,6 +496,8 @@ test("enhancement response pattern covers only reviewed API endpoints", () => {
   }
 
   for (const url of [
+    "https://app.biliapi.net/x/v2/feed/index/story?device=phone",
+    "https://app.biliapi.net/x/v2/feed/index/story/cart",
     "https://upos-sz-mirrorali.bilivideo.com/upgcxcode/video.m4s",
     "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo",
     "https://passport.bilibili.com/x/passport-login/web/login",
@@ -339,6 +540,7 @@ test("safe auto uses server-provided URLs, GET Range validation, and bounded sta
   assert.match(cdnSource, /AUTO_GLOBAL_PROBE_GAP_MS = 2 \* 60 \* 1000/);
   assert.match(cdnSource, /descriptor\.candidates\.slice\(1\)/);
   assert.match(cdnSource, /queryFreeCandidateFingerprint/);
+  assert.match(cdnSource, /"object:" \+ primaryParsed\.path/);
 });
 
 test("all remote module resources use HTTPS", () => {
@@ -364,6 +566,8 @@ test("generated artifacts are local, non-empty, and checksummed", () => {
     "bilibili-cdn.js",
     "bilibili-enhance.js",
     "bilibili-refresh.js",
+    "bilibili-story.js",
+    "bilibili-story-cdn.js",
     "module-options.json",
   ]) {
     const content = fs.readFileSync(
@@ -420,6 +624,8 @@ test("release metadata and workflow publish every runtime artifact", () => {
     "bilibili-cdn.js",
     "bilibili-enhance.js",
     "bilibili-refresh.js",
+    "bilibili-story.js",
+    "bilibili-story-cdn.js",
     "module-options.json",
     "SHA256SUMS.txt",
   ]) {
