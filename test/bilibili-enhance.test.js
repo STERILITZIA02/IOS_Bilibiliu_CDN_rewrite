@@ -1018,6 +1018,60 @@ test("fresh Mine responses stay filtered after background resume", () => {
   assert.deepEqual(JSON.parse(disabled.body), fixture);
 });
 
+test("9.5 Mine wrappers match stable IDs and exact actions before labels", () => {
+  const result = transform(
+    `${appRoot}/x/v2/account/mine?resume=1`,
+    {
+      code: 0,
+      data: {
+        sections_v2: [{
+          title: "services",
+          items: [
+            {
+              module_id: 400,
+              title: "renamed-course-entry",
+            },
+            {
+              commonOpItem: {
+                itemId: 401,
+                scheme: "bilibili://user_center/free_traffic",
+              },
+              title: "wrapped-free-data-entry",
+            },
+            {
+              action: {
+                uri: "bilibili://uper/homevc",
+              },
+              title: "renamed-creator-center",
+            },
+            {
+              moduleId: 99999,
+              navigation: {
+                uri: "bilibili://future/service",
+              },
+              title: "future-service",
+            },
+          ],
+        }],
+        account: {
+          mid: 123,
+          module_id: 400,
+        },
+      },
+    },
+  );
+  const data = JSON.parse(result.body).data;
+
+  assert.deepEqual(
+    data.sections_v2[0].items.map((item) => item.title),
+    ["future-service"],
+  );
+  assert.deepEqual(data.account, {
+    mid: 123,
+    module_id: 400,
+  });
+});
+
 test("VIP center cleanup removes only marketing overlays and banners", () => {
   const fixture = {
     code: 0,
@@ -1569,6 +1623,52 @@ test("view recommendations keep only ordinary videos by default", () => {
   assert.ok(!relaxedTitles.includes("下载广告"));
 });
 
+test("9.5 JSON View removes exact under-player carriers in known UI containers", () => {
+  const result = transform(
+    `${appRoot}/x/v2/view?aid=950`,
+    {
+      code: 0,
+      data: {
+        adInfo: { creative_id: 1 },
+        under_player_ad: { creative_id: 2 },
+        tabs: [{
+          modules: [
+            { module_type: 37, title: "special-tag-promotion" },
+            { moduleType: 63, title: "video-mentions-promotion" },
+            { module_type: 99, title: "future-normal-module" },
+          ],
+          introductionModules: [{
+            playerAd: { creative_id: 3 },
+            module_type: 99,
+            title: "normal-introduction",
+          }],
+        }],
+        unknown_payload: {
+          ad_info: { future: true },
+          keep: true,
+        },
+      },
+    },
+  );
+  const data = JSON.parse(result.body).data;
+
+  assert.equal("adInfo" in data, false);
+  assert.equal("under_player_ad" in data, false);
+  assert.deepEqual(
+    data.tabs[0].modules.map((item) => item.title),
+    ["future-normal-module"],
+  );
+  assert.equal(
+    "playerAd" in data.tabs[0].introductionModules[0],
+    false,
+  );
+  assert.match(result.body, /future-normal-module|normal-introduction/);
+  assert.deepEqual(data.unknown_payload, {
+    ad_info: { future: true },
+    keep: true,
+  });
+});
+
 test("gRPC View v1 keeps only explicit AV relations by default", () => {
   const normalRelate = bytes(
     varintField(1, 1001),
@@ -1686,7 +1786,15 @@ test("gRPC ViewUnite keeps only AV cards and filters promotion modules", () => {
     ),
     messageField(
       2,
+      bytes(varintField(1, 37), stringField(3, "special-tag-promotion")),
+    ),
+    messageField(
+      2,
       bytes(varintField(1, 55), stringField(3, "up-goods")),
+    ),
+    messageField(
+      2,
+      bytes(varintField(1, 63), stringField(3, "video-mentions-promotion")),
     ),
     messageField(
       2,
@@ -1713,7 +1821,7 @@ test("gRPC ViewUnite keeps only AV cards and filters promotion modules", () => {
   );
 
   assert.equal(result.valid, true);
-  assert.equal(result.changed, 20);
+  assert.equal(result.changed, 22);
   assert.match(outputText, /normal-av/);
   assert.match(outputText, /unknown-report/);
   assert.match(outputText, /future-module/);
@@ -1736,6 +1844,8 @@ test("gRPC ViewUnite keeps only AV cards and filters promotion modules", () => {
   assert.doesNotMatch(outputText, /activity-banner/);
   assert.doesNotMatch(outputText, /vip-banner/);
   assert.doesNotMatch(outputText, /up-goods/);
+  assert.doesNotMatch(outputText, /special-tag-promotion/);
+  assert.doesNotMatch(outputText, /video-mentions-promotion/);
   assert.doesNotMatch(outputText, /top-level-cm/);
   const repeated = enhance.transformGrpcBody(
     result.body,
@@ -1777,6 +1887,8 @@ test("gRPC ViewUnite keeps only AV cards and filters promotion modules", () => {
   assert.match(vipDisabledText, /vip-banner/);
   assert.doesNotMatch(vipDisabledText, /activity-banner/);
   assert.doesNotMatch(vipDisabledText, /up-goods/);
+  assert.doesNotMatch(vipDisabledText, /special-tag-promotion/);
+  assert.doesNotMatch(vipDisabledText, /video-mentions-promotion/);
 });
 
 test("gRPC RelatesFeed endpoints use the same ordinary-video allowlist", () => {
@@ -1829,91 +1941,122 @@ test("gRPC RelatesFeed endpoints use the same ordinary-video allowlist", () => {
   assert.doesNotMatch(uniteText, /unite-bangumi/);
 });
 
-test("ViewProgress removes pause-time promotion containers after every resume", async () => {
-  const legacyReply = bytes(
+test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field by field", async () => {
+  const material = (type, label) =>
+    bytes(
+      stringField(2, label),
+      varintField(4, type),
+    );
+  const videoGuide = bytes(
     messageField(
       1,
-      bytes(
-        messageField(1, stringField(1, "normal-attention-card")),
-        messageField(3, stringField(1, "legacy-pause-ad")),
-      ),
+      material(1, "activity-material"),
     ),
-    messageField(2, stringField(1, "keep-legacy-chronos")),
-    messageField(3, stringField(1, "keep-legacy-shot")),
-    stringField(99, "keep-legacy-future-field"),
+    messageField(1, material(2, "normal-bgm-material")),
+    messageField(2, stringField(1, "normal-video-point")),
+    messageField(3, stringField(1, "normal-contract-card")),
+    messageField(4, stringField(1, "under_player_ad")),
+  );
+  const operationCard = (type, label) =>
+    bytes(
+      varintField(1, type * 100),
+      varintField(5, type),
+      messageField(6, stringField(1, label)),
+    );
+  const dmResource = bytes(
+    messageField(1, stringField(1, "normal-command-dm")),
+    messageField(2, stringField(1, "normal-attention-card")),
+    messageField(3, operationCard(1, "follow-video-card")),
+    messageField(3, operationCard(2, "reserve-activity-card")),
+    messageField(3, operationCard(3, "jump-link-card")),
+    messageField(3, operationCard(4, "favorite-season-card")),
+    messageField(3, operationCard(5, "reserve-game-card")),
+    stringField(99, "keep-dm-future-field"),
+  );
+  const reply = bytes(
+    messageField(1, videoGuide),
+    messageField(2, stringField(1, "keep-chronos")),
+    messageField(3, stringField(1, "keep-shot")),
+    messageField(4, dmResource),
+    stringField(99, "keep-future-field"),
   );
 
   for (let resume = 0; resume < 2; resume += 1) {
-    const legacy = enhance.transformGrpcBody(
-      grpcFrame(legacyReply),
-      "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
+    const result = await enhance.transformGrpcBodyAsync(
+      grpcFrame(new Uint8Array(gzipSync(reply)), 1),
+      "https://app.bilibili.com/bilibili.app.viewunite.v1.View/ViewProgress",
       enhance.parseArgument(""),
     );
-    const output = grpcPayload(legacy.body);
+    const output = grpcPayload(result.body);
     const outputText = Buffer.from(output).toString("latin1");
+    const guideField = protoFields(output, 1, 2)[0];
+    const filteredGuide = fieldPayload(output, guideField);
+    const dmField = protoFields(output, 4, 2)[0];
+    const filteredDm = fieldPayload(output, dmField);
 
-    assert.equal(legacy.endpoint, "grpc-view-v1-progress");
-    assert.equal(legacy.changed, 1);
-    assert.equal(protoFields(output, 1, 2).length, 0);
-    assert.match(outputText, /keep-legacy-chronos/);
-    assert.match(outputText, /keep-legacy-shot/);
-    assert.match(outputText, /keep-legacy-future-field/);
-    assert.doesNotMatch(outputText, /legacy-pause-ad/);
+    assert.equal(result.valid, true);
+    assert.equal(result.changed, 5);
+    assert.equal(result.body[0], 0);
+    assert.equal(protoFields(filteredGuide, 1, 2).length, 1);
+    assert.equal(protoFields(filteredGuide, 2, 2).length, 1);
+    assert.equal(protoFields(filteredGuide, 3, 2).length, 1);
+    assert.equal(protoFields(filteredGuide, 4, 2).length, 0);
+    assert.equal(protoFields(filteredDm, 1, 2).length, 1);
+    assert.equal(protoFields(filteredDm, 2, 2).length, 1);
+    assert.equal(protoFields(filteredDm, 3, 2).length, 2);
+    assert.equal(protoFields(filteredDm, 99, 2).length, 1);
+    assert.match(outputText, /normal-bgm-material/);
+    assert.match(outputText, /normal-attention-card/);
+    assert.match(outputText, /normal-video-point/);
+    assert.match(outputText, /normal-contract-card/);
+    assert.match(outputText, /normal-command-dm/);
+    assert.match(outputText, /follow-video-card|favorite-season-card/);
+    assert.match(
+      outputText,
+      /keep-chronos|keep-shot|keep-future-field|keep-dm-future-field/,
+    );
+    assert.doesNotMatch(
+      outputText,
+      /activity-material|under_player_ad|reserve-activity-card|jump-link-card|reserve-game-card/,
+    );
   }
 
-  const currentReply = bytes(
-    messageField(1, stringField(1, "keep-current-video-guide")),
-    messageField(2, stringField(1, "keep-current-chronos")),
-    messageField(3, stringField(1, "keep-current-shot")),
-    messageField(
-      4,
-      bytes(
-        messageField(1, stringField(1, "normal-command-dm")),
-        messageField(3, stringField(1, "current-pause-ad")),
-      ),
-    ),
-    stringField(99, "keep-current-future-field"),
-  );
-  const current = await enhance.transformGrpcBodyAsync(
-    grpcFrame(new Uint8Array(gzipSync(currentReply)), 1),
+  const first = enhance.transformGrpcBody(
+    grpcFrame(reply),
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/ViewProgress",
     enhance.parseArgument(""),
   );
-  const currentOutput = grpcPayload(current.body);
-  const currentText = Buffer.from(currentOutput).toString("latin1");
-
-  assert.equal(current.endpoint, "grpc-view-unite-progress");
-  assert.equal(current.valid, true);
-  assert.equal(current.changed, 1);
-  assert.equal(current.body[0], 0);
-  assert.equal(protoFields(currentOutput, 4, 2).length, 0);
-  assert.match(currentText, /keep-current-video-guide/);
-  assert.match(currentText, /keep-current-chronos/);
-  assert.match(currentText, /keep-current-shot/);
-  assert.match(currentText, /keep-current-future-field/);
-  assert.doesNotMatch(currentText, /current-pause-ad/);
-
   const repeated = enhance.transformGrpcBody(
-    current.body,
+    first.body,
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/ViewProgress",
     enhance.parseArgument(""),
   );
   assert.equal(repeated.changed, 0);
-  assert.deepEqual(Buffer.from(repeated.body), Buffer.from(current.body));
+  assert.deepEqual(Buffer.from(repeated.body), Buffer.from(first.body));
+
+  const v1 = enhance.transformGrpcBody(
+    grpcFrame(reply),
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
+    enhance.parseArgument(""),
+  );
+  const v1Text = Buffer.from(grpcPayload(v1.body)).toString("latin1");
+  assert.equal(v1.changed, 2);
+  assert.match(v1Text, /reserve-activity-card|jump-link-card|reserve-game-card/);
+  assert.doesNotMatch(v1Text, /activity-material|under_player_ad/);
 
   const disabled = enhance.transformGrpcBody(
-    grpcFrame(legacyReply),
+    grpcFrame(reply),
     "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
     enhance.parseArgument('{"ads":false}'),
   );
   assert.equal(disabled.changed, 0);
   assert.deepEqual(
     Buffer.from(disabled.body),
-    Buffer.from(grpcFrame(legacyReply)),
+    Buffer.from(grpcFrame(reply)),
   );
 });
 
-test("9.4.0 PlayPause removes only evidenced commercial fields", async () => {
+test("9.5.0 PlayPause removes only evidenced commercial fields", async () => {
   const pausePayload = bytes(
     messageField(
       1,
@@ -1933,7 +2076,7 @@ test("9.4.0 PlayPause removes only evidenced commercial fields", async () => {
     enhance.parseArgument(""),
     {
       requestHeaders: {
-        "user-agent": "bilibili/9.4.0 build/940001",
+        "user-agent": "bilibili/9.5.0 build/90500100",
       },
       responseHeaders: {
         "grpc-encoding": "gzip",
@@ -1945,7 +2088,7 @@ test("9.4.0 PlayPause removes only evidenced commercial fields", async () => {
 
   assert.equal(result.valid, true);
   assert.equal(result.changed, 1);
-  assert.match(result.schema, /play-pause-ios-9\.4\.0/);
+  assert.match(result.schema, /play-pause-ios-9\.4-9\.5/);
   assert.equal(protoFields(output, 1).length, 0);
   assert.equal(protoFields(output, 2, 2).length, 1);
   assert.equal(protoFields(output, 99, 0).length, 1);
@@ -2503,6 +2646,110 @@ test("unknown endpoints, malformed JSON, and disabled UI fail open", () => {
   assert.equal(malformed.valid, false);
   assert.equal(malformed.body, "<html>upstream error</html>");
   assert.equal(disabled.changed, 0);
+});
+
+test("9.5 feed entrypoint performs one bounded no-cache refill to reach six AVs", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "src", "bilibili-enhance.js"),
+    "utf8",
+  );
+  const ordinary = (id) => ({
+    card_type: "small_cover_v2",
+    card_goto: "av",
+    goto: "av",
+    param: String(id),
+    uri: `bilibili://video/${id}`,
+    player_args: { aid: id, cid: id + 1000, type: "av" },
+    title: `ordinary-${id}`,
+  });
+  const exactUrl =
+    `${appRoot}/x/v2/feed/index?build=90500100&pull=1&idx=signed`;
+  const duplicateWithDifferentShape = ordinary(1);
+  delete duplicateWithDifferentShape.param;
+  delete duplicateWithDifferentShape.uri;
+  let completion;
+  let refillRequest;
+  let refillCalls = 0;
+  const context = {
+    $argument: "",
+    $done(value) {
+      completion = value;
+    },
+    $httpClient: {
+      get(request, callback) {
+        refillCalls += 1;
+        refillRequest = request;
+        callback(
+          null,
+          { statusCode: 200 },
+          JSON.stringify({
+            code: 0,
+            data: {
+              items: [
+                duplicateWithDifferentShape,
+                { card_type: "cm_v2", card_goto: "ad_player" },
+                ordinary(5),
+                ordinary(6),
+                ordinary(7),
+                ordinary(8),
+              ],
+            },
+          }),
+        );
+      },
+    },
+    $request: {
+      headers: {
+        Cookie: "private-cookie-used-only-for-request",
+        "If-None-Match": "stale-etag",
+        "User-Agent": "bilibili/9.5.0 build/90500100",
+      },
+      url: exactUrl,
+    },
+    $response: {
+      body: JSON.stringify({
+        code: 0,
+        data: {
+          items: [
+            ordinary(1),
+            { card_type: "small_cover_v10", card_goto: "game" },
+            ordinary(2),
+            ordinary(3),
+            ordinary(4),
+          ],
+        },
+      }),
+      headers: {
+        "Cache-Control": "public, max-age=300",
+        "Content-Length": "999",
+        "Content-Type": "application/json",
+        ETag: "server-etag",
+      },
+    },
+    clearTimeout,
+    console,
+    setTimeout,
+  };
+
+  vm.runInNewContext(source, context, {
+    filename: "bilibili-enhance.js",
+  });
+
+  assert.equal(refillCalls, 1);
+  assert.equal(refillRequest.url, exactUrl);
+  assert.equal(refillRequest.headers["X-BiliFlow-Refill"], "1");
+  assert.equal("If-None-Match" in refillRequest.headers, false);
+  assert.deepEqual(
+    JSON.parse(completion.body).data.items.map((item) => item.param),
+    ["1", "2", "3", "4", "5", "6"],
+  );
+  assert.equal(
+    completion.headers["Cache-Control"],
+    "no-store, no-cache, must-revalidate",
+  );
+  assert.equal(completion.headers["Content-Type"], "application/json");
+  assert.equal("ETag" in completion.headers, false);
+  assert.equal("Content-Length" in completion.headers, false);
 });
 
 test("Shadowrocket entrypoint returns a changed body without leaking response data", () => {

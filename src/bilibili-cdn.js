@@ -1,5 +1,5 @@
 /*
- * Bilibili CDN Switcher v3 for Shadowrocket
+ * Bilibili CDN Switcher v4 for Shadowrocket
  *
  * Default auto mode is deliberately conservative:
  * - it only considers the primary and backup URLs returned for one media item;
@@ -17,7 +17,7 @@
 
   var NAME = "BiliCDN";
   var DEFAULT_CDN = "upos-sz-mirrorali.bilivideo.com";
-  var AUTO_STATE_KEY = "BiliCDN.safeAuto.v3";
+  var AUTO_STATE_KEY = "BiliCDN.safeAuto.v4";
   var DEFAULT_AUTO_INTERVAL_HOURS = 12;
   var DEFAULT_SWITCH_THRESHOLD = 20;
   var RUNTIME_OPTION_LIMITS = {
@@ -33,13 +33,14 @@
     }
   };
   var AUTO_CACHE_CAPACITY = 64;
-  var AUTO_CONFIRM_DELAY_MS = 10 * 60 * 1000;
+  var AUTO_CONFIRM_DELAY_MS = 2 * 60 * 1000;
   var AUTO_EXPLORE_DELAY_MS = 30 * 60 * 1000;
   var AUTO_GLOBAL_PROBE_GAP_MS = 2 * 60 * 1000;
   var AUTO_LOCK_MS = 10 * 1000;
-  var AUTO_PROBE_TIMEOUT_MS = 2500;
-  var AUTO_RANGE_END = 65535;
+  var AUTO_PROBE_TIMEOUT_MS = 5000;
+  var AUTO_RANGE_END = 262143;
   var AUTO_RETRY_MS = 30 * 60 * 1000;
+  var AUTO_SELECTED_REVALIDATE_MS = 30 * 60 * 1000;
   var MAX_GRPC_DECOMPRESSED_BYTES = 4 * 1024 * 1024;
   var MAX_PROTO_DEPTH = 32;
   var MAX_URL_BYTES = 65536;
@@ -104,14 +105,11 @@
     "codecs",
     "mimeType",
     "mime_type",
-    "bandwidth",
     "audio_id",
     "frame_rate",
     "frameRate",
     "width",
-    "height",
-    "size",
-    "md5"
+    "height"
   ];
   /*
    * Verified against the public PlayView/PlayViewUnite schemas. Every method
@@ -1606,8 +1604,14 @@
   }
 
   function candidateIdForUrl(url) {
-    var fingerprint = queryFreeCandidateFingerprint(url);
-    return fingerprint ? stableHash("c", fingerprint) : null;
+    var parsed = parseHttpUrl(url);
+    if (!parsed || !isVodMediaUrl(url)) {
+      return null;
+    }
+    return stableHash(
+      "c",
+      parsed.scheme + "://" + parsed.authority.toLowerCase()
+    );
   }
 
   function candidateFamilyForUrl(url) {
@@ -1672,6 +1676,7 @@
     var sortedIds;
     var candidateSetHash;
     var resourceMaterial;
+    var reusableRepresentation;
 
     if (!primaryParsed || !isVodMediaUrl(primaryUrl)) {
       return null;
@@ -1699,12 +1704,16 @@
 
     sortedIds = candidateIds.slice().sort();
     candidateSetHash = stableHash("s", sortedIds.join("|"));
+    reusableRepresentation =
+      (kind === "video" || kind === "audio") && Boolean(metadata);
     resourceMaterial = [
       format,
       kind || "unknown",
       primaryFamily,
-      primaryParsed.path,
-      metadata || "",
+      reusableRepresentation
+        ? "representation"
+        : "object:" + primaryParsed.path,
+      reusableRepresentation ? metadata : "",
       candidateSetHash
     ].join("\u0000");
 
@@ -1718,7 +1727,8 @@
       keyMaterial: resourceMaterial,
       kind: kind || "unknown",
       primaryId: candidates[0].id,
-      primaryUrl: primaryUrl
+      primaryUrl: primaryUrl,
+      reusableRepresentation: reusableRepresentation
     };
   }
 
@@ -1960,7 +1970,7 @@
       lockTokens: {},
       locks: {},
       resetToken: "",
-      version: 3
+      version: 4
     };
   }
 
@@ -2155,7 +2165,7 @@
     } catch (error) {
       parsed = null;
     }
-    if (!isObject(parsed) || parsed.version !== 3) {
+    if (!isObject(parsed) || parsed.version !== 4) {
       return state;
     }
 
@@ -2477,28 +2487,6 @@
     return null;
   }
 
-  function protoMetadataSignature(fields) {
-    var output = [];
-    var index;
-    var field;
-
-    for (index = 0; index < fields.length; index += 1) {
-      field = fields[index];
-      if (field.wireType === 0 && field.valueSafe !== false) {
-        output.push("v" + field.fieldNumber + "=" + field.value);
-      } else if (
-        field.wireType === 2 &&
-        field.text &&
-        field.text.length <= 64 &&
-        !/^https?:\/\//i.test(field.text) &&
-        /^[\x20-\x7e]+$/.test(field.text)
-      ) {
-        output.push("s" + field.fieldNumber + "=" + field.text);
-      }
-    }
-    return output.join("&");
-  }
-
   function detectProtoMedia(fields, config, state, now) {
     var primaryUrls;
     var backupUrls;
@@ -2506,6 +2494,7 @@
     var backupField;
     var kind;
     var representationId;
+    var stableMetadata = "";
     var descriptor;
 
     primaryUrls = protoUrlsForField(fields, 1);
@@ -2532,6 +2521,9 @@
         } else {
           kind = "unknown";
         }
+        if (kind === "video" || kind === "audio") {
+          stableMetadata = "representation=" + representationId;
+        }
       } else {
         primaryUrls = protoUrlsForField(fields, 4);
         backupUrls = protoUrlsForField(fields, 5);
@@ -2550,7 +2542,7 @@
       kind,
       primaryUrls[0],
       backupUrls,
-      protoMetadataSignature(fields)
+      stableMetadata
     );
     if (!descriptor) {
       return null;
@@ -3115,6 +3107,8 @@
     var alternativeScore;
     var primaryElapsed = primaryResult.elapsedMs;
     var alternativeElapsed = alternativeResult.elapsedMs;
+    var primaryThroughput = primaryResult.throughputKbps || 0;
+    var alternativeThroughput = alternativeResult.throughputKbps || 0;
     var threshold = boundedNumber(
       config && config.switchThreshold,
       DEFAULT_SWITCH_THRESHOLD,
@@ -3142,6 +3136,9 @@
       primaryScore.metrics.successCount > 0
     ) {
       primaryElapsed = primaryScore.metrics.medianMs;
+      primaryThroughput =
+        primaryScore.metrics.medianThroughputKbps ||
+        primaryThroughput;
     }
     if (
       alternativeScore &&
@@ -3149,26 +3146,35 @@
       alternativeScore.metrics.successCount > 0
     ) {
       alternativeElapsed = alternativeScore.metrics.medianMs;
+      alternativeThroughput =
+        alternativeScore.metrics.medianThroughputKbps ||
+        alternativeThroughput;
       if (
-        alternativeScore.metrics.sampleCount >= 3 &&
         (
-          alternativeScore.metrics.failureRate > 0.34 ||
-          (
-            alternativeScore.metrics.successCount >= 3 &&
-            alternativeScore.metrics.medianMs > 0 &&
-            alternativeScore.metrics.jitterMs /
-                alternativeScore.metrics.medianMs >
-              0.5
-          )
+          alternativeScore.metrics.sampleCount >= 3 &&
+          alternativeScore.metrics.failureRate > 0.34
+        ) ||
+        (
+          alternativeScore.metrics.successCount >= 2 &&
+          alternativeScore.metrics.medianMs > 0 &&
+          alternativeScore.metrics.jitterMs /
+              alternativeScore.metrics.medianMs >
+            0.5
         )
       ) {
         return false;
       }
     }
     gain =
-      ((primaryElapsed - alternativeElapsed) /
-        primaryElapsed) *
-      100;
+      primaryThroughput > 0 && alternativeThroughput > 0
+        ? (
+            (alternativeThroughput - primaryThroughput) /
+            primaryThroughput
+          ) * 100
+        : (
+            (primaryElapsed - alternativeElapsed) /
+            primaryElapsed
+          ) * 100;
     return gain >= threshold;
   }
 
@@ -3183,6 +3189,13 @@
     entry.expiresAt = 0;
     entry.selectedAt = 0;
     entry.validatedAt = 0;
+  }
+
+  function nextSelectedProbeAt(now, expiresAt) {
+    return Math.min(
+      expiresAt,
+      now + AUTO_SELECTED_REVALIDATE_MS
+    );
   }
 
   function updateEntryAfterProbe(
@@ -3256,13 +3269,19 @@
       entry.failureCount = 0;
       entry.validatedAt = now;
       if (!expiredSelection) {
-        entry.nextProbeAt = entry.expiresAt;
+        entry.nextProbeAt = nextSelectedProbeAt(
+          now,
+          entry.expiresAt
+        );
         return "selected-validated";
       }
       if (qualifies) {
         entry.selectedAt = now;
         entry.expiresAt = now + ttlForConfig(config);
-        entry.nextProbeAt = entry.expiresAt;
+        entry.nextProbeAt = nextSelectedProbeAt(
+          now,
+          entry.expiresAt
+        );
         return "selected-renewed";
       }
 
@@ -3287,7 +3306,10 @@
         entry.successCount += 1;
         entry.failureCount = 0;
         clearPendingCandidate(entry);
-        entry.nextProbeAt = entry.expiresAt;
+        entry.nextProbeAt = nextSelectedProbeAt(
+          now,
+          entry.expiresAt
+        );
         return "alternative-confirmed";
       }
 
@@ -3368,6 +3390,8 @@
               "/" +
               String(candidate.elapsedMs || 0) +
               "ms/" +
+              String(candidate.throughputKbps || 0) +
+              "kbps/" +
               String(candidate.reason || "unknown")
           );
         }
@@ -3936,11 +3960,13 @@
     AUTO_CONFIRM_DELAY_MS: AUTO_CONFIRM_DELAY_MS,
     AUTO_GLOBAL_PROBE_GAP_MS: AUTO_GLOBAL_PROBE_GAP_MS,
     AUTO_RANGE_END: AUTO_RANGE_END,
+    AUTO_SELECTED_REVALIDATE_MS: AUTO_SELECTED_REVALIDATE_MS,
     AUTO_STATE_KEY: AUTO_STATE_KEY,
     DEFAULT_CDN: DEFAULT_CDN,
     RUNTIME_OPTION_LIMITS: RUNTIME_OPTION_LIMITS,
     asciiBytesToString: asciiBytesToString,
     asciiStringToBytes: asciiStringToBytes,
+    alternativeQualifies: alternativeQualifies,
     buildMediaDescriptor: buildMediaDescriptor,
     candidateFamilyForUrl: candidateFamilyForUrl,
     candidateIdForUrl: candidateIdForUrl,

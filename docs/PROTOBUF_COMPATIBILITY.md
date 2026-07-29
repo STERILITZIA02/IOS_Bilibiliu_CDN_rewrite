@@ -1,6 +1,6 @@
 # Protobuf/gRPC 兼容性记录
 
-> 字段核对日期：2026-07-28
+> 字段核对日期：2026-07-29
 > 过滤器实现：`src/bilibili-enhance.js`
 >
 > 播放地址实现：`src/bilibili-cdn.js`
@@ -23,12 +23,12 @@
 | gRPC 方法 | 高置信处理 |
 | --- | --- |
 | `bilibili.app.view.v1.View/View` | 删除 `ViewReply` 的 `cms(30)`、`cm_config(31)`、`tf_panel_customized(34)`、`cm_ipad(41)`、兼容字段 `cm_under_player(48)`；始终移除含 `Relate.cm(28)` 的关联卡；严格模式下只保留 `Relate.goto(7) == "av"` 且存在 `aid(1)`、有效 `param(8)` 或 video URI(9) 的关系卡 |
-| `bilibili.app.view.v1.View/ViewProgress` | 删除每次播放进度响应重新下发的 `video_guide(1)` 运营容器；保留 `chronos(2)`、视频快照/进度点及未知顶层字段 |
+| `bilibili.app.view.v1.View/ViewProgress` | 进入 `video_guide(1)`，删除类型 `1`（活动）/`6`（活动图标）或含明确商业证据的 `VideoGuide.material(1)`，并兼容处理含商业证据的 `right_material(4)`；保留其他 Material、视频点、合约卡、`chronos(2)`、视频快照及未知字段 |
 | `bilibili.app.view.v1.View/RelatesFeed` | 使用与上项相同的关系卡判据 |
 | `bilibili.app.view.v1.View/TFInfo` | 删除运营商免流营销 `tf_toast(2)` 与 `tf_panel_customized(3)`；保留 `tips_id(1)`、`user_flag_new(4)` 和未知字段 |
-| `bilibili.app.viewunite.v1.View/View` | 删除顶层 `cm(7)`；始终移除类型 `4`（游戏推广）、`5`（广告）、`11`（课程推广）、`game(5)`/`cm(6)` 载荷、非空 `cm_stock(11)` 或 `BasicInfo.unique_id(6)` 卡；严格模式下仅保留同时满足类型 `1 (AV)` 与 oneof `av(2)` 且不存在非 AV oneof `3/4/5/6/7/8/9/13/14` 的卡；移除介绍模块类型 `18`（活动横幅）、`55`（UP 主商品分享）以及受 `会员营销` 控制的 `29`（大会员横幅） |
-| `bilibili.app.viewunite.v1.View/ViewProgress` | 删除每次播放进度响应重新下发的 `dm(4)` 运营/命令卡容器；保留 `video_guide(1)`、`chronos(2)`、视频快照及未知顶层字段 |
-| `bilibili.app.viewunite.v1.View/PlayPause` | 逐个检查顶层 length-delimited 字段；只删除载荷中含已审核商业 URL、creative/ad ID 或暂停广告标记的字段。9.4.0 构建信息用于诊断 adapter 标签，不作为盲目清空消息的依据；无证据字段和未知 wire bytes 保留 |
+| `bilibili.app.viewunite.v1.View/View` | 删除顶层 `cm(7)`；始终移除类型 `4`（游戏推广）、`5`（广告）、`11`（课程推广）、`game(5)`/`cm(6)` 载荷、非空 `cm_stock(11)` 或 `BasicInfo.unique_id(6)` 卡；严格模式下仅保留同时满足类型 `1 (AV)` 与 oneof `av(2)` 且不存在非 AV oneof `3/4/5/6/7/8/9/13/14` 的卡；移除介绍模块类型 `18`（活动）、`37`（特殊推广标签）、`55`（商品分享）、`63`（视频提及推广）以及受 `会员营销` 控制的 `29`（大会员横幅） |
+| `bilibili.app.viewunite.v1.View/ViewProgress` | 对 `video_guide(1)` 使用上项判据；另在 `dm(4)` 内仅过滤 `OperationCard(3)` 的 `biz_type(5)` 为 `2`（预约活动）、`3`（跳转）或 `5`（预约游戏）的运营卡。保留 command DM、AttentionCard、关注视频 `1`、追番 `4`、Chronos、视频快照、未知 OperationCard 类型及未知 wire bytes |
+| `bilibili.app.viewunite.v1.View/PlayPause` | 逐个检查顶层 length-delimited 字段；只删除载荷中含已审核商业 URL、creative/ad ID 或暂停广告标记的字段。9.4.0/9.5.0 构建信息用于诊断 adapter 标签，不作为盲目清空消息的依据；无证据字段和未知 wire bytes 保留 |
 | `bilibili.app.viewunite.v1.View/ViewEndPage` | 按公开 schema 读取重复 `ViewEndPageCard(1)`，再读取其 `relate(1)`；使用与 ViewUnite 关系卡相同的广告与普通 AV 判据，保留普通 AV、`card_index(2)`、未知顶层字段和未知 wire bytes |
 | `bilibili.app.viewunite.v1.View/RelatesFeed` | 使用与上项相同的关系卡判据；不处理介绍模块 |
 | `bilibili.app.mine.v1.Mine/PubModule` | 只删除 `PubCard.pub_guide(1)`，保留 `ugc(2)`、`opus(3)`、`more(4)`、`card_type(5)` 与未知字段 |
@@ -55,13 +55,14 @@ app PlayURL、PlayerUnite、PGC v1 与 Cheese/PUGV 使用已核对的 reply fiel
 
 | 结构 | 主 URL | 备用 URL | 隔离元数据 |
 | --- | --- | --- | --- |
-| `DashVideo` | `base_url(1)` | `backup_url(2)` | 带宽、编码、大小、音频 ID、帧率、宽高等直接字段 |
-| `DashItem` | `base_url(2)` | `backup_url(3)` | `id(1)`、带宽、编码、大小、帧率等直接字段 |
-| `ResponseUrl` | `url(4)` | `backup_url(5)` | 分段序号、时长、大小、md5 等直接字段 |
+| `DashVideo` | `base_url(1)` | `backup_url(2)` | 缺少已确认表示 ID，因此按精确对象路径隔离 |
+| `DashItem` | `base_url(2)` | `backup_url(3)` | `id(1)` 作为稳定表示身份；音频/视频分别复用匿名主机评分 |
+| `ResponseUrl` | `url(4)` | `backup_url(5)` | 分段 URL 始终按精确对象路径隔离 |
 
 `DashItem.id >= 30000` 作为音频表示，常规较小清晰度 ID 作为视频表示；无把握
-的 ID 使用独立 `unknown` 类型，仍不会与已识别音频/视频共享缓存。资源路径、
-直接表示字段、候选集合、网络档案和媒体类型共同参与固定长度缓存摘要。
+的 ID 使用独立 `unknown` 类型，仍不会与已识别音频/视频共享缓存。稳定表示 ID、
+候选集合、网络档案和媒体类型共同参与固定长度缓存摘要；无法确认表示身份时还会
+加入精确资源路径。
 
 自动模式只提升该消息自己的当前备用完整 URL，并把原始主 URL 放入对应备用
 字段；不会把一个 Protobuf 消息的候选用于另一个消息。
@@ -81,10 +82,10 @@ app PlayURL、PlayerUnite、PGC v1 与 Cheese/PUGV 使用已核对的 reply fiel
 - 任一帧损坏、长度越界或嵌套消息无法解析时，整份响应原样返回。
 - 只有目标关系卡被清理后确实为空的嵌套容器才随之移除；其他字段与模块保留。
 - 不处理播放地址、弹幕会员效果、青少年模式、后台播放、真实会员状态或付费权益字段。
-- 模块把压缩前 gRPC 响应体上限限制为 1 MiB；更大的响应不进入脚本；脚本另有
+- 模块把压缩前 gRPC 响应体上限限制为 4 MiB；更大的响应不进入脚本；脚本另有
   4 MiB 解压输出上限。
 
-广告/UI gRPC 上限为 1 MiB；播放地址 gRPC 上限为 4 MiB。两类脚本均不匹配
+广告/UI gRPC 与播放地址 gRPC 上限均为 4 MiB。两类脚本均不匹配
 媒体分片域名或处理媒体文件响应体。
 
 ## 更新规则

@@ -199,7 +199,8 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
   ]) {
     assert.doesNotMatch(url, pattern);
   }
-  assert.match(scriptLine, /max-size=1048576/);
+  assert.match(scriptLine, /max-size=4194304/);
+  assert.match(scriptLine, /timeout=10/);
   assert.match(scriptLine, /engine=webview/);
   assert.match(
     scriptLine,

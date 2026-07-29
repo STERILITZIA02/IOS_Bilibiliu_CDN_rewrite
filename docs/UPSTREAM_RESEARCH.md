@@ -1,6 +1,6 @@
 # Bilibili Shadowrocket 增强升级：上游调研基线
 
-> 调研日期：2026-07-28
+> 调研日期：2026-07-29
 > 用途：记录 v3 升级采用的来源、许可证和安全边界。本文不是功能完成声明。
 
 ## 调研结论
@@ -29,7 +29,7 @@
 | [BiliUniverse/Universe](https://github.com/BiliUniverse/Universe) | `913bb91c5f4c` | Apache-2.0 | 交叉核对模块结构与许可证 |
 | [Maasea/sgmodule](https://github.com/Maasea/sgmodule) | `65075cdb388f` | Apache-2.0 | 参考 Shadowrocket 模块端点和保守 PCDN 规则 |
 | [app2smile/rules](https://github.com/app2smile/rules) | `df6366a7024e` | MIT | 交叉核对 JSON/Protobuf 广告卡片特征 |
-| [kokoryh/Sparkle](https://github.com/kokoryh/Sparkle) | `a26c3412a760` | GPL-3.0 | 只交叉核对 9.4.0 `PlayPause`/`ViewEndPage`、`PubModule`、`Popular` 与专用素材路由；不复制代码 |
+| [kokoryh/Sparkle](https://github.com/kokoryh/Sparkle) | `a26c3412a760` | GPL-3.0 | 只交叉核对 9.5.0 时仍使用的 ViewUnite module/relate、`PlayPause`/`ViewEndPage`、`PubModule`、`Popular` 与专用素材路由；不复制代码 |
 | [fmz200/wool_scripts](https://github.com/fmz200/wool_scripts) | `edbfac44522e` | GPL-3.0 | 只交叉核对当前 Shadowrocket/Surge 路由覆盖；不复制模块、脚本或 jq |
 | [blackmatrix7/ios_rule_script](https://github.com/blackmatrix7/ios_rule_script) | `8f67b6419fe1` | GPL-2.0 | Bilibili 文件当前已归档；不复制代码或引用归档脚本 |
 | [Shadowrocket 使用手册](https://github.com/LOWERTOP/Shadowrocket/blob/main/README.md) | 调研日默认分支 | 文档仓库声明为准 | 核对模块、脚本、MITM、规则、安装和自动更新能力 |
@@ -79,13 +79,15 @@ BiliUniverse/ADBlock 固定提交
 进一步确认当前首页广告组合：`cm_v1/cm_v2` 的 `ad_web_s`、`ad_av`、
 `ad_web_gif`，`cm_v2` 的 `ad_player`、`ad_inline_3d`、`ad_inline_eggs`、
 `ad_inline_live`，`small_cover_v10/game`，以及
-`cm_double_v9/ad_inline_av`。该实现还会再次请求首页接口来补空位；本项目明确
-不采用该行为，因为响应脚本内递归补位会增加额外网络请求、重入和刷新抖动风险。
+`cm_double_v9/ad_inline_av`。该实现还会再次请求首页接口来补空位。v3.4.0 只采用
+其“过滤后可补取”的行为事实，不复制代码，并增加更窄的安全边界：原始完整 URL、
+最多一次、2.2 秒超时、内部请求标记防递归、第二份响应独立白名单和视频身份去重。
 
 本项目的严格模式因此使用正向白名单：必须有明确 AV/video 类型和具体视频身份，
-按服务端顺序最多保留 6 条。每一份新响应都独立过滤；若不足 6 条则保留实际数量，
-不伪造、不跨响应复用，也不修改 `auto_refresh_time`。标题文本不参与类型判定，
-避免把标题含“广告”“纪录片”的普通 UP 视频误删。
+按服务端顺序最多保留 6 条。每一份新响应都独立过滤；若不足 6 条，最多补取一次，
+仍不足则保留实际数量，不伪造、不跨历史响应复用，也不修改
+`auto_refresh_time`。标题文本不参与类型判定，避免把标题含“广告”“纪录片”的
+普通 UP 视频误删。
 
 ### 首页导航
 
@@ -128,8 +130,15 @@ BiliUniverse/ADBlock 固定提交
   要求 oneof 实际为 `av(2)`，从而拒绝被伪装类型包裹的直播、纪录片或游戏广告。
 - 当前 `ViewReply` 还包含 `tf_panel_customized(34)`；独立 `TFInfo` 方法的
   `tf_toast(2)` 与 `tf_panel_customized(3)`也是播放器下运营商营销面板。
-- 详情介绍模块类型 `18` 为活动横幅、`29` 为大会员横幅、
-  `55` 为 UP 主分享好物；仅在精确 `ViewUnite` 结构中按类型删除。
+- 详情介绍模块类型 `18` 为活动、`29` 为大会员横幅、`37` 为特殊标签、
+  `55` 为商品分享、`63` 为视频提及。当前 Sparkle 处理器在精确 ViewUnite
+  introduction 中移除这些运营模块；本项目只在相同精确结构中处理，未知类型透传。
+- 公开 ViewProgress schema 证明 `video_guide(1)` 内含
+  `material(1)`、`video_point(2)`、`contract_card(3)`；兼容 schema 还可能有
+  `right_material(4)`。新版顶层 `dm(4)` 的 `DmResource` 同时承载 command DM、
+  AttentionCard 与 `OperationCard(3)`，后者 `biz_type(5)` 明确区分关注视频、
+  预约活动、跳转、追番和预约游戏。本项目据此只删除活动/商业 Material，以及
+  预约活动、跳转、预约游戏 OperationCard，不再清空整个 VideoGuide 或 DM。
 - 大会员中心组合接口为 `/x/vip/web/vip_center/combine`。营销
   `banners`/横幅列表变体与 `user.vip`、`wallet`、`privileges` 等权益数据分离，
   因而只清空已审核横幅数组，不遍历或修改会员、支付和账户对象。

@@ -510,6 +510,68 @@ test("safe auto maps a cached fingerprint to current server URLs without reusing
   );
 });
 
+test("v4 safely reuses a verified host profile across objects of one representation", async () => {
+  const firstInput = JSON.stringify(videoFixture());
+  const environment = makeEnvironment({
+    responder(candidate, callNumber) {
+      return validProbe(candidate, callNumber % 2 === 1 ? 400 : 100);
+    },
+  });
+  const firstDescriptor = cdn.prepareSafeJson(
+    firstInput,
+    autoConfig,
+    cdn.createEmptyAutoState(),
+    environment.now,
+  ).descriptors[0];
+
+  await processAuto(firstInput, false, autoConfig, environment);
+  environment.advance(cdn.AUTO_CONFIRM_DELAY_MS);
+  await processAuto(firstInput, false, autoConfig, environment);
+
+  const nextPath = "/upgcxcode/99/88/778899/next-video.m4s";
+  const nextPrimary = originalUrl
+    .replace(vodPath, nextPath)
+    .replace("old-primary", "next-primary");
+  const nextBackup = backupUrl
+    .replace(vodPath, nextPath)
+    .replace("old-backup", "next-backup");
+  const nextInput = JSON.stringify(
+    videoFixture({ primary: nextPrimary, backup: nextBackup }),
+  );
+  const loadedState = cdn.loadAutoState(environment.services);
+  const nextDescriptor = cdn.prepareSafeJson(
+    nextInput,
+    autoConfig,
+    loadedState,
+    environment.now,
+  ).descriptors[0];
+  const result = await processAuto(
+    nextInput,
+    false,
+    autoConfig,
+    environment,
+  );
+  const output = JSON.parse(result.body).data.dash.video[0];
+
+  assert.equal(cdn.AUTO_STATE_KEY, "BiliCDN.safeAuto.v4");
+  assert.equal(firstDescriptor.resourceKey, nextDescriptor.resourceKey);
+  assert.equal(
+    cdn.candidateIdForUrl(originalUrl),
+    cdn.candidateIdForUrl(nextPrimary),
+  );
+  assert.notEqual(
+    cdn.queryFreeCandidateFingerprint(originalUrl),
+    cdn.queryFreeCandidateFingerprint(nextPrimary),
+  );
+  assert.equal(output.base_url, nextBackup);
+  assert.deepEqual(output.backup_url, [nextPrimary]);
+  assert.doesNotMatch(result.body, /old-primary|old-backup/);
+  assert.doesNotMatch(
+    environment.storage[cdn.AUTO_STATE_KEY],
+    /upgcxcode|token=|bilivideo|akamaized/,
+  );
+});
+
 test("safe auto applies a cached candidate with alias-local signed URLs only", () => {
   const fixture = videoFixture();
   const media = fixture.data.dash.video[0];
@@ -764,6 +826,80 @@ test("strict probe validator rejects non-media, ignored ranges, redirects, encod
   );
 });
 
+test("probe scoring uses sustained sample throughput and a 256 KiB range", () => {
+  const primary = {
+    candidateId: cdn.candidateIdForUrl(originalUrl),
+    elapsedMs: 100,
+    ok: true,
+    throughputKbps: 900,
+  };
+  const alternative = {
+    candidateId: cdn.candidateIdForUrl(backupUrl),
+    elapsedMs: 140,
+    ok: true,
+    throughputKbps: 1800,
+  };
+  const entry = {
+    scores: {
+      [primary.candidateId]: {
+        metrics: {
+          failureRate: 0,
+          jitterMs: 8,
+          medianMs: 100,
+          medianThroughputKbps: 900,
+          sampleCount: 3,
+          successCount: 3,
+        },
+      },
+      [alternative.candidateId]: {
+        metrics: {
+          failureRate: 0,
+          jitterMs: 12,
+          medianMs: 140,
+          medianThroughputKbps: 1800,
+          sampleCount: 3,
+          successCount: 3,
+        },
+      },
+    },
+  };
+
+  assert.equal(cdn.AUTO_RANGE_END, 262143);
+  assert.equal(
+    cdn.alternativeQualifies(
+      primary,
+      alternative,
+      { switchThreshold: 20 },
+      entry,
+    ),
+    true,
+  );
+
+  const unstableEntry = {
+    scores: {
+      [alternative.candidateId]: {
+        metrics: {
+          failureRate: 0,
+          jitterMs: 80,
+          medianMs: 120,
+          medianThroughputKbps: 1800,
+          sampleCount: 2,
+          successCount: 2,
+        },
+      },
+    },
+  };
+  assert.equal(
+    cdn.alternativeQualifies(
+      primary,
+      alternative,
+      { switchThreshold: 20 },
+      unstableEntry,
+    ),
+    false,
+  );
+});
+
 test("pair validation rejects different samples and different total lengths", async () => {
   for (const mismatch of ["hash", "length"]) {
     const environment = makeEnvironment({
@@ -1001,7 +1137,7 @@ test("corrupted state fails open and a changed reset token clears learning exact
   assert.equal(repeated.resetToken, "reset_20260728");
 });
 
-test("configured interval is the exact selection TTL", async () => {
+test("configured interval is the exact selection TTL with bounded revalidation", async () => {
   const config = cdn.parseArgument(
     "cdn=auto&probeMode=blocking&intervalHours=72&switchThreshold=20",
   );
@@ -1018,7 +1154,72 @@ test("configured interval is the exact selection TTL", async () => {
   const state = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
   const entry = Object.values(state.entries)[0];
   assert.equal(entry.expiresAt, confirmedAt + 72 * 60 * 60 * 1000);
-  assert.equal(entry.nextProbeAt, entry.expiresAt);
+  assert.equal(
+    entry.nextProbeAt,
+    confirmedAt + cdn.AUTO_SELECTED_REVALIDATE_MS,
+  );
+  assert.ok(entry.nextProbeAt < entry.expiresAt);
+});
+
+test("selected CDN degradation is revalidated and cleared after 30 minutes", async () => {
+  const input = JSON.stringify(videoFixture());
+  let selectedShouldFail = false;
+  const environment = makeEnvironment({
+    responder(candidate) {
+      if (
+        selectedShouldFail &&
+        candidate.id === cdn.candidateIdForUrl(backupUrl)
+      ) {
+        return {
+          body: "",
+          elapsedMs: 5000,
+          error: true,
+          headers: {},
+          status: 0,
+          url: candidate.url,
+        };
+      }
+      return validProbe(
+        candidate,
+        candidate.id === cdn.candidateIdForUrl(originalUrl)
+          ? 100
+          : 40,
+      );
+    },
+  });
+
+  await processAuto(input, false, autoConfig, environment);
+  environment.advance(cdn.AUTO_CONFIRM_DELAY_MS);
+  await processAuto(input, false, autoConfig, environment);
+  let state = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
+  let entry = Object.values(state.entries)[0];
+  assert.equal(entry.candidateId, cdn.candidateIdForUrl(backupUrl));
+
+  environment.advance(cdn.AUTO_SELECTED_REVALIDATE_MS);
+  selectedShouldFail = true;
+  const failed = await processAuto(
+    input,
+    false,
+    autoConfig,
+    environment,
+  );
+  state = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
+  entry = Object.values(state.entries)[0];
+
+  assert.equal(failed.reason, "selected-failed");
+  assert.equal(entry.candidateId, null);
+  assert.equal(entry.expiresAt, 0);
+  assert.equal(entry.nextProbeAt, environment.now + 30 * 60 * 1000);
+
+  const fallback = await processAuto(
+    input,
+    false,
+    autoConfig,
+    environment,
+  );
+  assert.equal(fallback.changed, 0);
+  assert.equal(fallback.body, input);
+  assert.equal(fallback.reason, "cache-or-throttle");
 });
 
 test("safe Protobuf mode isolates DashVideo, DashItem audio, and ResponseUrl", () => {

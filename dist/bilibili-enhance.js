@@ -32,6 +32,13 @@
     "vertical_pgc"
   ];
   var HOME_FEED_VIDEO_LIMIT = 6;
+  var HOME_FEED_AV_CARD_TYPES = {
+    large_cover_single_v9: true,
+    large_cover_v1: true,
+    small_cover_v2: true
+  };
+  var FEED_REFILL_HEADER = "X-BiliFlow-Refill";
+  var FEED_REFILL_TIMEOUT_MS = 2200;
   var UI_OPTION_DEFAULTS = {
     hideHomeGame: true,
     hideHomeJourney: true,
@@ -216,20 +223,41 @@
     "modularVipSection"
   ];
   var MINE_UI_CONTAINER_KEYS = {
+    action: true,
+    banner: true,
+    banner_info: true,
+    bannerInfo: true,
+    block_list: true,
+    blockList: true,
+    blocks: true,
     button: true,
     buttons: true,
     card_list: true,
     cardList: true,
     cards: true,
+    children: true,
+    common_op_item: true,
+    commonOpItem: true,
     entries: true,
+    group_list: true,
+    groupList: true,
+    groups: true,
     item: true,
     items: true,
+    jump: true,
     list: true,
+    menu_items: true,
+    menuItems: true,
     module_list: true,
     moduleList: true,
     modules: true,
     more_sections: true,
     moreSections: true,
+    navigation: true,
+    rows: true,
+    section: true,
+    section_v2: true,
+    sectionV2: true,
     section_list: true,
     sectionList: true,
     sections: true,
@@ -238,18 +266,46 @@
     serviceList: true,
     services: true
   };
+  var MINE_MATCH_WRAPPER_KEYS = [
+    "action",
+    "common_op_item",
+    "commonOpItem",
+    "jump",
+    "navigation"
+  ];
   var VIEW_JSON_CONTAINER_KEYS = {
     cards: true,
     introduction: true,
+    introduction_modules: true,
+    introductionModules: true,
     introductions: true,
     items: true,
+    module_list: true,
+    moduleList: true,
     modules: true,
+    relates: true,
     relates_feed: true,
     relatesFeed: true,
     tab: true,
     tab_modules: true,
     tabModules: true,
     tabs: true
+  };
+  var VIEW_JSON_AD_KEYS = {
+    ad_info: true,
+    ad_modules: true,
+    adInfo: true,
+    adModules: true,
+    cm: true,
+    cm_config: true,
+    cm_ipad: true,
+    cms: true,
+    commercial_info: true,
+    commercialInfo: true,
+    player_ad: true,
+    playerAd: true,
+    under_player_ad: true,
+    underPlayerAd: true
   };
   var MAX_GRPC_DECOMPRESSED_BYTES = 4 * 1024 * 1024;
 
@@ -1161,6 +1217,161 @@
     return changes;
   }
 
+  function feedItemIdentities(item) {
+    var playerArgs;
+    var value;
+    var keys = ["bvid", "aid", "avid", "cid", "param"];
+    var output = [];
+    var index;
+    if (!isPlainObject(item)) {
+      return output;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      value = item[keys[index]];
+      if (
+        (typeof value === "string" || typeof value === "number") &&
+        String(value).trim()
+      ) {
+        output.push(keys[index] + ":" + String(value).trim());
+      }
+    }
+    playerArgs = isPlainObject(item.player_args)
+      ? item.player_args
+      : isPlainObject(item.playerArgs)
+        ? item.playerArgs
+        : null;
+    if (playerArgs) {
+      for (index = 0; index < keys.length; index += 1) {
+        value = playerArgs[keys[index]];
+        if (
+        (typeof value === "string" || typeof value === "number") &&
+        String(value).trim()
+      ) {
+          output.push(
+            "player:" + keys[index] + ":" + String(value).trim()
+          );
+        }
+      }
+    }
+    value = objectLink(item);
+    if (value) {
+      output.push("uri:" + value);
+    }
+    return output;
+  }
+
+  function feedItemIdentity(item) {
+    var identities = feedItemIdentities(item);
+    return identities.length > 0 ? identities[0] : "";
+  }
+
+  function markFeedIdentities(seen, item) {
+    var identities = feedItemIdentities(item);
+    var index;
+    for (index = 0; index < identities.length; index += 1) {
+      seen[identities[index]] = true;
+    }
+  }
+
+  function hasSeenFeedIdentity(seen, item) {
+    var identities = feedItemIdentities(item);
+    var index;
+    if (identities.length === 0) {
+      return true;
+    }
+    for (index = 0; index < identities.length; index += 1) {
+      if (seen[identities[index]]) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function filteredFeedLength(result) {
+    var parsed;
+    try {
+      parsed = JSON.parse(result && result.body);
+    } catch (error) {
+      return -1;
+    }
+    return (
+      isPlainObject(parsed) &&
+      isPlainObject(parsed.data) &&
+      Array.isArray(parsed.data.items)
+    )
+      ? parsed.data.items.length
+      : -1;
+  }
+
+  function mergeFilteredFeedResults(primaryResult, refillResult) {
+    var primary;
+    var refill;
+    var seen = {};
+    var items;
+    var source;
+    var index;
+    var appended = 0;
+
+    if (
+      !primaryResult ||
+      !primaryResult.valid ||
+      !refillResult ||
+      !refillResult.valid
+    ) {
+      return primaryResult;
+    }
+    try {
+      primary = JSON.parse(primaryResult.body);
+      refill = JSON.parse(refillResult.body);
+    } catch (error) {
+      return primaryResult;
+    }
+    if (
+      !isPlainObject(primary.data) ||
+      !Array.isArray(primary.data.items) ||
+      !isPlainObject(refill.data) ||
+      !Array.isArray(refill.data.items)
+    ) {
+      return primaryResult;
+    }
+    items = primary.data.items;
+    source = refill.data.items;
+    for (index = 0; index < items.length; index += 1) {
+      markFeedIdentities(seen, items[index]);
+    }
+    for (
+      index = 0;
+      index < source.length && items.length < HOME_FEED_VIDEO_LIMIT;
+      index += 1
+    ) {
+      if (!isPlainHomeFeedVideo(source[index])) {
+        continue;
+      }
+      if (hasSeenFeedIdentity(seen, source[index])) {
+        continue;
+      }
+      markFeedIdentities(seen, source[index]);
+      items.push(source[index]);
+      appended += 1;
+    }
+    if (appended === 0) {
+      return primaryResult;
+    }
+    return {
+      arrayCounts: ["items:" + items.length],
+      body: JSON.stringify(primary),
+      changed: primaryResult.changed + appended,
+      endpoint: primaryResult.endpoint,
+      hitType: primaryResult.hitType || "feed-filter",
+      reason:
+        items.length === HOME_FEED_VIDEO_LIMIT
+          ? "changed-refilled-six"
+          : "changed-refill-partial",
+      topKeys: primaryResult.topKeys || [],
+      valid: true
+    };
+  }
+
   function handleStory(body, config) {
     if (!isPlainObject(body.data)) {
       return 0;
@@ -1379,10 +1590,52 @@
     return changes;
   }
 
-  function matchesMineTarget(item, optionKey) {
+  function mineObjectIds(item) {
+    var keys = [
+      "id",
+      "item_id",
+      "itemId",
+      "module_id",
+      "moduleId",
+      "tab_id",
+      "tabId"
+    ];
+    var output = [];
+    var index;
+    var value;
+    if (!isPlainObject(item)) {
+      return output;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      value = Number(item[keys[index]]);
+      if (Number.isFinite(value) && !includes(output, value)) {
+        output.push(value);
+      }
+    }
+    return output;
+  }
+
+  function mineMatchCandidates(item) {
+    var output = [];
+    var index;
+    var nested;
+    if (!isPlainObject(item)) {
+      return output;
+    }
+    output.push(item);
+    for (index = 0; index < MINE_MATCH_WRAPPER_KEYS.length; index += 1) {
+      nested = item[MINE_MATCH_WRAPPER_KEYS[index]];
+      if (isPlainObject(nested) && !includes(output, nested)) {
+        output.push(nested);
+      }
+    }
+    return output;
+  }
+
+  function matchesMineTargetDirect(item, optionKey) {
     var labels = objectLabels(item);
     var link = objectLink(item);
-    var id = Number(item && item.id);
+    var ids = mineObjectIds(item);
     var target = MINE_TARGETS[optionKey];
     var index;
     var targetIndex;
@@ -1393,8 +1646,10 @@
     if (!target) {
       return false;
     }
-    if (includes(target.ids, id)) {
-      return true;
+    for (index = 0; index < ids.length; index += 1) {
+      if (includes(target.ids, ids[index])) {
+        return true;
+      }
     }
     if (link && target.uri.test(link)) {
       return true;
@@ -1418,6 +1673,17 @@
       }
     }
     return labelMatched;
+  }
+
+  function matchesMineTarget(item, optionKey) {
+    var candidates = mineMatchCandidates(item);
+    var index;
+    for (index = 0; index < candidates.length; index += 1) {
+      if (matchesMineTargetDirect(candidates[index], optionKey)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function configuredMineTarget(item, config) {
@@ -1521,12 +1787,14 @@
   }
 
   function shouldRemoveMineItem(item, config, contextKey) {
-    if (
-      config.ads &&
-      config.vipPromotions &&
-      isMineMarketingBanner(item, contextKey)
-    ) {
-      return true;
+    var candidates = mineMatchCandidates(item);
+    var index;
+    if (config.ads && config.vipPromotions) {
+      for (index = 0; index < candidates.length; index += 1) {
+        if (isMineMarketingBanner(candidates[index], contextKey)) {
+          return true;
+        }
+      }
     }
     return Boolean(
       config.ui && configuredMineTarget(item, config)
@@ -2011,12 +2279,20 @@
     );
   }
 
-  function isPlainHomeFeedVideo(item) {
+  function isPlainHomeFeedVideo(item, requireKnownCardType) {
+    var cardType;
     var cardGoto;
     var gotoValue;
     if (
       !isPlainVideoRecommendation(item) ||
       !hasOrdinaryVideoIdentity(item)
+    ) {
+      return false;
+    }
+    cardType = String(item.card_type || "").toLowerCase();
+    if (
+      requireKnownCardType !== false &&
+      !HOME_FEED_AV_CARD_TYPES[cardType]
     ) {
       return false;
     }
@@ -2028,16 +2304,32 @@
     );
   }
 
+  function deleteKnownViewAdKeys(node, config) {
+    var keys;
+    var index;
+    var key;
+    var changes = 0;
+    if (!isPlainObject(node) || config.ads === false) {
+      return 0;
+    }
+    keys = Object.keys(node);
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (VIEW_JSON_AD_KEYS[key]) {
+        delete node[key];
+        changes += 1;
+      }
+    }
+    return changes;
+  }
+
   function handleView(body, config) {
     var data = body.data;
     var changes = 0;
     if (!isPlainObject(data)) {
       return 0;
     }
-    changes += deleteProperty(data, "cm");
-    changes += deleteProperty(data, "cms");
-    changes += deleteProperty(data, "cm_config");
-    changes += deleteProperty(data, "cm_ipad");
+    changes += deleteKnownViewAdKeys(data, config);
     changes += replaceFilteredArray(data, "relates", function (item) {
       if (
         config.videoOnlyRecommendations !== false &&
@@ -2082,7 +2374,10 @@
         : item.moduleType
     );
     return (
-      (config.ads !== false && (moduleType === 18 || moduleType === 55)) ||
+      (
+        config.ads !== false &&
+        includes([18, 37, 55, 63], moduleType)
+      ) ||
       (config.vipPromotions !== false && moduleType === 29)
     );
   }
@@ -2096,6 +2391,7 @@
     if (!isPlainObject(node) || depth > 8) {
       return 0;
     }
+    changes += deleteKnownViewAdKeys(node, config);
     keys = Object.keys(node);
     for (index = 0; index < keys.length; index += 1) {
       key = keys[index];
@@ -2222,7 +2518,7 @@
         (
           config.homeFeedVideoOnly !== false &&
           (
-            !isPlainHomeFeedVideo(item) ||
+            !isPlainHomeFeedVideo(item, false) ||
             kept.length >= HOME_FEED_VIDEO_LIMIT
           )
         )
@@ -2992,12 +3288,90 @@
     });
   }
 
-  function transformViewV1Progress(input) {
-    return rewriteProtoMessage(input, function (field) {
-      return field.fieldNumber === 1 && field.wireType === 2
-        ? { changed: 1, remove: true }
+  function isPromotionalVideoGuideMaterial(input) {
+    var materialType = smallVarintField(input, 4);
+    return (
+      includes([1, 6], materialType) ||
+      bytesContainCommercialEvidence(input)
+    );
+  }
+
+  function transformVideoGuideCommercialFields(input) {
+    return rewriteProtoMessage(input, function (field, bytes) {
+      if (
+        field.wireType !== 2 ||
+        !includes([1, 4], field.fieldNumber)
+      ) {
+        return null;
+      }
+      if (
+        field.fieldNumber === 1
+          ? isPromotionalVideoGuideMaterial(
+              protoPayload(bytes, field)
+            )
+          : bytesContainCommercialEvidence(
+              protoPayload(bytes, field)
+            )
+      ) {
+        return { changed: 1, remove: true };
+      }
+      return null;
+    });
+  }
+
+  function isPromotionalOperationCard(input) {
+    var businessType = smallVarintField(input, 5);
+    return (
+      includes([2, 3, 5], businessType) ||
+      bytesContainCommercialEvidence(input)
+    );
+  }
+
+  function transformViewProgressDmResource(input) {
+    return filterRepeatedMessage(input, 3, function (card) {
+      return isPromotionalOperationCard(card);
+    });
+  }
+
+  function transformViewProgressFields(input, includeDmResource) {
+    var result = rewriteProtoMessage(input, function (field, bytes) {
+      var nested;
+      if (field.wireType !== 2) {
+        return null;
+      }
+      if (field.fieldNumber === 1) {
+        nested = transformVideoGuideCommercialFields(
+          protoPayload(bytes, field)
+        );
+      } else if (
+        includeDmResource &&
+        field.fieldNumber === 4
+      ) {
+        nested = transformViewProgressDmResource(
+          protoPayload(bytes, field)
+        );
+      } else {
+        return null;
+      }
+      if (!nested.valid) {
+        return { invalid: true };
+      }
+      return nested.changed > 0
+        ? { changed: nested.changed, payload: nested.body }
         : null;
     });
+    result.reason =
+      result.changed > 0
+        ? "view-progress-commercial-fields-removed"
+        : "no-ad-fields";
+    result.schema = includeDmResource
+      ? "view-unite-progress-video-guide-dm-v1"
+      : "view-v1-progress-video-guide-v1";
+    return result;
+  }
+
+  function transformViewV1Progress(input) {
+    return transformViewProgressFields(input, false);
   }
 
   function transformViewV1TfInfo(input) {
@@ -3013,11 +3387,7 @@
   }
 
   function transformViewUniteProgress(input) {
-    return rewriteProtoMessage(input, function (field) {
-      return field.fieldNumber === 4 && field.wireType === 2
-        ? { changed: 1, remove: true }
-        : null;
-    });
+    return transformViewProgressFields(input, true);
   }
 
   function contextHeaderText(context) {
@@ -3047,11 +3417,14 @@
       context &&
       (
         context.assumeIos940 === true ||
+        context.assumeIos950 === true ||
         /58ece148439d6782b1e6f9a9a37e82a1fd0db236/i.test(text) ||
-        /(?:bili(?:bili)?|bili-universal)[^;\r\n]{0,40}(?:9\.4\.0|9400\d{2,})/i.test(
+        /(?:bili(?:bili)?|bili-universal)[^;\r\n]{0,40}(?:9\.[45]\.0|9400\d{2,}|9500\d{2,}|90500100)/i.test(
           text
         ) ||
-        /(?:build|version)[=:/ _-]*(?:9\.4\.0|9400\d{2,})/i.test(text)
+        /(?:build|version)[=:/ _-]*(?:9\.[45]\.0|9400\d{2,}|9500\d{2,}|90500100)/i.test(
+          text
+        )
       )
     );
   }
@@ -3068,7 +3441,7 @@
         ? String.fromCharCode(bytes[index])
         : " ";
     }
-    return /(?:https?:\/\/(?:[^/\s]+\.)?(?:cm|ad)\.bili(?:bili)?\.(?:com|net)|(?:https?:\/\/|bilibili:\/\/)[^\s]{0,160}(?:taobao|tmall|jd\.com|pinduoduo|sponsor|commercial|creative|advert)|(?:^|[^a-z0-9])(?:ad_info|ad_report|adver_id|creative_id|commercial_id|pause[_-]?(?:ad|commerce)|flash[_-]?sale|mall[_/-]ad)(?:[^a-z0-9]|$))/i.test(
+    return /(?:https?:\/\/(?:[^/\s]+\.)?(?:cm|ad)\.bili(?:bili)?\.(?:com|net)|(?:https?:\/\/|bilibili:\/\/)[^\s]{0,160}(?:taobao|tmall|jd\.com|pinduoduo|sponsor|commercial|creative|advert)|(?:^|[^a-z0-9])(?:ad_info|ad_report|adver_id|creative_id|commercial_id|pause[-_]?(?:ad|commerce)|under[-_]?player[-_]?ad|flash[-_]?sale|mall[-_/]ad)(?:[^a-z0-9]|$))/i.test(
       text
     );
   }
@@ -3096,7 +3469,7 @@
     result.reason =
       result.changed > 0 ? "commercial-fields-removed" : "no-ad-fields";
     result.schema = isSupportedIos940Build(context)
-      ? "play-pause-ios-9.4.0-commercial-fields"
+      ? "play-pause-ios-9.4-9.5-commercial-fields"
       : "play-pause-commercial-evidence-v1";
     return result;
   }
@@ -3403,7 +3776,7 @@
       if (
         (
           config.ads !== false &&
-          (moduleType === 18 || moduleType === 55)
+          includes([18, 37, 55, 63], moduleType)
         ) ||
         (moduleType === 29 && config.vipPromotions !== false)
       ) {
@@ -4156,13 +4529,157 @@
     );
   }
 
+  function isVolatileJsonEndpoint(endpoint) {
+    return includes(
+      [
+        "feed",
+        "mine",
+        "splash-list",
+        "splash-show",
+        "splash-event-list2",
+        "splash-brand-list",
+        "story",
+        "view",
+        "vip-materials",
+        "vip-material-report"
+      ],
+      endpoint
+    );
+  }
+
+  function isVolatileGrpcEndpoint(endpoint) {
+    return Boolean(
+      endpoint && endpoint !== "grpc-resource-module-list"
+    );
+  }
+
+  function noStoreResponseHeaders(headers) {
+    var output = {};
+    var keys = isPlainObject(headers) ? Object.keys(headers) : [];
+    var index;
+    var key;
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (
+        !/^(?:age|cache-control|content-length|etag|expires|last-modified|pragma)$/i.test(
+          key
+        )
+      ) {
+        output[key] = headers[key];
+      }
+    }
+    output["Cache-Control"] = "no-store, no-cache, must-revalidate";
+    output.Pragma = "no-cache";
+    output.Expires = "0";
+    return output;
+  }
+
+  function completionForResult(result, responseHeaders, noStore) {
+    var completion = {};
+    if (result && result.valid && result.changed > 0) {
+      completion.body = result.body;
+    }
+    if (noStore) {
+      completion.headers = noStoreResponseHeaders(responseHeaders);
+    }
+    return completion;
+  }
+
+  function feedRefillHeaders(headers) {
+    var output = {};
+    var keys = isPlainObject(headers) ? Object.keys(headers) : [];
+    var index;
+    var key;
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (
+        !/^(?:content-length|if-match|if-modified-since|if-none-match|if-range|range)$/i.test(
+          key
+        )
+      ) {
+        output[key] = headers[key];
+      }
+    }
+    output["Accept-Encoding"] = "identity";
+    output["Cache-Control"] = "no-cache";
+    output.Pragma = "no-cache";
+    output[FEED_REFILL_HEADER] = "1";
+    return output;
+  }
+
+  function fetchFeedRefill(requestUrl, requestHeaders, callback) {
+    var client =
+      typeof $httpClient !== "undefined" ? $httpClient : null;
+    var completed = false;
+    var timer = null;
+
+    function complete(body) {
+      if (completed) {
+        return;
+      }
+      completed = true;
+      if (timer !== null && typeof clearTimeout === "function") {
+        clearTimeout(timer);
+      }
+      callback(typeof body === "string" ? body : "");
+    }
+
+    if (!client || typeof client.get !== "function") {
+      complete("");
+      return;
+    }
+    if (typeof setTimeout === "function") {
+      timer = setTimeout(function () {
+        complete("");
+      }, FEED_REFILL_TIMEOUT_MS + 250);
+    }
+    try {
+      client.get(
+        {
+          "auto-redirect": false,
+          headers: feedRefillHeaders(requestHeaders),
+          timeout: Math.max(
+            1,
+            Math.ceil(FEED_REFILL_TIMEOUT_MS / 1000)
+          ),
+          url: requestUrl
+        },
+        function (error, response, data) {
+          var status = Number(
+            response && (response.statusCode || response.status)
+          );
+          var body =
+            typeof data === "string"
+              ? data
+              : response && typeof response.body === "string"
+                ? response.body
+                : "";
+          if (
+            error ||
+            !Number.isFinite(status) ||
+            status < 200 ||
+            status >= 300
+          ) {
+            complete("");
+            return;
+          }
+          complete(body);
+        }
+      );
+    } catch (error) {
+      complete("");
+    }
+  }
+
   function runShadowrocket() {
     var config;
     var body;
     var requestUrl;
     var result;
+    var endpoint;
     var grpcEndpoint;
     var context;
+    var preventCaching;
     try {
       config = parseArgument(
         typeof $argument === "string" ? $argument : ""
@@ -4176,6 +4693,7 @@
         typeof $request !== "undefined" && $request
           ? String($request.url || "")
           : "";
+      endpoint = classifyEndpoint(requestUrl);
       grpcEndpoint = classifyGrpcEndpoint(requestUrl);
       context = {
         requestHeaders:
@@ -4187,6 +4705,9 @@
             ? $response.headers
             : null
       };
+      preventCaching =
+        isVolatileGrpcEndpoint(grpcEndpoint) ||
+        isVolatileJsonEndpoint(endpoint);
       body =
         grpcEndpoint &&
         typeof $response !== "undefined" &&
@@ -4219,10 +4740,22 @@
               asyncResult.valid &&
               asyncResult.changed > 0
             ) {
-              $done({ body: asyncResult.body });
+              $done(
+                completionForResult(
+                  asyncResult,
+                  context.responseHeaders,
+                  preventCaching
+                )
+              );
               return;
             }
-            $done({});
+            $done(
+              completionForResult(
+                asyncResult,
+                context.responseHeaders,
+                preventCaching
+              )
+            );
           }, function (error) {
             safeLog(
               "compressed gRPC error; response left unchanged: " +
@@ -4232,7 +4765,13 @@
                     : String(error)
                 )
             );
-            $done({});
+            $done(
+              completionForResult(
+                null,
+                context.responseHeaders,
+                preventCaching
+              )
+            );
           });
           return;
         }
@@ -4246,20 +4785,79 @@
           );
         }
         if (result.valid && result.changed > 0) {
-          $done({ body: result.body });
+          $done(
+            completionForResult(
+              result,
+              context.responseHeaders,
+              preventCaching
+            )
+          );
           return;
         }
-        $done({});
+        $done(
+          completionForResult(
+            result,
+            context.responseHeaders,
+            preventCaching
+          )
+        );
         return;
       }
       if (typeof body !== "string") {
         if (config.debug) {
           safeLog("non-text response left unchanged");
         }
-        $done({});
+        $done(
+          completionForResult(
+            null,
+            context.responseHeaders,
+            preventCaching
+          )
+        );
         return;
       }
       result = transformJsonText(body, requestUrl, config);
+      if (
+        result.valid &&
+        endpoint === "feed" &&
+        config.homeFeedVideoOnly !== false &&
+        filteredFeedLength(result) >= 0 &&
+        filteredFeedLength(result) < HOME_FEED_VIDEO_LIMIT &&
+        headerValue(context.requestHeaders, FEED_REFILL_HEADER) !== "1"
+      ) {
+        fetchFeedRefill(
+          requestUrl,
+          context.requestHeaders,
+          function (refillBody) {
+            var refillResult;
+            var merged = result;
+            if (refillBody) {
+              refillResult = transformJsonText(
+                refillBody,
+                requestUrl,
+                config
+              );
+              merged = mergeFilteredFeedResults(result, refillResult);
+            }
+            if (config.debug) {
+              logDiagnostic(
+                merged,
+                "json",
+                body,
+                context.responseHeaders
+              );
+            }
+            $done(
+              completionForResult(
+                merged,
+                context.responseHeaders,
+                true
+              )
+            );
+          }
+        );
+        return;
+      }
       if (config.debug) {
         logDiagnostic(
           result,
@@ -4269,10 +4867,22 @@
         );
       }
       if (result.valid && result.changed > 0) {
-        $done({ body: result.body });
+        $done(
+          completionForResult(
+            result,
+            context.responseHeaders,
+            preventCaching
+          )
+        );
         return;
       }
-      $done({});
+      $done(
+        completionForResult(
+          result,
+          context.responseHeaders,
+          preventCaching
+        )
+      );
     } catch (error) {
       safeLog(
         "error; response left unchanged: " +
@@ -4282,7 +4892,15 @@
               : String(error)
           )
       );
-      $done({});
+      $done(
+        preventCaching &&
+        typeof $response !== "undefined" &&
+        $response
+          ? {
+              headers: noStoreResponseHeaders($response.headers)
+            }
+          : {}
+      );
     }
   }
 
@@ -4293,6 +4911,8 @@
     classifyGrpcEndpoint: classifyGrpcEndpoint,
     concatBytes: concatBytes,
     encodeVarint: encodeVarint,
+    feedItemIdentity: feedItemIdentity,
+    feedItemIdentities: feedItemIdentities,
     grpcFrameSummaryForLog: grpcFrameSummaryForLog,
     handleFeed: handleFeed,
     handleMine: handleMine,
@@ -4302,12 +4922,15 @@
     handleVipMaterials: handleVipMaterials,
     hasExplicitAdMarker: hasExplicitAdMarker,
     isHighConfidencePromotion: isHighConfidencePromotion,
+    isPlainHomeFeedVideo: isPlainHomeFeedVideo,
     isMineMarketingBanner: isMineMarketingBanner,
     isFeedAdCard: isFeedAdCard,
     isExplicitPopularAv: isExplicitPopularAv,
     isSupportedIos940Build: isSupportedIos940Build,
     matchesMineTarget: matchesMineTarget,
     matchesNavigationItem: matchesNavigationItem,
+    mergeFilteredFeedResults: mergeFilteredFeedResults,
+    noStoreResponseHeaders: noStoreResponseHeaders,
     parseArgument: parseArgument,
     parseProtoFields: parseProtoFields,
     readVarint: readVarint,

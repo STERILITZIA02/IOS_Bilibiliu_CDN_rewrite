@@ -2,6 +2,53 @@
 
 All notable changes to this project are documented here.
 
+## [3.4.0] - 2026-07-29
+
+- Target Bilibili iOS 9.5.0 (`build=90500100`) without changing the existing
+  narrow endpoint matchers. Add exact JSON View carriers and current
+  ViewUnite introduction module adapters while preserving unknown containers.
+- Replace broad ViewProgress removal with endpoint-specific field filtering:
+  remove activity/commercial `VideoGuide.material(1)` entries and, for
+  ViewUnite only, promotional `DmResource.cards(3)` business types while
+  preserving normal command DM, attention, follow/favorite cards, progress
+  points, contract cards, Chronos, snapshots, and unknown wire bytes.
+- Recognize 9.5.0 PlayPause requests and keep the conservative
+  commercial-evidence filter instead of returning an unconditional empty
+  Protobuf message.
+- Enforce the current Home Feed AV card allowlist and perform at most one
+  2.2-second, exact-URL, no-cache supplemental fetch when filtering leaves
+  fewer than six unique videos. The supplemental response is independently
+  filtered and failure never restores rejected cards.
+- Add response-side no-store headers for mutable filtered UI responses so an
+  ETag/304 or foreground restore cannot replace the filtered result with a
+  stale local copy. Resource `Module/List` and diagnostic `myinfo` remain
+  untouched.
+- Expand Mine JSON matching to stable item/module/tab ID aliases and reviewed
+  action/navigation wrappers before title fallback, while recursion remains
+  limited to known UI containers and account data is preserved.
+- Raise the bounded enhancement gRPC response limit from 1 MiB to 4 MiB and
+  timeout from 8 to 10 seconds so large View/ViewUnite frames do not silently
+  bypass the response handler.
+- Reset CDN learning to `safeAuto.v4`, enlarge paired Range samples from
+  64 KiB to 256 KiB, and score median sampled throughput before elapsed time,
+  with failure-rate and jitter safeguards.
+- Reuse only anonymized host performance across different objects of the same
+  verified audio/video representation and current candidate set. Every
+  promoted signed URL still comes from the current response and segments or
+  unknown representations remain object-path isolated.
+- Reduce the two-confirmation separation to the existing two-minute global
+  probe interval, reject high jitter after the second sample, and revalidate a
+  selected host at most once per 30 minutes without changing its configured
+  6–72 hour selection TTL. A failed selected candidate is cleared for the next
+  response while the current response retains the server primary as fallback.
+- Keep default nonblocking first play and retain fixed-mode, hash/length
+  equivalence, redirect/error-page rejection, signature-lane, live-URL,
+  codec, quality, and audio/video safety boundaries.
+- Add regressions for 9.5 JSON/gRPC carriers, background Mine wrappers,
+  no-cache six-item refill, VideoGuide/DmResource field preservation, v4
+  cross-object current-token reuse, 256 KiB throughput scoring, and generated
+  module limits.
+
 ## [3.3.0] - 2026-07-28
 
 - Repair matcher/classifier drift so all four splash endpoints, `myinfo`,
