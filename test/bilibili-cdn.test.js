@@ -114,17 +114,20 @@ function videoFixture({
 }
 
 function validProbe(candidate, elapsedMs = 100, overrides = {}) {
+  const rangeStart = candidate?.probeRange?.start ?? 0;
+  const rangeEnd = candidate?.probeRange?.end ?? cdn.AUTO_RANGE_END;
+  const rangeLength = rangeEnd - rangeStart + 1;
   const body =
     overrides.body === undefined
-      ? Buffer.alloc(cdn.AUTO_RANGE_END + 1, 1)
+      ? Buffer.alloc(rangeLength, 1)
       : overrides.body;
   return {
     body,
     elapsedMs,
     error: false,
     headers: {
-      "Content-Length": String(cdn.AUTO_RANGE_END + 1),
-      "Content-Range": `bytes 0-${cdn.AUTO_RANGE_END}/9999999`,
+      "Content-Length": String(rangeLength),
+      "Content-Range": `bytes ${rangeStart}-${rangeEnd}/9999999`,
       "Content-Type": "video/mp4",
       ...(overrides.headers || {}),
     },
@@ -459,6 +462,21 @@ test("safe auto requires two separated successful probes and never switches the 
   assert.equal(first.body, input);
   assert.equal(first.reason, "alternative-pending");
   assert.equal(environment.calls.length, 2);
+  assert.deepEqual(
+    environment.calls.slice(0, 2).map(({ candidate }) => candidate.probeRange),
+    [
+      { start: 0, end: cdn.AUTO_EXPLORE_RANGE_END, phase: "explore" },
+      { start: 0, end: cdn.AUTO_EXPLORE_RANGE_END, phase: "explore" },
+    ],
+  );
+  assert.equal(
+    environment.calls.slice(0, 2).reduce(
+      (total, { candidate }) =>
+        total + candidate.probeRange.end - candidate.probeRange.start + 1,
+      0,
+    ),
+    512 * 1024,
+  );
 
   environment.advance(cdn.AUTO_CONFIRM_DELAY_MS);
   const second = await processAuto(input, false, autoConfig, environment);
@@ -466,6 +484,16 @@ test("safe auto requires two separated successful probes and never switches the 
   assert.equal(second.body, input);
   assert.equal(second.reason, "alternative-confirmed");
   assert.equal(environment.calls.length, 4);
+  const confirmationRanges = environment.calls
+    .slice(2, 4)
+    .map(({ candidate }) => candidate.probeRange);
+  assert.equal(confirmationRanges[0].phase, "confirm");
+  assert.ok(confirmationRanges[0].start > 0);
+  assert.equal(
+    confirmationRanges[0].end - confirmationRanges[0].start + 1,
+    1024 * 1024,
+  );
+  assert.deepEqual(confirmationRanges[1], confirmationRanges[0]);
 
   const third = await processAuto(input, false, autoConfig, environment);
   const output = JSON.parse(third.body);
@@ -510,7 +538,7 @@ test("safe auto maps a cached fingerprint to current server URLs without reusing
   );
 });
 
-test("v6 never reuses a verified URL or signature across media objects", async () => {
+test("v7 never reuses a verified URL or signature across media objects", async () => {
   const firstInput = JSON.stringify(videoFixture());
   const environment = makeEnvironment({
     responder(candidate, callNumber) {
@@ -553,7 +581,7 @@ test("v6 never reuses a verified URL or signature across media objects", async (
   );
   const output = JSON.parse(result.body).data.dash.video[0];
 
-  assert.equal(cdn.AUTO_STATE_KEY, "BiliCDN.safeAuto.v6");
+  assert.equal(cdn.AUTO_STATE_KEY, "BiliCDN.safeAuto.v7");
   assert.notEqual(firstDescriptor.resourceKey, nextDescriptor.resourceKey);
   assert.equal(
     cdn.candidateIdForUrl(originalUrl),
@@ -826,6 +854,54 @@ test("strict probe validator rejects non-media, ignored ranges, redirects, encod
   );
 });
 
+test("strict probe validator accepts an exact interior sample and rejects shifted or truncated ranges", () => {
+  const range = {
+    start: 2 * 1024 * 1024,
+    end: 3 * 1024 * 1024 - 1,
+    phase: "confirm",
+  };
+  const candidate = {
+    id: cdn.candidateIdForUrl(originalUrl),
+    probeRange: range,
+    url: originalUrl,
+  };
+  const valid = validProbe(candidate);
+
+  assert.equal(
+    cdn.validateProbeResponse(valid, originalUrl, range).ok,
+    true,
+  );
+  assert.equal(
+    cdn.validateProbeResponse(
+      validProbe(candidate, 100, {
+        headers: {
+          "Content-Length": String(1024 * 1024),
+          "Content-Range": `bytes ${range.start + 1}-${range.end + 1}/9999999`,
+          "Content-Type": "video/mp4",
+        },
+      }),
+      originalUrl,
+      range,
+    ).ok,
+    false,
+  );
+  assert.equal(
+    cdn.validateProbeResponse(
+      validProbe(candidate, 100, {
+        body: Buffer.alloc(512 * 1024, 1),
+        headers: {
+          "Content-Length": String(512 * 1024),
+          "Content-Range": `bytes ${range.start}-${range.start + 512 * 1024 - 1}/9999999`,
+          "Content-Type": "video/mp4",
+        },
+      }),
+      originalUrl,
+      range,
+    ).ok,
+    false,
+  );
+});
+
 test("probe scoring uses sustained sample throughput and a 1 MiB range", () => {
   const primary = {
     candidateId: cdn.candidateIdForUrl(originalUrl),
@@ -959,13 +1035,17 @@ test("pair validation rejects different samples and different total lengths", as
         }
         if (mismatch === "hash") {
           return validProbe(candidate, 40, {
-            body: Buffer.alloc(cdn.AUTO_RANGE_END + 1, 2),
+            body: Buffer.alloc(
+              candidate.probeRange.end - candidate.probeRange.start + 1,
+              2,
+            ),
           });
         }
+        const { start, end } = candidate.probeRange;
         return validProbe(candidate, 40, {
           headers: {
-            "Content-Length": String(cdn.AUTO_RANGE_END + 1),
-            "Content-Range": `bytes 0-${cdn.AUTO_RANGE_END}/10000000`,
+            "Content-Length": String(end - start + 1),
+            "Content-Range": `bytes ${start}-${end}/10000000`,
             "Content-Type": "video/mp4",
           },
         });
@@ -983,6 +1063,38 @@ test("pair validation rejects different samples and different total lengths", as
     assert.equal(entry.candidateId, null);
     assert.equal(entry.pendingCandidateId, null);
   }
+});
+
+test("a matching cached prefix cannot promote a CDN whose interior sample differs", async () => {
+  const input = JSON.stringify(videoFixture());
+  const environment = makeEnvironment({
+    responder(candidate, callNumber) {
+      const deepAlternative =
+        callNumber === 4 && candidate.probeRange.start > 0;
+      return validProbe(candidate, callNumber % 2 === 1 ? 100 : 40, {
+        body: Buffer.alloc(
+          candidate.probeRange.end - candidate.probeRange.start + 1,
+          deepAlternative ? 2 : 1,
+        ),
+      });
+    },
+  });
+
+  const prefix = await processAuto(input, false, autoConfig, environment);
+  assert.equal(prefix.reason, "alternative-pending");
+  environment.advance(cdn.AUTO_CONFIRM_DELAY_MS);
+  const interior = await processAuto(input, false, autoConfig, environment);
+  const state = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
+  const entry = Object.values(state.entries)[0];
+
+  assert.equal(interior.reason, "object-mismatch");
+  assert.ok(environment.calls[2].candidate.probeRange.start > 0);
+  assert.deepEqual(
+    environment.calls[3].candidate.probeRange,
+    environment.calls[2].candidate.probeRange,
+  );
+  assert.equal(entry.candidateId, null);
+  assert.equal(entry.pendingCandidateId, null);
 });
 
 test("default nonblocking mode completes before probes and never calls completion twice", () => {
@@ -1299,6 +1411,32 @@ test("corrupted state fails open and a changed reset token clears learning exact
   assert.equal(repeated.resetToken, "reset_20260728");
 });
 
+test("v7 ignores older learned selections instead of reusing prefix-only validation", () => {
+  const oldState = {
+    entries: {
+      r2_0123456789abcdef0123456789abcdef: {
+        candidateId: "c2_0123456789abcdef0123456789abcdef",
+        expiresAt: Date.now() + 60_000,
+      },
+    },
+    hosts: {},
+    lastProbeAt: 1,
+    locks: {},
+    version: 6,
+  };
+  const loaded = cdn.loadAutoState({
+    read(key) {
+      return key === cdn.AUTO_STATE_KEY
+        ? JSON.stringify(oldState)
+        : null;
+    },
+  });
+
+  assert.equal(loaded.version, 7);
+  assert.deepEqual(loaded.entries, {});
+  assert.equal(loaded.lastProbeAt, 0);
+});
+
 test("configured interval is the exact selection TTL with bounded revalidation", async () => {
   const config = cdn.parseArgument(
     "cdn=auto&probeMode=blocking&intervalHours=72&switchThreshold=20",
@@ -1353,6 +1491,9 @@ test("selected CDN degradation is revalidated and cleared after eight minutes", 
   await processAuto(input, false, autoConfig, environment);
   environment.advance(cdn.AUTO_CONFIRM_DELAY_MS);
   await processAuto(input, false, autoConfig, environment);
+  const confirmationRange = {
+    ...environment.calls[2].candidate.probeRange,
+  };
   let state = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
   let entry = Object.values(state.entries)[0];
   assert.equal(entry.candidateId, cdn.candidateIdForUrl(backupUrl));
@@ -1369,6 +1510,15 @@ test("selected CDN degradation is revalidated and cleared after eight minutes", 
   entry = Object.values(state.entries)[0];
 
   assert.equal(failed.reason, "selected-failed");
+  assert.ok(environment.calls[4].candidate.probeRange.start > 0);
+  assert.notEqual(
+    environment.calls[4].candidate.probeRange.start,
+    confirmationRange.start,
+  );
+  assert.deepEqual(
+    environment.calls[5].candidate.probeRange,
+    environment.calls[4].candidate.probeRange,
+  );
   assert.equal(entry.candidateId, null);
   assert.equal(entry.expiresAt, 0);
   assert.equal(entry.nextProbeAt, environment.now + 30 * 60 * 1000);
@@ -1700,18 +1850,24 @@ test("Shadowrocket auto entrypoint persists validation, then uses a fresh signed
         get(request, callback) {
           call += 1;
           clock += call % 2 === 1 ? 100 : 40;
+          const range = /^bytes=(\d+)-(\d+)$/.exec(
+            request.headers.Range,
+          );
+          const rangeStart = Number(range[1]);
+          const rangeEnd = Number(range[2]);
+          const rangeLength = rangeEnd - rangeStart + 1;
           callback(
             null,
             {
               headers: {
-                "Content-Length": String(cdn.AUTO_RANGE_END + 1),
-                "Content-Range": `bytes 0-${cdn.AUTO_RANGE_END}/9999999`,
+                "Content-Length": String(rangeLength),
+                "Content-Range": `bytes ${rangeStart}-${rangeEnd}/9999999`,
                 "Content-Type": "video/mp4",
               },
               status: 206,
               url: request.url,
             },
-            "\x01".repeat(cdn.AUTO_RANGE_END + 1),
+            "\x01".repeat(rangeLength),
           );
         },
       },

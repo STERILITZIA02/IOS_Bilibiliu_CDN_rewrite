@@ -1,5 +1,5 @@
 /*
- * Bilibili CDN Switcher v6 for Shadowrocket
+ * Bilibili CDN Switcher v7 for Shadowrocket
  *
  * Default auto mode is deliberately conservative:
  * - it only considers the primary and backup URLs returned for one media item;
@@ -17,7 +17,7 @@
 
   var NAME = "BiliCDN";
   var DEFAULT_CDN = "upos-sz-mirrorali.bilivideo.com";
-  var AUTO_STATE_KEY = "BiliCDN.safeAuto.v6";
+  var AUTO_STATE_KEY = "BiliCDN.safeAuto.v7";
   var DEFAULT_AUTO_INTERVAL_HOURS = 12;
   var DEFAULT_SWITCH_THRESHOLD = 20;
   var RUNTIME_OPTION_LIMITS = {
@@ -41,7 +41,10 @@
   var AUTO_HOST_BACKOFF_MAX_MS = 2 * 60 * 60 * 1000;
   var AUTO_LOCK_MS = 10 * 1000;
   var AUTO_PROBE_TIMEOUT_MS = 5000;
+  var AUTO_EXPLORE_RANGE_END = 262143;
   var AUTO_RANGE_END = 1048575;
+  var AUTO_SAMPLE_ALIGNMENT = 65536;
+  var AUTO_INTERIOR_SAMPLE_FRACTIONS = [0.5, 0.25, 0.75];
   var AUTO_RETRY_MS = 30 * 60 * 1000;
   var AUTO_SELECTED_REVALIDATE_MS = 8 * 60 * 1000;
   var MAX_GRPC_DECOMPRESSED_BYTES = 4 * 1024 * 1024;
@@ -2031,7 +2034,7 @@
       lockTokens: {},
       locks: {},
       resetToken: "",
-      version: 6
+      version: 7
     };
   }
 
@@ -2164,9 +2167,11 @@
       lastFailureAt: 0,
       lastUsedAt: 0,
       nextProbeAt: 0,
+      objectLength: 0,
       pendingCandidateId: null,
       pendingSince: 0,
       pendingSuccesses: 0,
+      sampleCursor: 0,
       scores: {},
       selectedAt: 0,
       successCount: 0,
@@ -2196,12 +2201,24 @@
     entry.lastFailureAt = boundedNumber(value.lastFailureAt, 0, 0, 9e15);
     entry.lastUsedAt = boundedNumber(value.lastUsedAt, 0, 0, 9e15);
     entry.nextProbeAt = boundedNumber(value.nextProbeAt, 0, 0, 9e15);
+    entry.objectLength = boundedNumber(
+      value.objectLength,
+      0,
+      0,
+      Number.MAX_SAFE_INTEGER
+    );
     entry.pendingSince = boundedNumber(value.pendingSince, 0, 0, 9e15);
     entry.pendingSuccesses = boundedInteger(
       value.pendingSuccesses,
       0,
       0,
       2
+    );
+    entry.sampleCursor = boundedInteger(
+      value.sampleCursor,
+      0,
+      0,
+      1000000
     );
     entry.scores = sanitizeScoreMap(value.scores);
     entry.selectedAt = boundedNumber(value.selectedAt, 0, 0, 9e15);
@@ -2303,7 +2320,7 @@
     } catch (error) {
       parsed = null;
     }
-    if (!isObject(parsed) || parsed.version !== 6) {
+    if (!isObject(parsed) || parsed.version !== 7) {
       return state;
     }
 
@@ -2405,9 +2422,11 @@
     entry.failureCount = 0;
     entry.lastFailureAt = 0;
     entry.nextProbeAt = 0;
+    entry.objectLength = 0;
     entry.pendingCandidateId = null;
     entry.pendingSince = 0;
     entry.pendingSuccesses = 0;
+    entry.sampleCursor = 0;
     entry.scores = {};
     entry.selectedAt = 0;
     entry.successCount = 0;
@@ -2551,6 +2570,68 @@
     return eligible.length > 0
       ? eligible[entry.candidateCursor % eligible.length]
       : null;
+  }
+
+  function probeRangeForEntry(entry) {
+    var deepSample = Boolean(
+      entry &&
+      (
+        entry.candidateId ||
+        (
+          entry.pendingCandidateId &&
+          entry.pendingSuccesses >= 1
+        )
+      )
+    );
+    var sampleEnd = deepSample
+      ? AUTO_RANGE_END
+      : AUTO_EXPLORE_RANGE_END;
+    var sampleLength = sampleEnd + 1;
+    var totalLength = boundedInteger(
+      entry && entry.objectLength,
+      0,
+      0,
+      Number.MAX_SAFE_INTEGER
+    );
+    var maximumStart;
+    var fraction;
+    var start = 0;
+    var end;
+
+    if (
+      deepSample &&
+      totalLength > sampleLength + AUTO_SAMPLE_ALIGNMENT
+    ) {
+      maximumStart = totalLength - sampleLength;
+      fraction = AUTO_INTERIOR_SAMPLE_FRACTIONS[
+        (entry.sampleCursor || 0) %
+          AUTO_INTERIOR_SAMPLE_FRACTIONS.length
+      ];
+      start = Math.floor(
+        (maximumStart * fraction) / AUTO_SAMPLE_ALIGNMENT
+      ) * AUTO_SAMPLE_ALIGNMENT;
+      start = Math.max(
+        AUTO_SAMPLE_ALIGNMENT,
+        Math.min(start, maximumStart)
+      );
+    }
+    end = start + sampleLength - 1;
+    if (totalLength > 0) {
+      end = Math.min(end, totalLength - 1);
+    }
+    return {
+      end: end,
+      phase: deepSample ? "confirm" : "explore",
+      start: start
+    };
+  }
+
+  function candidateWithProbeRange(candidate, range) {
+    return {
+      id: candidate.id,
+      probeRange: range,
+      url: candidate.url
+    };
   }
 
   function parseProtoFields(bytes) {
@@ -3107,7 +3188,7 @@
     return "binary";
   }
 
-  function validateProbeResponse(result, expectedUrl) {
+  function validateProbeResponse(result, expectedUrl, expectedRange) {
     var status = Number(
       result && (result.statusCode || result.status)
     );
@@ -3120,6 +3201,18 @@
     var rangeStart;
     var rangeEnd;
     var totalLength;
+    var requestedStart = boundedInteger(
+      expectedRange && expectedRange.start,
+      0,
+      0,
+      Number.MAX_SAFE_INTEGER
+    );
+    var requestedEnd = boundedInteger(
+      expectedRange && expectedRange.end,
+      AUTO_RANGE_END,
+      requestedStart,
+      Number.MAX_SAFE_INTEGER
+    );
     var expectedLength;
     var contentLength;
     var actualLength;
@@ -3154,16 +3247,22 @@
     rangeEnd = Number(rangeMatch[2]);
     totalLength = Number(rangeMatch[3]);
     if (
-      rangeStart !== 0 ||
+      rangeStart !== requestedStart ||
       !Number.isSafeInteger(rangeEnd) ||
       !Number.isSafeInteger(totalLength) ||
-      rangeEnd < 0 ||
-      rangeEnd > AUTO_RANGE_END ||
+      rangeEnd < rangeStart ||
+      rangeEnd > requestedEnd ||
       totalLength <= rangeEnd
     ) {
       return { ok: false, reason: "range-size", status: status };
     }
-    expectedLength = rangeEnd + 1;
+    if (
+      rangeEnd < requestedEnd &&
+      totalLength !== rangeEnd + 1
+    ) {
+      return { ok: false, reason: "range-truncated", status: status };
+    }
+    expectedLength = rangeEnd - rangeStart + 1;
     actualLength = bodyByteLength(result.body);
     if (actualLength !== expectedLength) {
       return { ok: false, reason: "body-size", status: status };
@@ -3218,7 +3317,11 @@
   }
 
   function normalizeProbeResult(result, candidate) {
-    var validation = validateProbeResponse(result || {}, candidate.url);
+    var validation = validateProbeResponse(
+      result || {},
+      candidate.url,
+      candidate.probeRange
+    );
     var elapsedMs = boundedNumber(
       result && result.elapsedMs,
       AUTO_PROBE_TIMEOUT_MS,
@@ -3520,6 +3623,15 @@
               : (equivalent ? "verified" : "mismatch")
           )
     );
+    if (equivalent) {
+      entry.objectLength = primaryResult.totalLength;
+      if (
+        primaryResult.rangeStart > 0 ||
+        primaryResult.bodyLength > AUTO_EXPLORE_RANGE_END + 1
+      ) {
+        entry.sampleCursor += 1;
+      }
+    }
     qualifies =
       equivalent &&
       alternativeQualifies(
@@ -3651,6 +3763,7 @@
     var prepared;
     var descriptor;
     var entry;
+    var probeRange;
     var primaryCandidate;
     var alternativeCandidate;
     var results = {};
@@ -3693,6 +3806,12 @@
               "ms/" +
               String(candidate.throughputKbps || 0) +
               "kbps/" +
+              String((item.probeRange && item.probeRange.phase) || "unknown") +
+              ":" +
+              String((item.probeRange && item.probeRange.start) || 0) +
+              "-" +
+              String((item.probeRange && item.probeRange.end) || 0) +
+              "/" +
               String(candidate.reason || "unknown")
           );
         }
@@ -3805,7 +3924,6 @@
       resetAutoEntryForDescriptor(entry, descriptor);
     }
     entry.lastUsedAt = now;
-    primaryCandidate = descriptor.candidates[0];
     alternativeCandidate = chooseAlternativeCandidate(
       descriptor,
       entry,
@@ -3825,6 +3943,15 @@
       });
       return;
     }
+    probeRange = probeRangeForEntry(entry);
+    primaryCandidate = candidateWithProbeRange(
+      descriptor.candidates[0],
+      probeRange
+    );
+    alternativeCandidate = candidateWithProbeRange(
+      alternativeCandidate,
+      probeRange
+    );
 
     claimedLockUntil = now + AUTO_LOCK_MS;
     claimedLockToken = stableHash(
@@ -3996,12 +4123,24 @@
         var started = Date.now();
         var completed = false;
         var timer = null;
+        var rangeStart = boundedInteger(
+          candidate && candidate.probeRange && candidate.probeRange.start,
+          0,
+          0,
+          Number.MAX_SAFE_INTEGER
+        );
+        var rangeEnd = boundedInteger(
+          candidate && candidate.probeRange && candidate.probeRange.end,
+          AUTO_RANGE_END,
+          rangeStart,
+          Number.MAX_SAFE_INTEGER
+        );
         var request = {
           "auto-redirect": false,
           "binary-mode": true,
           headers: {
             "Accept-Encoding": "identity",
-            Range: "bytes=0-" + AUTO_RANGE_END,
+            Range: "bytes=" + rangeStart + "-" + rangeEnd,
             Referer: "https://www.bilibili.com/",
             "User-Agent":
               "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)"
@@ -4263,6 +4402,7 @@
 
   var api = {
     AUTO_CACHE_CAPACITY: AUTO_CACHE_CAPACITY,
+    AUTO_EXPLORE_RANGE_END: AUTO_EXPLORE_RANGE_END,
     AUTO_HOST_BACKOFF_BASE_MS: AUTO_HOST_BACKOFF_BASE_MS,
     AUTO_HOST_CAPACITY: AUTO_HOST_CAPACITY,
     FIXED_CDN_CANDIDATES: FIXED_CDN_CANDIDATES,
@@ -4297,6 +4437,7 @@
     parseArgument: parseArgument,
     prepareSafeGrpc: prepareSafeGrpc,
     prepareSafeJson: prepareSafeJson,
+    probeRangeForEntry: probeRangeForEntry,
     processSafeAutoResponse: processSafeAutoResponse,
     queryFreeCandidateFingerprint: queryFreeCandidateFingerprint,
     readVarint: readVarint,

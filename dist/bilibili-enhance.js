@@ -69,37 +69,37 @@
     hideMineFirstVideo: {
       labels: ["发布你的第一个视频"],
       ids: [],
-      uri: /(?:uper|upload|member\.bilibili|creative)/i,
-      labelOnly: true
+      uri: /^bilibili:\/\/uper\/user_center\/add_archive(?:[/?#]|$)/i,
+      labelOnly: false
     },
     hideMineRewardPublish: {
       labels: ["有奖发布", "有奖活动"],
-      ids: [174],
-      uri: /(?:uper|upload|york|reward|activity|member\.bilibili)/i,
+      ids: [174, 191, 422],
+      uri: /(?:member\.bilibili\.com\/york\/(?:hot-activity|up-invitation|mission-center)|uper\/(?:user_center\/)?(?:reward|activity)|(?:reward|activity)[_/-]?(?:publish|upload))/i,
       labelOnly: false
     },
     hideMineCourse: {
       labels: ["我的课程"],
-      ids: [400, 794],
+      ids: [386, 400, 794],
       uri: /(?:cheese|course)/i,
       labelOnly: false
     },
     hideMineFreeData: {
       labels: ["看视频免流量"],
-      ids: [401],
-      uri: /(?:free[_/-]?traffic|user_center\/free_traffic|traffic)/i,
+      ids: [387, 401],
+      uri: /(?:bilibili:\/\/main\/drawer\/freedata|free[_/-]?traffic|freedata|user_center\/free_traffic)/i,
       labelOnly: false
     },
     hideMineWorkshop: {
       labels: ["工房", "工房集市"],
-      ids: [],
-      uri: /(?:workshop|mall-up_market|up_market|market\/show)/i,
+      ids: [967],
+      uri: /(?:workshop|mall-up_market|neul-next|up_market|market\/show)/i,
       labelOnly: true
     },
     hideMineEnergy: {
       labels: ["能量加油站"],
-      ids: [990],
-      uri: /(?:306424|energy|blackboard)/i,
+      ids: [989, 990],
+      uri: /(?:306424|energy[_/-]?(?:station|center)?)/i,
       labelOnly: false
     },
     hideMineBwPark: {
@@ -116,32 +116,32 @@
     },
     hideMinePersonalDress: {
       labels: ["个性装扮"],
-      ids: [402],
+      ids: [388, 402],
       uri: /(?:h5\/mall\/home|garb|dress|pendant)/i,
       labelOnly: false
     },
     hideMineWallet: {
       labels: ["我的钱包"],
-      ids: [404, 741],
+      ids: [390, 404, 741],
       uri: /(?:bilipay\/mine_wallet|mine_wallet)/i,
       labelOnly: false
     },
     hideMineGameCenter: {
-      labels: ["游戏中心"],
-      ids: [403],
-      uri: /game_center\/user/i,
+      labels: ["游戏中心", "我的游戏"],
+      ids: [403, 874],
+      uri: /game_center\/(?:user|list\?(?:[^#]*&)?fragment_name=played)/i,
       labelOnly: false
     },
     hideMineMallOrders: {
       labels: ["会员购订单", "会员购中心"],
-      ids: [622],
+      ids: [622, 624],
       uri: /(?:bilibili:\/\/mall\/mine|mall\/mine)/i,
       labelOnly: false
     },
     hideMineLive: {
       labels: ["我的直播"],
-      ids: [710],
-      uri: /live-app-center/i,
+      ids: [406, 706, 710],
+      uri: /(?:live-app-center|user_center\/live_center)/i,
       labelOnly: false
     },
     hideMinePromotion: {
@@ -152,38 +152,38 @@
     },
     hideMineCreatorCenter: {
       labels: ["创作中心"],
-      ids: [171, 544],
-      uri: /(?:uper|upper)\/homevc/i,
+      ids: [171, 190, 544],
+      uri: /(?:(?:uper|upper)\/homevc|main\/drawer\/upper)/i,
       labelOnly: false
     },
     hideMineCommunityCenter: {
       labels: ["社区中心"],
-      ids: [514],
+      ids: [514, 517],
       uri: /blackboard\/dynamic\/169422/i,
       labelOnly: false
     },
     hideMoreCustomerService: {
       labels: ["联系客服"],
-      ids: [407],
-      uri: /user_center\/feedback/i,
+      ids: [395, 407],
+      uri: /(?:customer-service|user_center\/feedback)/i,
       labelOnly: false
     },
     hideMoreListenVideo: {
       labels: ["听视频"],
-      ids: [812],
+      ids: [811, 812],
       uri: /bilibili:\/\/podcast/i,
       labelOnly: false
     },
     hideMoreTeenProtection: {
       labels: ["未成年人守护", "青少年守护"],
-      ids: [964],
+      ids: [963, 964],
       uri: /h5\/teenagers\/home/i,
       labelOnly: false
     },
     hideMoreSettings: {
       labels: ["设置"],
-      ids: [410],
-      uri: /user_center\/setting/i,
+      ids: [410, 458, 764],
+      uri: /(?:activity:\/\/main\/preference|user_center\/setting)/i,
       labelOnly: false
     }
   };
@@ -217,9 +217,11 @@
   var MINE_VIP_PROMOTION_KEYS = [
     "vip_section",
     "vip_section_v2",
+    "vip_section_right",
     "modular_vip_section",
     "vipSection",
     "vipSectionV2",
+    "vipSectionRight",
     "modularVipSection"
   ];
   var MINE_UI_CONTAINER_KEYS = {
@@ -242,6 +244,14 @@
     group_list: true,
     groupList: true,
     groups: true,
+    ipad_more_sections: true,
+    ipad_recommend_sections: true,
+    ipad_sections: true,
+    ipad_upper_sections: true,
+    ipadMoreSections: true,
+    ipadRecommendSections: true,
+    ipadSections: true,
+    ipadUpperSections: true,
     item: true,
     items: true,
     jump: true,
@@ -1921,7 +1931,11 @@
         return true;
       }
     }
-    if (link && target.uri.test(link)) {
+    if (
+      target.labelOnly !== true &&
+      link &&
+      target.uri.test(link)
+    ) {
       return true;
     }
     for (index = 0; index < labels.length; index += 1) {
@@ -2174,10 +2188,45 @@
     return changes;
   }
 
+  function removeMineFirstVideoFallback(data, config) {
+    var wrappers = ["rework_v1", "reworkV1"];
+    var creativeKeys = ["worst_creative", "worstCreative"];
+    var changes = 0;
+    var index;
+    var inner;
+    var wrapper;
+    if (
+      !isPlainObject(data) ||
+      !config ||
+      config.ui === false ||
+      config.hideMineFirstVideo !== true
+    ) {
+      return 0;
+    }
+    for (index = 0; index < wrappers.length; index += 1) {
+      wrapper = data[wrappers[index]];
+      if (!isPlainObject(wrapper)) {
+        continue;
+      }
+      for (inner = 0; inner < creativeKeys.length; inner += 1) {
+        if (hasOwn.call(wrapper, creativeKeys[inner])) {
+          delete wrapper[creativeKeys[inner]];
+          changes += 1;
+        }
+      }
+    }
+    return changes;
+  }
+
   function handleMine(body, config) {
-    return isPlainObject(body.data)
-      ? filterMineNode(body.data, 0, config, "")
-      : 0;
+    var data = body.data;
+    var changes = 0;
+    if (!isPlainObject(data)) {
+      return 0;
+    }
+    changes += removeMineFirstVideoFallback(data, config);
+    changes += filterMineNode(data, 0, config, "");
+    return changes;
   }
 
   function handleVipMaterials(body, config) {
@@ -4911,6 +4960,34 @@
     return completion;
   }
 
+  function responseBodyForEndpoint(response, grpcEndpoint) {
+    var body;
+    var bytes;
+    var decoded;
+    if (!response) {
+      return null;
+    }
+    if (
+      grpcEndpoint &&
+      response.bodyBytes !== undefined &&
+      response.bodyBytes !== null
+    ) {
+      return response.bodyBytes;
+    }
+    body = response.body;
+    if (!grpcEndpoint && typeof body !== "string") {
+      bytes = toUint8Array(body);
+      if (!bytes && response.bodyBytes !== undefined) {
+        bytes = toUint8Array(response.bodyBytes);
+      }
+      if (bytes) {
+        decoded = decodeUtf8Strict(bytes);
+        return decoded === null ? null : decoded;
+      }
+    }
+    return body;
+  }
+
   function feedRefillHeaders(headers) {
     var output = {};
     var keys = isPlainObject(headers) ? Object.keys(headers) : [];
@@ -5034,18 +5111,10 @@
       preventCaching =
         isVolatileGrpcEndpoint(grpcEndpoint) ||
         isVolatileJsonEndpoint(endpoint);
-      body =
-        grpcEndpoint &&
-        typeof $response !== "undefined" &&
-        $response &&
-        $response.bodyBytes !== undefined &&
-        $response.bodyBytes !== null
-          ? $response.bodyBytes
-          : (
-              typeof $response !== "undefined" && $response
-                ? $response.body
-                : null
-            );
+      body = responseBodyForEndpoint(
+        typeof $response !== "undefined" ? $response : null,
+        grpcEndpoint
+      );
       if (isByteView(body) || grpcEndpoint) {
         if (hasCompressedGrpcFrame(body)) {
           transformGrpcBodyAsync(

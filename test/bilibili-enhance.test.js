@@ -1022,7 +1022,7 @@ test("Mine and More service toggles are independent and default-visible", () => 
     JSON.parse(defaults.body).data.sections_v2[0].items.map(
       (item) => item.title,
     ),
-    ["我的钱包", "联系客服", "设置", "未来新服务"],
+    ["我的钱包", "创作中心", "联系客服", "设置", "未来新服务"],
   );
 
   const customized = transform(
@@ -1037,7 +1037,7 @@ test("Mine and More service toggles are independent and default-visible", () => 
     JSON.parse(customized.body).data.sections_v2[0].items.map(
       (item) => item.title,
     ),
-    ["联系客服", "未来新服务"],
+    ["创作中心", "联系客服", "未来新服务"],
   );
 
   const uiDisabled = transform(
@@ -1189,12 +1189,157 @@ test("9.5 Mine wrappers match stable IDs and exact actions before labels", () =>
 
   assert.deepEqual(
     data.sections_v2[0].items.map((item) => item.title),
-    ["future-service"],
+    ["renamed-creator-center", "future-service"],
   );
   assert.deepEqual(data.account, {
     mid: 123,
     module_id: 400,
   });
+
+  const creatorHidden = transform(
+    `${appRoot}/x/v2/account/mine?resume=1`,
+    {
+      code: 0,
+      data: {
+        sections_v2: [{
+          items: [
+            {
+              action: { uri: "bilibili://uper/homevc" },
+              title: "renamed-creator-center",
+            },
+            { moduleId: 99999, title: "future-service" },
+          ],
+        }],
+      },
+    },
+    '{"hideMineCreatorCenter":true}',
+  );
+  assert.deepEqual(
+    JSON.parse(creatorHidden.body).data.sections_v2[0].items.map(
+      (item) => item.title,
+    ),
+    ["future-service"],
+  );
+});
+
+test("Mine defaults do not cross-match creator, community, or game entries through broad URIs", () => {
+  const fixture = {
+    code: 0,
+    data: {
+      sections_v2: [{
+        items: [
+          {
+            id: 190,
+            title: "creator home",
+            uri: "bilibili://main/drawer/upper",
+          },
+          {
+            id: 517,
+            title: "community center",
+            uri: "https://www.bilibili.com/blackboard/dynamic/169422",
+          },
+          {
+            id: 874,
+            title: "my games",
+            uri: "bilibili://game_center/list?fragment_name=played",
+          },
+        ],
+      }],
+    },
+  };
+  const defaults = transform(`${appRoot}/x/v2/account/mine`, fixture);
+  assert.deepEqual(JSON.parse(defaults.body), fixture);
+
+  const hidden = transform(
+    `${appRoot}/x/v2/account/mine`,
+    fixture,
+    '{"hideMineCreatorCenter":true,"hideMineCommunityCenter":true,"hideMineGameCenter":true}',
+  );
+  assert.deepEqual(
+    JSON.parse(hidden.body).data.sections_v2[0].items,
+    [],
+  );
+});
+
+test("9.5 Mine removes the right-side VIP banner and rework creative across iPhone and iPad containers", () => {
+  const fixture = {
+    code: 0,
+    data: {
+      account: { mid: 123, vip: { status: 1 } },
+      vip_section_right: {
+        title: "VIP center",
+        uri: "https://account.bilibili.com/account/big",
+      },
+      rework_v1: {
+        worst_creative: {
+          title: "publish your first video",
+          uri: "bilibili://uper/user_center/add_archive",
+        },
+        retained_layout_flag: 7,
+      },
+      ipad_sections: [{
+        items: [
+          { module_id: 386, title: "renamed course" },
+          { module_id: 397, title: "history" },
+        ],
+      }],
+      ipad_upper_sections: [{
+        items: [
+          { itemId: 387, title: "renamed free data" },
+          { itemId: 99999, title: "future service" },
+        ],
+      }],
+      ipad_recommend_sections: [{
+        items: [
+          { moduleId: 989, title: "renamed energy entry" },
+          { moduleId: 99888, title: "unknown recommendation" },
+        ],
+      }],
+      ipad_more_sections: [{
+        items: [
+          {
+            moduleId: 458,
+            navigation: { uri: "bilibili://activity/main/preference" },
+            title: "renamed settings",
+          },
+          { moduleId: 99777, title: "unknown more entry" },
+        ],
+      }],
+    },
+  };
+  const result = transform(
+    `${appRoot}/x/v2/account/mine/ipad?resume=1`,
+    fixture,
+    '{"hideMoreSettings":true}',
+  );
+  const data = JSON.parse(result.body).data;
+
+  assert.equal("vip_section_right" in data, false);
+  assert.equal("worst_creative" in data.rework_v1, false);
+  assert.equal(data.rework_v1.retained_layout_flag, 7);
+  assert.deepEqual(
+    data.ipad_sections[0].items.map((item) => item.title),
+    ["history"],
+  );
+  assert.deepEqual(
+    data.ipad_upper_sections[0].items.map((item) => item.title),
+    ["future service"],
+  );
+  assert.deepEqual(
+    data.ipad_recommend_sections[0].items.map((item) => item.title),
+    ["unknown recommendation"],
+  );
+  assert.deepEqual(
+    data.ipad_more_sections[0].items.map((item) => item.title),
+    ["unknown more entry"],
+  );
+
+  const disabled = transform(
+    `${appRoot}/x/v2/account/mine/ipad?resume=1`,
+    fixture,
+    '{"ui":false,"vipPromotions":false}',
+  );
+  assert.deepEqual(JSON.parse(disabled.body), fixture);
 });
 
 test("VIP center cleanup removes only marketing overlays and banners", () => {
@@ -3159,4 +3304,53 @@ test("Shadowrocket first binary response reads bodyBytes and decodes gzip before
   ).toString("latin1");
   assert.match(outputText, /first-open-content/);
   assert.doesNotMatch(outputText, /first-open-cm/);
+});
+
+test("Shadowrocket JSON entrypoint decodes bodyBytes so resumed Mine responses cannot bypass filtering", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "src", "bilibili-enhance.js"),
+    "utf8",
+  );
+  const input = Buffer.from(JSON.stringify({
+    code: 0,
+    data: {
+      account: { mid: 123, vip: { status: 1 } },
+      vip_section_right: { title: "VIP center" },
+      rework_v1: {
+        worst_creative: { title: "first upload" },
+        retained_layout_flag: 7,
+      },
+    },
+  }), "utf8");
+  let completion;
+  const context = {
+    $argument: JSON.stringify({ ads: true, debug: false }),
+    $done(value) {
+      completion = value;
+    },
+    $request: {
+      url: `${appRoot}/x/v2/account/mine?resume=1`,
+    },
+    $response: {
+      bodyBytes: input.buffer.slice(
+        input.byteOffset,
+        input.byteOffset + input.byteLength,
+      ),
+      headers: { "Content-Type": "application/json" },
+    },
+    ArrayBuffer,
+    console,
+    Uint8Array,
+  };
+
+  vm.runInNewContext(source, context, {
+    filename: "bilibili-enhance.js",
+  });
+
+  assert.ok(completion && typeof completion.body === "string");
+  const data = JSON.parse(completion.body).data;
+  assert.equal("vip_section_right" in data, false);
+  assert.equal("worst_creative" in data.rework_v1, false);
+  assert.equal(data.rework_v1.retained_layout_flag, 7);
+  assert.deepEqual(data.account, { mid: 123, vip: { status: 1 } });
 });

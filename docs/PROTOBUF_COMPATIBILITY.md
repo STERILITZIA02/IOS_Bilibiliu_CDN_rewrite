@@ -65,7 +65,7 @@ app PlayURL、PlayerUnite、PGC v1 与 Cheese/PUGV 使用已核对的 reply fiel
 候选集合、网络档案、媒体类型和每个精确资源路径共同参与固定长度缓存摘要；不会
 因两个视频的表示 ID 相同而跨对象复用选择。
 
-v6 只读取上述已经确认的 bandwidth field，并要求备用线路的 1 MiB 样本吞吐至少
+v7 只读取上述已经确认的 bandwidth field，并要求备用线路的文件内部 1 MiB 复核吞吐至少
 达到表示码率的 1.35 倍；字段缺失时使用按音频、视频或分段划分的保守绝对下限。
 超过 JavaScript safe integer、未知 wire type 或未知结构不会被强制转换为码率。
 

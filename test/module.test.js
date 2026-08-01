@@ -542,7 +542,9 @@ test("fixed-mode CDN guidance matches the reviewed configuration", () => {
 
 test("safe auto uses server-provided URLs, GET Range validation, and bounded state", () => {
   assert.doesNotMatch(cdnSource, /function selectAutoCdn|\.benchmark\(/);
-  assert.match(cdnSource, /Range: "bytes=0-" \+ AUTO_RANGE_END/);
+  assert.match(cdnSource, /Range: "bytes=" \+ rangeStart \+ "-" \+ rangeEnd/);
+  assert.match(cdnSource, /AUTO_EXPLORE_RANGE_END = 262143/);
+  assert.match(cdnSource, /AUTO_INTERIOR_SAMPLE_FRACTIONS/);
   assert.match(cdnSource, /status !== 206/);
   assert.match(cdnSource, /AUTO_CACHE_CAPACITY = 64/);
   assert.match(cdnSource, /AUTO_GLOBAL_PROBE_GAP_MS = 2 \* 60 \* 1000/);

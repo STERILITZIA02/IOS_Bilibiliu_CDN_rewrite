@@ -43,7 +43,7 @@
       "argument": "首页推荐6个普通视频",
       "group": "features",
       "label": "首页推荐仅 6 个普通视频",
-      "description": "广告过滤开启时，每次首页、推荐页和短视频流刷新都只接受明确的普通 AV 视频；首页响应按原顺序最多保留前 6 个，不为补位重复请求服务器",
+      "description": "广告过滤开启时，每次首页、推荐页和短视频流刷新都只接受明确的普通 AV 视频；首份首页响应不足 6 条时最多无缓存补取一次，仍不足则保留实际数量，不复制旧卡",
       "type": "boolean",
       "default": true,
       "variants": ["enhanced"]
@@ -415,7 +415,7 @@
       "argument": "切换阈值",
       "group": "network",
       "label": "切换阈值",
-      "description": "备用线路的 1 MiB 持续吞吐达到表示余量后，至少高多少百分比才进入第二次确认",
+      "description": "备用线路的文件内部 1 MiB 复核吞吐达到表示余量后，至少高多少百分比才完成第二次确认",
       "type": "number",
       "default": 20,
       "minimum": 10,

@@ -32,6 +32,23 @@ their source code is not incorporated into this repository.
 - Use: CDN families, regional behavior, and reported MCDN/TLS compatibility
   risks were cross-checked; redirect code was not copied.
 
+## BiliRoamingX/BiliRoamingX
+
+- Repository: https://github.com/BiliRoamingX/BiliRoamingX
+- Reviewed commit: `ae58109f3acdd53ec2d2b3fb439c2a2ef1886221`
+- License: repository declaration applies.
+- Use: public `AccountMine` JSON field names, iPad container names, and the
+  settings action URI were inspected only as interoperability facts. No Java,
+  patch implementation, or fixture data is incorporated.
+
+## HEROhuqinchao/flutter_bilibili_getx
+
+- Repository: https://github.com/HEROhuqinchao/flutter_bilibili_getx
+- Reviewed commit: `6e4a804c8927bae1f19b32494b6a7af97f5d7111`
+- License: repository declaration applies.
+- Use: public Mine item IDs and URIs were cross-checked as interoperability
+  facts. The response sample and implementation are not distributed or copied.
+
 ## Maasea/sgmodule
 
 - Repository: https://github.com/Maasea/sgmodule

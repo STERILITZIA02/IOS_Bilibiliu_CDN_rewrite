@@ -24,6 +24,8 @@
 | 项目 | 调研提交 | 许可证 | 本项目采用方式 |
 | --- | --- | --- | --- |
 | [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock) | `43b07841fa55ba77e29d478cab0be44c8b49a3c2`（2026-07-30 读取 `main`） | Apache-2.0 | 参考当前 Feed/Story/View/TFInfo/ViewUnite 接口覆盖范围与高置信广告特征，重新实现 |
+| [BiliRoamingX/BiliRoamingX](https://github.com/BiliRoamingX/BiliRoamingX) | `ae58109f3acdd53ec2d2b3fb439c2a2ef1886221` | 仓库声明为准 | 核对 `AccountMine` 的 `vip_section_right`、`rework_v1.worst_creative`、iPad section 与设置 action；不复制实现 |
+| [HEROhuqinchao/flutter_bilibili_getx](https://github.com/HEROhuqinchao/flutter_bilibili_getx) | `6e4a804c8927bae1f19b32494b6a7af97f5d7111` | 仓库声明为准 | 只交叉核对公开 Mine 样例中的稳定服务 ID/URI；不复制或分发 fixture |
 | [SK-415/bilireq](https://github.com/SK-415/bilireq) | `4151478d2765eebe8d91280685b462bdab56e9ea` | 仓库声明为准 | 核对当前公开 `SearchAll`/`SearchByType` reply 重复项与搜索卡 oneof/商业角标字段；不打包 schema |
 | [BiliUniverse/Enhanced](https://github.com/BiliUniverse/Enhanced) | `6fcb1be0fb6d` | Apache-2.0 | 参考导航字段含义；不采用其覆盖服务端数组的方式 |
 | [BiliUniverse/Redirect](https://github.com/BiliUniverse/Redirect) | `7e4462847909` | Apache-2.0 | 参考 CDN 家族、海外内容和 MCDN 兼容边界 |

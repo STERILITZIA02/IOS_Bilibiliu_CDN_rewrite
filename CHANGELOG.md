@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented here.
 
+## [3.7.0] - 2026-08-01
+
+- Add the Bilibili 9.5.0 Mine fields `vip_section_right` and
+  `rework_v1.worst_creative`, plus the iPad section arrays, so VIP marketing
+  and configured service entries are filtered on every fresh Mine response
+  without touching account or entitlement data.
+- Prefer verified stable Mine IDs and exact actions/URIs across current phone
+  and tablet response variants. Unknown entries and unknown containers remain
+  unchanged.
+- Stop broad legacy URI fallbacks from crossing Mine options: default first
+  upload/reward/energy filters can no longer remove creator, community,
+  settings, or game entries whose own switches are off.
+- Decode strict UTF-8 JSON supplied through Shadowrocket `bodyBytes`; this
+  closes a response-representation bypass while malformed, compressed, and
+  unknown bodies still fail open.
+- Reset automatic learning to `safeAuto.v7`. Reduce the first nonblocking
+  exploratory load from two 1 MiB requests to two 256 KiB requests, then
+  require the second confirmation to compare the same 1 MiB interior range of
+  the object. Selected routes rotate through interior ranges during health
+  revalidation.
+- Preserve HTTP 206, exact Range, total length, actual length, sample hash,
+  content type, identity encoding, redirect, signed-query, representation,
+  audio/video, object, family, fixed-mode, and live fail-open safeguards. A
+  fast cached prefix can no longer promote a route whose interior bytes differ
+  or whose sustained interior throughput is inadequate.
+- Add regression coverage for the Mine 9.5.0 fields, JSON `bodyBytes`, 512 KiB
+  total first exploration, interior confirmation/mismatch, rotating
+  revalidation, and safe invalidation of v6 learned state.
+
 ## [3.6.0] - 2026-07-30
 
 - Reset automatic learning to `safeAuto.v6` and increase paired media samples
