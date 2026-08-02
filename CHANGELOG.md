@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here.
 
+## [3.8.1] - 2026-08-03
+
+- Close the cached/preloaded-playback race found in the 2026-08-03
+  PacketTunnel log: media requests could leave for cosov before the fresh
+  PlayView response rewrite completed, causing about three seconds of low-rate
+  traffic before the app retried the complete Akamai backup.
+- Persist a bounded `BiliCDN.mediaRoutes.v9` map of the exact complete
+  server-provided target URL selected for each media object. Entries are bound
+  to path, signed expiry, request identity, representation profile, source and
+  target hosts; they expire at least 30 seconds before the signature or after
+  two hours, whichever is earlier, and are capped at 64 entries.
+- Add a lightweight Shadowrocket `type=http-request` media runtime that catches
+  cached or preloaded VOD `/upgcxcode/` GET/HEAD requests and applies only an
+  exact matching v9 URL. It preserves Range and user-agent headers, performs no
+  probing or signature synthesis, excludes live media, and requires no media
+  CDN MITM.
+- Generate and release `bilibili-cdn-route.js`; add cross-runtime key,
+  signature-isolation, expiry/capacity, fail-open, module matcher, checksum and
+  release-workflow regressions.
+
 ## [3.8.0] - 2026-08-03
 
 - Move default CDN learning out of playback responses into a Shadowrocket

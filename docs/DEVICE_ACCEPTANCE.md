@@ -32,10 +32,11 @@
 - [ ] 历史 `Bilibili.CDN.sgmodule` 与 Enhanced 内容和版本一致。
 - [ ] 模块信息页显示正确名称和版本。
 - [ ] “编辑参数”显示全部参数，中文说明可读。
-- [ ] 更新到 3.8.0 后可见 `首页推荐6个普通视频`、`测速方式` 与 `CDN 学习状态`，
-      模块脚本 URL 含 `?v=3.8.0`，并包含 `Bilibili Enhance Fresh UI`、
+- [ ] 更新到 3.8.1 后可见 `首页推荐6个普通视频`、`测速方式` 与 `CDN 学习状态`，
+      模块脚本 URL 含 `?v=3.8.1`，并包含 `Bilibili Enhance Fresh UI`、
       `Bilibili Story Safe Pipeline` 与唯一一条 `Bilibili CDN Background Benchmark`
-      cron（含 `wake-system=1`）。
+      cron（含 `wake-system=1`），以及唯一一条 `Bilibili CDN Cached Media Route`
+      请求脚本。
 - [ ] `更新模块` 能从同一 raw 地址获取当前版本。
 - [ ] 更新后 `[Rule]` 与 `[Script]` 的远程 URL 带当前 `?v=` 版本键，脚本 URL
       页面不再引用上一版本键。
@@ -154,6 +155,14 @@
       则保持服务端原始地址，绝不只替换为 Akamai 主机名。
 - [ ] JSON、gRPC、Story 与 Story gRPC 的热路径均在读取本地状态后立即 `$done()`；
       起播、2 倍速、连续大幅拖动和反复切清晰度时没有由脚本测速造成的等待。
+- [ ] 横屏/竖屏、历史/收藏、连续播放以及后台恢复后，App 缓存或预加载的旧 cosov
+      地址在同一媒体对象已有 v9 记录时由轻量请求脚本直接命中完整目标 URL；不会先
+      等待约 3 秒再回退。
+- [ ] v9 目标 URL 保留目标自己的完整签名；原请求的 Range、User-Agent、音视频、
+      清晰度和表示档案不变，不会跨 path、`trid` 或签名身份复用。
+- [ ] v9 状态最多 64 条，在签名到期前至少 30 秒且最长 2 小时失效；过期、损坏或
+      不匹配时原地址放行，下一份新播放响应可重新填充。
+- [ ] 点播/直播媒体 CDN 仍不在 MITM 列表中；请求直达不读取媒体响应体。
 - [ ] 每个 CDN 模块只有一条后台测速 cron；测速请求使用独立
       `BiliCDN-Background-Benchmark/8` UA 与 `X-BiliCDN-Background: 1`，不会再次
       命中播放响应改写，也不携带 Cookie、SESSDATA、access_key 或当前播放签名 URL。

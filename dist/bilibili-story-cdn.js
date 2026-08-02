@@ -18,6 +18,8 @@ this.__BILIFLOW_COMBINED__ = true;
   var DEFAULT_CDN = "upos-sz-mirrorali.bilivideo.com";
   var AUTO_STATE_KEY = "BiliCDN.safeAuto.v7";
   var HOST_AUTO_STATE_KEY = "BiliCDN.hostAuto.v8";
+  var MEDIA_ROUTE_STATE_KEY = "BiliCDN.mediaRoutes.v9";
+  var MEDIA_ROUTE_STATE_VERSION = 9;
   var AKAMAI_COLD_HOST = "upos-hz-mirrorakam.akamaized.net";
   var DEFAULT_AUTO_INTERVAL_HOURS = 2;
   var DEFAULT_SWITCH_THRESHOLD = 20;
@@ -34,6 +36,10 @@ this.__BILIFLOW_COMBINED__ = true;
     }
   };
   var AUTO_CACHE_CAPACITY = 64;
+  var MEDIA_ROUTE_CAPACITY = 64;
+  var MEDIA_ROUTE_EXPIRY_SAFETY_MS = 30 * 1000;
+  var MEDIA_ROUTE_MAX_TTL_MS = 2 * 60 * 60 * 1000;
+  var MEDIA_ROUTE_MAX_URL_BYTES = 8192;
   var AUTO_HOST_CAPACITY = 48;
   var AUTO_CONFIRM_DELAY_MS = 2 * 60 * 1000;
   var AUTO_EXPLORE_DELAY_MS = 30 * 60 * 1000;
@@ -1669,6 +1675,395 @@ this.__BILIFLOW_COMBINED__ = true;
       hex32(hashes[2]) +
       hex32(hashes[3])
     );
+  }
+
+  function decodeMediaQueryValue(value) {
+    try {
+      return decodeURIComponent(String(value || "").replace(/\+/g, "%20"));
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function mediaRouteQueryValues(parsed) {
+    var allowed = {
+      buvid: true,
+      deadline: true,
+      exp: true,
+      expires: true,
+      hdnts: true,
+      mid: true,
+      oi: true,
+      trid: true
+    };
+    var output = {};
+    var query = parsed && typeof parsed.query === "string"
+      ? parsed.query.replace(/^\?/, "")
+      : "";
+    var pairs;
+    var index;
+    var splitAt;
+    var key;
+    var value;
+    if (!query || query.length > MEDIA_ROUTE_MAX_URL_BYTES) {
+      return output;
+    }
+    pairs = query.split("&");
+    for (index = 0; index < pairs.length; index += 1) {
+      splitAt = pairs[index].indexOf("=");
+      key = decodeMediaQueryValue(
+        splitAt === -1 ? pairs[index] : pairs[index].slice(0, splitAt)
+      ).toLowerCase();
+      if (!allowed[key] || Object.prototype.hasOwnProperty.call(output, key)) {
+        continue;
+      }
+      value = decodeMediaQueryValue(
+        splitAt === -1 ? "" : pairs[index].slice(splitAt + 1)
+      );
+      if (value.length <= 512) {
+        output[key] = value;
+      }
+    }
+    return output;
+  }
+
+  function unixExpiryMilliseconds(value) {
+    var text = String(value || "").trim();
+    var parsed;
+    if (!/^\d{9,13}$/.test(text)) {
+      return 0;
+    }
+    parsed = Number(text);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      return 0;
+    }
+    return parsed < 100000000000 ? parsed * 1000 : parsed;
+  }
+
+  function signedMediaExpiryMilliseconds(values) {
+    var expiry = unixExpiryMilliseconds(
+      values && (values.deadline || values.expires || values.exp)
+    );
+    var hdntsMatch;
+    if (expiry > 0) {
+      return expiry;
+    }
+    hdntsMatch = /(?:^|~)exp=(\d{9,13})(?:~|$)/i.exec(
+      String(values && values.hdnts || "")
+    );
+    return hdntsMatch ? unixExpiryMilliseconds(hdntsMatch[1]) : 0;
+  }
+
+  function boundedMediaBindingValue(value) {
+    value = typeof value === "string" ? value : "";
+    return value.length <= 256 ? value : "";
+  }
+
+  function mediaRouteKeyForUrl(url, networkProfile) {
+    var parsed;
+    var values;
+    var signedExpiresAt;
+    var transaction;
+    var member;
+    var originIp;
+    var device;
+    var material;
+    if (typeof url !== "string" || url.length > MEDIA_ROUTE_MAX_URL_BYTES) {
+      return null;
+    }
+    parsed = parseHttpUrl(url);
+    if (!parsed || !isVodMediaUrl(url)) {
+      return null;
+    }
+    values = mediaRouteQueryValues(parsed);
+    signedExpiresAt = signedMediaExpiryMilliseconds(values);
+    transaction = boundedMediaBindingValue(values.trid);
+    member = boundedMediaBindingValue(values.mid);
+    originIp = boundedMediaBindingValue(values.oi);
+    device = boundedMediaBindingValue(values.buvid);
+    if (
+      signedExpiresAt <= MEDIA_ROUTE_EXPIRY_SAFETY_MS ||
+      (!transaction && !(member && originIp) && !device)
+    ) {
+      return null;
+    }
+    material = [
+      normalizeNetworkProfile(networkProfile),
+      parsed.path,
+      String(signedExpiresAt),
+      transaction,
+      member,
+      originIp,
+      device
+    ].join("\u0000");
+    return {
+      authority: parsed.authority,
+      expiresAt: signedExpiresAt - MEDIA_ROUTE_EXPIRY_SAFETY_MS,
+      hostname: parsed.hostname,
+      key: stableHash("m", material),
+      path: parsed.path,
+      signedExpiresAt: signedExpiresAt
+    };
+  }
+
+  function createEmptyMediaRouteState() {
+    return { entries: {}, version: MEDIA_ROUTE_STATE_VERSION };
+  }
+
+  function sanitizeMediaRouteSourceHosts(value) {
+    var output = [];
+    var seen = {};
+    var index;
+    var hostname;
+    if (!Array.isArray(value)) {
+      return output;
+    }
+    for (index = 0; index < value.length && output.length < 16; index += 1) {
+      hostname = String(value[index] || "").toLowerCase();
+      if (
+        !seen[hostname] &&
+        isValidHostname(hostname) &&
+        isBilibiliMediaHost(hostname)
+      ) {
+        seen[hostname] = true;
+        output.push(hostname);
+      }
+    }
+    return output;
+  }
+
+  function sanitizeMediaRouteEntry(key, value, now) {
+    var networkProfile;
+    var targetUrl;
+    var binding;
+    var target;
+    var targetHost;
+    var sourceHosts;
+    var expiresAt;
+    if (!isObject(value) || Array.isArray(value)) {
+      return null;
+    }
+    networkProfile = normalizeNetworkProfile(value.networkProfile);
+    targetUrl = typeof value.targetUrl === "string" ? value.targetUrl : "";
+    if (!targetUrl || targetUrl.length > MEDIA_ROUTE_MAX_URL_BYTES) {
+      return null;
+    }
+    binding = mediaRouteKeyForUrl(targetUrl, networkProfile);
+    target = parseHttpUrl(targetUrl);
+    targetHost = String(value.targetHost || "").toLowerCase();
+    sourceHosts = sanitizeMediaRouteSourceHosts(value.sourceHosts);
+    if (
+      !binding ||
+      binding.key !== key ||
+      !target ||
+      target.hostname !== targetHost ||
+      !isBilibiliMediaHost(targetHost) ||
+      sourceHosts.length === 0 ||
+      sourceHosts.indexOf(targetHost) === -1
+    ) {
+      return null;
+    }
+    expiresAt = Math.min(
+      boundedNumber(value.expiresAt, 0, 0, 9e15),
+      binding.expiresAt,
+      boundedNumber(now, 0, 0, 9e15) + MEDIA_ROUTE_MAX_TTL_MS
+    );
+    if (expiresAt <= now) {
+      return null;
+    }
+    return {
+      expiresAt: expiresAt,
+      networkProfile: networkProfile,
+      observedAt: boundedNumber(value.observedAt, 0, 0, 9e15),
+      sourceHosts: sourceHosts,
+      targetHost: targetHost,
+      targetUrl: targetUrl
+    };
+  }
+
+  function sanitizeMediaRouteState(value, now) {
+    var state = createEmptyMediaRouteState();
+    var rows = [];
+    var keys;
+    var index;
+    var key;
+    var entry;
+    now = boundedNumber(now, 0, 0, 9e15);
+    if (
+      !isObject(value) ||
+      Array.isArray(value) ||
+      value.version !== MEDIA_ROUTE_STATE_VERSION ||
+      !isObject(value.entries) ||
+      Array.isArray(value.entries)
+    ) {
+      return state;
+    }
+    keys = Object.keys(value.entries).slice(0, MEDIA_ROUTE_CAPACITY * 4);
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (!/^m2_[0-9a-f]{32}$/.test(key)) {
+        continue;
+      }
+      entry = sanitizeMediaRouteEntry(key, value.entries[key], now);
+      if (entry) {
+        rows.push({ entry: entry, key: key });
+      }
+    }
+    rows.sort(function (left, right) {
+      return right.entry.observedAt - left.entry.observedAt;
+    });
+    for (
+      index = 0;
+      index < rows.length && index < MEDIA_ROUTE_CAPACITY;
+      index += 1
+    ) {
+      state.entries[rows[index].key] = rows[index].entry;
+    }
+    return state;
+  }
+
+  function loadMediaRouteState(services, now) {
+    var raw;
+    var parsed;
+    try {
+      raw = services && typeof services.read === "function"
+        ? services.read(MEDIA_ROUTE_STATE_KEY)
+        : null;
+      parsed = raw ? JSON.parse(raw) : null;
+    } catch (error) {
+      parsed = null;
+    }
+    return sanitizeMediaRouteState(parsed, now);
+  }
+
+  function saveMediaRouteState(services, state, now) {
+    try {
+      return Boolean(
+        services &&
+        typeof services.write === "function" &&
+        services.write(
+          JSON.stringify(sanitizeMediaRouteState(state, now)),
+          MEDIA_ROUTE_STATE_KEY
+        )
+      );
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function mediaRouteForDescriptor(descriptor, config, now) {
+    var selectedId;
+    var primaryBinding;
+    var targetBinding;
+    var target;
+    var sourceHosts = [];
+    var seenHosts = {};
+    var index;
+    var candidate;
+    var candidateBinding;
+    var candidateParsed;
+    var expiresAt;
+    if (
+      !descriptor ||
+      !descriptor.selectedUrl ||
+      descriptor.selectedAlias ||
+      !descriptor.candidateById
+    ) {
+      return null;
+    }
+    selectedId = candidateIdForUrl(descriptor.selectedUrl);
+    if (
+      !selectedId ||
+      selectedId === descriptor.primaryId ||
+      descriptor.candidateById[selectedId] !== descriptor.selectedUrl
+    ) {
+      return null;
+    }
+    primaryBinding = mediaRouteKeyForUrl(
+      descriptor.primaryUrl,
+      config && config.networkProfile
+    );
+    targetBinding = mediaRouteKeyForUrl(
+      descriptor.selectedUrl,
+      config && config.networkProfile
+    );
+    target = parseHttpUrl(descriptor.selectedUrl);
+    if (
+      !primaryBinding ||
+      !targetBinding ||
+      primaryBinding.key !== targetBinding.key ||
+      !target
+    ) {
+      return null;
+    }
+    for (index = 0; index < descriptor.candidates.length; index += 1) {
+      candidate = descriptor.candidates[index];
+      candidateBinding = mediaRouteKeyForUrl(
+        candidate && candidate.url,
+        config && config.networkProfile
+      );
+      candidateParsed = parseHttpUrl(candidate && candidate.url);
+      if (
+        candidateBinding &&
+        candidateBinding.key === primaryBinding.key &&
+        candidateParsed &&
+        !seenHosts[candidateParsed.hostname]
+      ) {
+        seenHosts[candidateParsed.hostname] = true;
+        sourceHosts.push(candidateParsed.hostname);
+      }
+    }
+    if (sourceHosts.length < 2 || sourceHosts.indexOf(target.hostname) === -1) {
+      return null;
+    }
+    expiresAt = Math.min(
+      primaryBinding.expiresAt,
+      targetBinding.expiresAt,
+      now + MEDIA_ROUTE_MAX_TTL_MS
+    );
+    if (expiresAt <= now) {
+      return null;
+    }
+    return {
+      entry: {
+        expiresAt: expiresAt,
+        networkProfile: normalizeNetworkProfile(config && config.networkProfile),
+        observedAt: now,
+        sourceHosts: sourceHosts,
+        targetHost: target.hostname,
+        targetUrl: descriptor.selectedUrl
+      },
+      key: primaryBinding.key
+    };
+  }
+
+  function persistPreparedMediaRoutes(services, descriptors, config, now) {
+    var state;
+    var routes = [];
+    var index;
+    var route;
+    if (
+      !config ||
+      !config.auto ||
+      !hasStateServices(services) ||
+      !Array.isArray(descriptors)
+    ) {
+      return 0;
+    }
+    for (index = 0; index < descriptors.length; index += 1) {
+      route = mediaRouteForDescriptor(descriptors[index], config, now);
+      if (route) {
+        routes.push(route);
+      }
+    }
+    if (routes.length === 0) {
+      return 0;
+    }
+    state = loadMediaRouteState(services, now);
+    for (index = 0; index < routes.length; index += 1) {
+      state.entries[routes[index].key] = routes[index].entry;
+    }
+    return saveMediaRouteState(services, state, now) ? routes.length : 0;
   }
 
   function queryFreeCandidateFingerprint(url) {
@@ -4287,6 +4682,7 @@ this.__BILIFLOW_COMBINED__ = true;
     var reason = "server-primary";
     var families = {};
     var candidateCount = 0;
+    var routesStored = 0;
 
     if (typeof callback !== "function") {
       return;
@@ -4302,6 +4698,7 @@ this.__BILIFLOW_COMBINED__ = true;
         probeCount: 0,
         probeSummary: "none",
         reason: "invalid-config",
+        routesStored: 0,
         scriptElapsedMs: 0,
         valid: Boolean(config && config.valid)
       });
@@ -4332,6 +4729,7 @@ this.__BILIFLOW_COMBINED__ = true;
         probeCount: 0,
         probeSummary: "none",
         reason: "unsupported-response",
+        routesStored: 0,
         scriptElapsedMs: Math.max(0, (
           services && typeof services.now === "function"
             ? services.now()
@@ -4353,6 +4751,12 @@ this.__BILIFLOW_COMBINED__ = true;
         reason = "cold-akamai";
       }
     }
+    routesStored = persistPreparedMediaRoutes(
+      services,
+      prepared.descriptors,
+      hotConfig,
+      now
+    );
     callback({
       body: prepared.body,
       candidateCount: candidateCount,
@@ -4363,6 +4767,7 @@ this.__BILIFLOW_COMBINED__ = true;
       probeCount: 0,
       probeSummary: "none",
       reason: reason,
+      routesStored: routesStored,
       scriptElapsedMs: Math.max(0, (
         services && typeof services.now === "function"
           ? services.now()
@@ -5085,6 +5490,8 @@ this.__BILIFLOW_COMBINED__ = true;
                 (result.candidateCount || 0) +
                 ", families=" +
                 (result.candidateFamilies || "none") +
+                ", routes=" +
+                (result.routesStored || 0) +
                 ", probe_summary=" +
                 (result.probeSummary || "none") +
                 ", elapsed_ms=" +
@@ -5230,6 +5637,10 @@ this.__BILIFLOW_COMBINED__ = true;
     HOST_ALIAS_FRESH_MS: HOST_ALIAS_FRESH_MS,
     HOST_AUTO_STATE_KEY: HOST_AUTO_STATE_KEY,
     HOST_STATE_STALE_MS: HOST_STATE_STALE_MS,
+    MEDIA_ROUTE_CAPACITY: MEDIA_ROUTE_CAPACITY,
+    MEDIA_ROUTE_EXPIRY_SAFETY_MS: MEDIA_ROUTE_EXPIRY_SAFETY_MS,
+    MEDIA_ROUTE_MAX_TTL_MS: MEDIA_ROUTE_MAX_TTL_MS,
+    MEDIA_ROUTE_STATE_KEY: MEDIA_ROUTE_STATE_KEY,
     DEFAULT_CDN: DEFAULT_CDN,
     RUNTIME_OPTION_LIMITS: RUNTIME_OPTION_LIMITS,
     asciiBytesToString: asciiBytesToString,
@@ -5241,6 +5652,7 @@ this.__BILIFLOW_COMBINED__ = true;
     concatBytes: concatBytes,
     createEmptyAutoState: createEmptyAutoState,
     createEmptyHostAutoState: createEmptyHostAutoState,
+    createEmptyMediaRouteState: createEmptyMediaRouteState,
     createShadowrocketServices: createShadowrocketServices,
     descriptorResourceKey: descriptorResourceKey,
     decompressGrpcFrames: decompressGrpcFrames,
@@ -5253,6 +5665,8 @@ this.__BILIFLOW_COMBINED__ = true;
     hasCompressedGrpcFrame: hasCompressedGrpcFrame,
     loadAutoState: loadAutoState,
     loadHostAutoState: loadHostAutoState,
+    loadMediaRouteState: loadMediaRouteState,
+    mediaRouteKeyForUrl: mediaRouteKeyForUrl,
     normalizeCdnHost: normalizeCdnHost,
     normalizeNetworkProfile: normalizeNetworkProfile,
     parseArgument: parseArgument,
@@ -5261,6 +5675,7 @@ this.__BILIFLOW_COMBINED__ = true;
     probeRangeForEntry: probeRangeForEntry,
     probeBodyHash: probeBodyHash,
     processSafeAutoResponse: processSafeAutoResponse,
+    persistPreparedMediaRoutes: persistPreparedMediaRoutes,
     recordHostSample: recordHostSample,
     queryFreeCandidateFingerprint: queryFreeCandidateFingerprint,
     readVarint: readVarint,
@@ -5270,6 +5685,7 @@ this.__BILIFLOW_COMBINED__ = true;
     runShadowrocket: runShadowrocket,
     stableHash: stableHash,
     sanitizeHostAutoState: sanitizeHostAutoState,
+    sanitizeMediaRouteState: sanitizeMediaRouteState,
     saveHostAutoState: saveHostAutoState,
     selectStableHost: selectStableHost,
     transformGrpcBody: transformGrpcBody,

@@ -469,9 +469,9 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.8.0 已覆盖 Bilibili iOS
+              使用本站同版本的已审核快照。Enhanced 3.8.1 已覆盖 Bilibili iOS
               9.5.0 的 Relate Story/搜索商业卡、Mine 大会员横幅、播放页精确过滤、
-              后台响应恢复、首页六条补齐与 CDN v8 后台预热。
+              后台响应恢复、首页六条补齐、CDN v8 后台预热与 v9 缓存媒体直达。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
@@ -564,7 +564,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>播放热路径零测速</strong>
-                    <small>独立 cron、内部 1 MiB 严格复核与稳定评分</small>
+                    <small>独立 cron、v9 缓存直达与稳定评分</small>
                   </span>
                   <span className="status-text">开启</span>
                 </div>
@@ -594,7 +594,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>CDN + Enhanced</strong>
-                    <small>推荐 · 9.5.0 精确去广告、六条 AV 与 CDN v8</small>
+                    <small>推荐 · 9.5.0 精确去广告、六条 AV 与 CDN v8 + v9 缓存直达</small>
                   </span>
                   <span className="radio-dot">
                     {variant === "enhanced" && <span />}
@@ -841,7 +841,8 @@ export function Customizer({
                     <small>
                       默认测速在独立 cron 中完成，打开视频、拖动和倍速响应均不发
                       Range 探测。主机需在两个不同匿名对象上通过内部 Range/hash
-                      校验；连续失败会短期熔断，状态异常时使用服务端完整 Akamai URL。
+                      校验；连续失败会短期熔断。v9 还会用当前响应保存的完整目标 URL
+                      接住 App 缓存/预加载的同一媒体请求，不拼接主机或签名。
                     </small>
                   </label>
                   <label className="range-field">

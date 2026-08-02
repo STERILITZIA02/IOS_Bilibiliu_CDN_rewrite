@@ -1,6 +1,6 @@
 # v3 架构、数据流与安全边界
 
-> 适用版本：`3.8.0`
+> 适用版本：`3.8.1`
 >
 > 本文描述仓库当前实现，不代表所有 Bilibili App/iOS 组合已完成真机验证。
 > 当前专项入口以 Bilibili iOS 9.5.0 请求构建号 `90500100` 为验收基线。
@@ -34,6 +34,7 @@ iPhone/iPad 优先的网站生成可持续更新的定制 URL：
 flowchart LR
   A[config/module-options.json] --> B[scripts/build.mjs]
   C[src/bilibili-cdn.js] --> B
+  R[src/bilibili-cdn-route.js] --> B
   M[src/bilibili-cdn-benchmark.js] --> B
   D[src/bilibili-enhance.js] --> B
   E[src/bilibili-refresh.js] --> B
@@ -44,6 +45,7 @@ flowchart LR
   B --> I[SHA256SUMS.txt]
   B --> L[Enhanced/CDN-only Story 运行时]
   B --> N[Shadowrocket cron benchmark]
+  B --> O[缓存媒体 http-request 运行时]
   H --> J[BiliFlow 定制站点]
   F --> J
   G --> J
@@ -84,13 +86,14 @@ flowchart LR
 5. 稳定分数以 p25 吞吐为主，失败率与 MAD/中位抖动比作为惩罚。连续两次失败或
    最近四次中两次失败会熔断两小时；一次失败不清空最后胜者；
 6. JSON、gRPC 与 Story 播放响应只同步读 `BiliCDN.hostAuto.v8`，不发 probe、
-   不等待 cron 锁、也不在 `$done()` 后写状态；
+   不等待 cron 锁；选出当前响应的完整目标 URL 后，会在 `$done()` 前同步更新有界
+   `BiliCDN.mediaRoutes.v9`；
 7. 新鲜合格的完整服务端候选直接重排。经两个对象验证的维护列表非 Akamai alias
    可以从当前主 URL复制并只替换 hostname；scheme、port、path 和 query 保留；
 8. Akamai 从不做 hostname 拼接。没有合格状态时，只在本次响应带完整签名 Akamai
    URL 时立即提升它，并把原主 URL 放在备选首位；否则保留服务器主 URL；
 9. alias 6 小时后失效，状态超过 24 小时只执行冷启动回退；最多 4 个显式网络
-   档案。持久化只保存主机名、对象 hash、统计和时间戳，不保存 path、query、
+   档案。v8 持久化只保存主机名、对象 hash、统计和时间戳，不保存 path、query、
    token、完整 URL 或正文；
 10. v7 exact-object 状态不迁移。旧 `nonblocking` 输入归一化为 `cron`；显式
     `blocking` 保留旧 v7 同对象诊断路径，`off` 停止 cron 但仍允许完整 Akamai
@@ -98,6 +101,15 @@ flowchart LR
 
 状态损坏、过期或持久化不可用时仍能执行完整 Akamai 冷启动规则；响应无法解析时
 原样放行。
+
+v9 是独立的短期精确路由表，用于 App 在新播放响应处理完成前已经复用缓存/预加载
+地址的情况。每条记录保存当前响应实际选中的完整服务端 URL，按 query-free path、
+`deadline/exp`、`trid`、`mid`、`oi`、`buvid`、网络档案和表示档案绑定；最多 64 条，
+在签名到期前至少 30 秒或最长 2 小时清除。`src/bilibili-cdn-route.js` 只处理点播
+`/upgcxcode/` GET/HEAD，请求命中完整绑定后逐字节替换 URL，并保留 Range、
+User-Agent 和其他请求头。它不发网络探测、不合成签名、不处理直播，也不要求媒体
+CDN MITM。任一校验失败都原地址放行。
+
 JSON 和 gRPC 入口都优先使用 Shadowrocket 提供的二进制正文；受支持的 gzip
 gRPC 消息在 4 MiB 上限内逐帧解压，修改后封装为标准未压缩消息。固定主机模式
 只接受已审核媒体域，并且只提升当前媒体对象已经返回的完整目标-host URL；目标
@@ -236,6 +248,7 @@ GitHub 可用时，生成接口读取并验证 `main` 的最新目录与对应�
 | --- | --- | --- |
 | 播放地址无法解析 | 原始响应放行 | `CDN=off` |
 | cron 失败、状态损坏或长期未运行 | 使用服务端完整 Akamai；缺少则保留原主 URL | `测速方式=off` 或 `CDN=off` |
+| v9 精确路由缺失、损坏或过期 | 缓存媒体请求原地址放行；下一份新播放响应重新填充 | `CDN=off` |
 | CDN/PCDN 策略导致播放异常 | 不改账号或内容数据 | PCDN 改为与分流相同 |
 | 广告/UI 端点变更 | 通常保留；首页/播放页未知推荐类型按各自白名单删除 | 关闭对应严格开关、总开关或逐项开关 |
 | gRPC gzip 解压、消息解析或大小检查失败 | 整份响应原样返回 | 关闭 `广告过滤` |

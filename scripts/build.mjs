@@ -28,6 +28,10 @@ const sourceScript = await readFile(
   path.join(rootDirectory, "src", "bilibili-cdn.js"),
   "utf8",
 );
+const routeScript = await readFile(
+  path.join(rootDirectory, "src", "bilibili-cdn-route.js"),
+  "utf8",
+);
 const benchmarkScript = await readFile(
   path.join(rootDirectory, "src", "bilibili-cdn-benchmark.js"),
   "utf8",
@@ -607,6 +611,8 @@ const jsonPattern =
   String.raw`^https?:\/\/(?:(?:api|app)\.(?:bilibili\.com|biliapi\.net)|interface\.bilibili\.com)\/(?:x\/(?:player\/(?:wbi\/)?playurl(?:v2)?|v2\/playurl)|pgc\/player\/(?:api\/playurl(?:proj)?|web\/(?:v2\/)?playurl(?:\/html5)?)|pugv\/player\/(?:api|web)\/playurl|v2\/playurl)(?:\?|$)`;
 const grpcPattern =
   String.raw`^https?:\/\/(?:(?:grpc|app)\.(?:bilibili\.com|biliapi\.net))\/(?:bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite|bilibili\.app\.playurl\.v1\.PlayURL\/PlayView|bilibili\.(?:pgc\.gateway\.player\.(?:v1|v2)|cheese\.gateway\.player\.v1)\.PlayURL\/PlayView)(?:\?|$)`;
+const mediaRoutePattern =
+  String.raw`^https?:\/\/(?:(?:[a-z0-9-]+\.)+(?:acgvideo\.com|bilivideo\.com|bilivideo\.cn|bilivideo\.net|bilibilivideo\.com|ourdvsss\.com|ksyungslb\.com|00cdn\.com)|upos-[a-z0-9-]+\.akamaized\.net|uposdash-[a-z0-9-]+\.yfcdn\.net)(?::\d+)?\/upgcxcode\/`;
 const enhancePattern =
   String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index|search(?:\/square|\/type)?|view|account\/(?:mine(?:\/ipad)?|myinfo))|x\/(?:resource\/(?:show\/tab\/v2|top\/activity|patch\/tab(?:\/v2)?)|vip\/ads\/(?:materials|material\/report)))|(?:api\.bilibili\.com|api\.biliapi\.net)\/(?:pgc\/(?:page\/(?:bangumi|cinema\/tab)|activity\/deliver\/material\/receive)|x\/(?:resource\/(?:top\/activity|patch\/tab(?:\/v2)?)|vip\/(?:web\/vip_center\/combine|ads\/(?:materials|material\/report))|web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd|v2\/reply\/main))|api\.live\.bilibili\.com\/xlive\/(?:app-room\/v1\/index\/getInfoByRoom|e-commerce-interface\/v1\/ecommerce-user\/get_shopping_info)|line3-h5-mobile-api\.biligame\.com\/game\/live\/large_card_material|api\.vc\.bilibili\.com\/search_svr\/v\d+\/Search\/recommend_words|manga\.bilibili\.com\/twirp\/comic\.v\d+\.Comic\/(?:Flash|ListFlash))(?:\?|$)`;
 const storyPattern =
@@ -634,6 +640,7 @@ function ruleSection() {
 
 function cdnScriptLines() {
   return [
+    `Bilibili CDN Cached Media Route = type=http-request,pattern=${mediaRoutePattern},requires-body=0,timeout=2,engine=jsc,script-path=${versionedRaw("dist/bilibili-cdn-route.js")},argument="${cdnScriptArgument}"`,
     `Bilibili CDN JSON = type=http-response,pattern=${jsonPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${cdnScriptArgument}"`,
     `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${cdnScriptArgument}"`,
   ];
@@ -737,6 +744,7 @@ const outputs = new Map([
   ["dist/Bilibili.CDN.sgmodule", enhancedModule],
   ["dist/Bilibili.list", ruleList],
   ["dist/bilibili-cdn.js", sourceScript],
+  ["dist/bilibili-cdn-route.js", routeScript],
   ["dist/bilibili-cdn-benchmark.js", combinedBenchmarkScript],
   ["dist/bilibili-enhance.js", enhanceScript],
   ["dist/bilibili-refresh.js", refreshScript],

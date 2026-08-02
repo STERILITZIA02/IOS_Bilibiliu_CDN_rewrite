@@ -1,6 +1,6 @@
 {
   "name": "ios-bilibili-cdn-rewrite",
-  "version": "3.8.0",
+  "version": "3.8.1",
   "private": true,
   "description": "Conservative Bilibili routing, ad/UI filtering, and resource-safe CDN selection for Shadowrocket on iOS.",
   "license": "MIT",

@@ -68,6 +68,7 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(moduleText, /Bilibili Enhance JSON = type=http-response/);
   assert.match(moduleText, /Bilibili Enhance gRPC = type=http-response/);
   assert.match(moduleText, /Bilibili Story Safe Pipeline = type=http-response/);
+  assert.match(moduleText, /Bilibili CDN Cached Media Route = type=http-request/);
   assert.match(moduleText, /Bilibili CDN JSON = type=http-response/);
   assert.match(moduleText, /Bilibili CDN gRPC = type=http-response/);
   assert.match(moduleText, /binary-body-mode=1/);
@@ -126,6 +127,7 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(cdnOnlyModule, /\[Rule\]/);
   assert.match(cdnOnlyModule, /Bilibili CDN JSON = type=http-response/);
   assert.match(cdnOnlyModule, /Bilibili CDN gRPC = type=http-response/);
+  assert.match(cdnOnlyModule, /Bilibili CDN Cached Media Route = type=http-request/);
   assert.match(
     cdnOnlyModule,
     /Bilibili Story Safe Pipeline = type=http-response/,
@@ -172,6 +174,43 @@ test("every CDN module has exactly one versioned wake-system cron benchmark", ()
   assert.match(benchmarkDist, /BiliCDN Benchmark/);
   assert.match(benchmarkDist, /BiliCdnSwitcher/);
   assert.match(benchmarkDist, /var PROBE_TIMEOUT_MS = 5000;/);
+});
+
+test("every CDN module has one lightweight exact-object media request route", () => {
+  for (const generatedModule of [enhancedModule, cdnOnlyModule]) {
+    const routeLines = generatedModule
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("Bilibili CDN Cached Media Route = "));
+    assert.equal(routeLines.length, 1);
+    const line = routeLines[0];
+    assert.match(line, /type=http-request/);
+    assert.match(line, /requires-body=0/);
+    assert.match(line, /timeout=2/);
+    assert.match(line, /engine=jsc/);
+    assert.match(
+      line,
+      new RegExp(
+        `script-path=https://raw\\.githubusercontent\\.com/.+/bilibili-cdn-route\\.js\\?v=${packageJson.version.replaceAll(".", "\\.")}`,
+      ),
+    );
+    const match = line.match(/,pattern=(.+?),requires-body=0,/);
+    assert.ok(match);
+    const pattern = new RegExp(match[1]);
+    for (const url of [
+      "http://upos-sz-mirrorcosov.bilivideo.com/upgcxcode/77/26/video.m4s?bvc=vod",
+      "http://upos-hz-mirrorakam.akamaized.net/upgcxcode/77/26/video.m4s?bvc=vod",
+      "https://xy1.mcdn.bilivideo.cn/upgcxcode/77/26/video.m4s?bvc=vod",
+    ]) {
+      assert.match(url, pattern);
+    }
+    for (const url of [
+      "https://api.bilibili.com/x/player/playurl",
+      "http://d1--ov-gotcha105.bilivideo.com/live-bvc/1/live.m3u8",
+      "https://example.com/upgcxcode/77/26/video.m4s",
+    ]) {
+      assert.doesNotMatch(url, pattern);
+    }
+  }
 });
 
 test("fresh UI request guard covers every reviewed cache-sensitive metadata API", () => {
@@ -605,6 +644,7 @@ test("generated artifacts are local, non-empty, and checksummed", () => {
     "Bilibili.CDN.Switcher.sgmodule",
     "Bilibili.list",
     "bilibili-cdn.js",
+    "bilibili-cdn-route.js",
     "bilibili-cdn-benchmark.js",
     "bilibili-enhance.js",
     "bilibili-refresh.js",
@@ -664,6 +704,7 @@ test("release metadata and workflow publish every runtime artifact", () => {
     "Bilibili.CDN.Switcher.sgmodule",
     "Bilibili.list",
     "bilibili-cdn.js",
+    "bilibili-cdn-route.js",
     "bilibili-cdn-benchmark.js",
     "bilibili-enhance.js",
     "bilibili-refresh.js",

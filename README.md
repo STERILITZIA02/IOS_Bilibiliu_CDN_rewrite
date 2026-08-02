@@ -18,10 +18,10 @@
 > 组合的真机验收。仓库会明确区分“代码测试通过”和“真机已验证”；发布前后的
 > 检查矩阵见 [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
 >
-> v3.8.0 针对真实 PacketTunnel 日志中的约 2 秒 CDN fallback、Shadowrocket
-> `$done()` 后学习失效及 Bilibili iOS 9.5.0 `/relate/story` 漏口所做的修复、
-> 16 节点手测与回滚方式见 [v3.8 审计](docs/V3_8_AUDIT.md)。上一版审计保留在
-> [v3.7 增量审计](docs/V3_7_AUDIT.md)。
+> v3.8.1 针对 App 缓存/预加载地址早于新 PlayView 响应发出的竞态，增加了同一媒体
+> 对象的完整签名 URL 直达，分析与边界见 [v3.8.1 审计](docs/V3_8_1_AUDIT.md)。
+> v3.8 的后台测速、Akamai 冷启动与 9.5.0 `/relate/story` 修复仍见
+> [v3.8 审计](docs/V3_8_AUDIT.md)。
 
 ## 下载与直接安装
 
@@ -246,7 +246,7 @@ feed/story、mine、view、splash 与 VIP 素材/上报等实际过滤接口成�
 `网络档案=auto` 不声称自动识别 Wi‑Fi/SSID。需要严格隔离家庭 Wi‑Fi 与蜂窝网络
 缓存时，请切换网络后手动填写不同档案名。
 
-### v8 稳定优先自动选择
+### v8 稳定选择 + v9 缓存媒体直达
 
 `CDN=auto` 把测速彻底移出播放响应热路径。打开视频、跳着看、切倍速、切清晰度或
 从后台恢复时，脚本只同步读取 `$persistentStore` 并重排 URL，调用 Range probe 的
@@ -273,6 +273,17 @@ feed/story、mine、view、splash 与 VIP 素材/上报等实际过滤接口成�
    主机名、对象 hash、统计和时间戳，不含完整 URL、path、query、token 或正文；
 9. alias 6 小时后失效，状态 24 小时后只按冷启动规则处理。v7 对象状态不迁移；
    旧 `nonblocking` 参数会映射为 `cron`，不再依赖 `$done()` 后回调。
+
+日志还证明 App 有时会先用缓存/预加载的旧 PlayView 地址发起媒体请求，然后新
+PlayView 响应才到达。v9 为这条竞态增加一条不测速的请求侧直达路径：响应脚本在
+`$done()` 前，把当前媒体对象实际选中的**完整服务端 URL**写入
+`BiliCDN.mediaRoutes.v9`；轻量 `http-request` 脚本只拦截点播 `/upgcxcode/` 的
+GET/HEAD，用 path、`deadline/exp`、`trid`、`mid`、`oi`、`buvid` 和表示档案核对
+同一对象后，逐字节使用该目标 URL。它不拼接 hostname、不合成签名，不改 Range、
+User-Agent 或请求体，也不需要对媒体 CDN 开启 MITM。
+
+v9 状态最多 64 条，并在签名到期前至少 30 秒失效，单条最长保留 2 小时。状态缺失、
+损坏、过期、对象或档案不一致时原地址直接放行；下一份新播放响应会重新填充。
 
 首次安装无需等待学习：有完整 Akamai 备用时即刻使用稳定冷启动回退。后台 cron 在至少
 两个不同匿名对象上验证出更优且稳定的非 Akamai 主机后，后续新视频才会使用它。
@@ -314,8 +325,8 @@ DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 Shadowrocket 会取得新的远程资源地址，不会继续复用上一版同名脚本缓存。
 
 如果原先安装的是 README 的固定 `main/dist/*.sgmodule` 地址、历史兼容地址或
-BiliFlow 生成的固定 URL，升级到 3.8.0 **不需要重新订阅**，只需执行上述“更新
-模块”。更新后模块详情应显示 `3.8.0`，脚本 URL 应含 `?v=3.8.0`。只有把 Release
+BiliFlow 生成的固定 URL，升级到 3.8.1 **不需要重新订阅**，只需执行上述“更新
+模块”。更新后模块详情应显示 `3.8.1`，脚本 URL 应含 `?v=3.8.1`。只有把 Release
 附件下载成本地文件、或使用不带远程 URL 的旧副本时，才需要重新安装固定地址。
 
 按影响最小顺序回滚：
@@ -345,7 +356,8 @@ BiliFlow 生成的固定 URL，升级到 3.8.0 **不需要重新订阅**，只�
 
 - 不伪造登录、会员、订单、支付、课程/番剧购买结果；
 - 不绕过地区版权、收费内容、账号授权或服务端鉴权；
-- 不读取或上传 Cookie、token、响应正文或完整媒体签名；
+- 不上传 Cookie、token、响应正文或完整媒体签名；v9 只在本机短期保存当前响应
+  实际选中的完整媒体 URL，并按对象绑定、签名到期和 64 条容量清理；
 - 不对媒体 CDN 做 MITM，不处理媒体分片响应体；
 - 不访问第三方测速/分析服务；cron 只访问匿名 Bilibili 播放 API 与维护列表中的
   Bilibili 媒体主机，Akamai 仅使用服务端完整 URL；
@@ -373,8 +385,8 @@ npm run benchmark:cdn
 
 - `npm run check` 验证确定性生成物，并覆盖 JSON、gRPC/Protobuf、首次响应
   `bodyBytes`/gzip、9.5.0 暂停/结束页、后台恢复缓存保护、首页/播放页普通视频
-  白名单、逐项开关、双模块、严格 Range、缓存隔离、阈值、锁、退避、容量和
-  故障开放。
+  白名单、逐项开关、双模块、严格 Range、v9 请求直达、签名/对象隔离、阈值、锁、
+  退避、容量和故障开放。
 - `npm run check:all` 在上述核心检查后继续执行网站 lint、生产构建和路由安全测试；
   CI 与 Release 均使用该命令。
 - `npm run smoke:auto` 是可选联网冒烟，只探测公共播放响应中的主/备用 URL。
@@ -387,7 +399,7 @@ npm run benchmark:cdn
 - `dist/Bilibili.CDN.Enhanced.sgmodule`：CDN + 广告/UI；
 - `dist/Bilibili.CDN.sgmodule`：Enhanced 历史兼容别名；
 - `dist/Bilibili.list`：可独立使用的分流规则；
-- `dist/bilibili-cdn.js`、`dist/bilibili-enhance.js`、
+- `dist/bilibili-cdn.js`、`dist/bilibili-cdn-route.js`、`dist/bilibili-enhance.js`、
   `dist/bilibili-refresh.js`：播放地址、响应增强和易变页面请求缓存保护脚本；
 - `dist/module-options.json`：模块与网站共用的选项目录；
 - `dist/SHA256SUMS.txt`：发行资产 SHA-256。
