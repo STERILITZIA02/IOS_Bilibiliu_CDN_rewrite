@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented here.
 
+## [3.8.0] - 2026-08-03
+
+- Move default CDN learning out of playback responses into a Shadowrocket
+  `type=cron` runtime with `wake-system=1`. Legacy `nonblocking` now maps to
+  `cron`; JSON, gRPC, and Story hot paths perform zero Range probes.
+- Add bounded `BiliCDN.hostAuto.v8` host state, explicit network-profile
+  isolation, p25 throughput/failure/jitter scoring, two-object validation,
+  six-hour alias freshness, 24-hour stale fallback, and two-hour circuits.
+- Cold-promote a complete server-provided Akamai backup immediately when no
+  qualified host state exists, retaining the original primary as the first
+  backup. Never synthesize an Akamai URL from another host's signed query.
+- Add anonymous public-sample cron validation with serial 64 KiB prefix and
+  rotating 1 MiB interior ranges, strict status/Range/length/hash/type checks,
+  and an eight-second per-request hard deadline.
+- Cover Bilibili 9.5.0 `/x/v2/feed/index/relate/story` in the request cache
+  guard and the single filter-then-CDN Story runtime, including strict ordinary
+  vertical-video filtering and no-store responses.
+- Add `npm run benchmark:cdn` for redacted, repeatable per-host measurements;
+  document the supplied PacketTunnel log's 23 approximately two-second Akamai
+  fallback delays and the 16-host anonymous benchmark.
+
 ## [3.7.0] - 2026-08-01
 
 - Add the Bilibili 9.5.0 Mine fields `vip_section_right` and

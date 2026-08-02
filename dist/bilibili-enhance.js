@@ -519,6 +519,9 @@
       if (path === "/x/v2/feed/index/story/cart") {
         return "story-cart";
       }
+      if (path === "/x/v2/feed/index/relate/story") {
+        return "story";
+      }
       if (path === "/x/v2/search/square") {
         return "search-square";
       }

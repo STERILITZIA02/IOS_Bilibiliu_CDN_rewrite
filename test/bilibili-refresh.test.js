@@ -13,6 +13,7 @@ test("cache guard is exact to reviewed volatile Bilibili metadata", () => {
     "https://app.bilibili.com/x/v2/feed/index?device=phone",
     "https://app.biliapi.net/x/v2/feed/index/story?pull=1",
     "https://app.biliapi.net/x/v2/feed/index/story/cart?pull=1",
+    "https://app.bilibili.com/x/v2/feed/index/relate/story?aid=1",
     "https://app.bilibili.com/x/v2/splash/list",
     "https://app.biliapi.net/x/v2/splash/show",
     "https://app.bilibili.com/x/v2/splash/event/list2",
@@ -74,6 +75,12 @@ test("cache guard diagnostics identify endpoints without retaining queries", () 
       "https://app.bilibili.com/x/v2/splash/event/list2?loaded=secret",
     ),
     "splash-event-list2",
+  );
+  assert.equal(
+    refresh.classifyVolatileEndpoint(
+      "https://app.bilibili.com/x/v2/feed/index/relate/story?access_key=secret",
+    ),
+    "feed-relate-story",
   );
   assert.equal(
     refresh.classifyVolatileEndpoint(

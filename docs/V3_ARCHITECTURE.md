@@ -1,6 +1,6 @@
 # v3 架构、数据流与安全边界
 
-> 适用版本：`3.7.0`
+> 适用版本：`3.8.0`
 >
 > 本文描述仓库当前实现，不代表所有 Bilibili App/iOS 组合已完成真机验证。
 > 当前专项入口以 Bilibili iOS 9.5.0 请求构建号 `90500100` 为验收基线。
@@ -34,6 +34,7 @@ iPhone/iPad 优先的网站生成可持续更新的定制 URL：
 flowchart LR
   A[config/module-options.json] --> B[scripts/build.mjs]
   C[src/bilibili-cdn.js] --> B
+  M[src/bilibili-cdn-benchmark.js] --> B
   D[src/bilibili-enhance.js] --> B
   E[src/bilibili-refresh.js] --> B
   K[config/domains.json] --> B
@@ -42,6 +43,7 @@ flowchart LR
   B --> H[module-options.json]
   B --> I[SHA256SUMS.txt]
   B --> L[Enhanced/CDN-only Story 运行时]
+  B --> N[Shadowrocket cron benchmark]
   H --> J[BiliFlow 定制站点]
   F --> J
   G --> J
@@ -66,35 +68,36 @@ flowchart LR
 `src/bilibili-cdn.js` 只处理模块明确列出的播放地址 JSON/gRPC API，不匹配或读取
 媒体分片响应体。直播签名 URL 始终保留服务端 host/path/query。
 
-`CDN=auto` 的候选仅来自**同一个媒体对象本次响应中的完整主 URL 与备用 URL**：
+默认 `CDN=auto, probeMode=cron` 分为两个互不等待的阶段：
 
-1. 用精确无查询媒体路径、媒体类型、清晰度/表示元数据、编码、候选集合和网络
-   档案生成不含签名 query 的固定长度摘要；任何媒体对象都不得跨路径复用选择；
-2. 只在相同普通 CDN、MCDN 或 PCDN 家族内比较；
-3. 已验证且未过期的缓存立即应用；没有缓存时默认立即返回本次服务端响应；
-4. 默认 `probeMode=nonblocking` 不等待探测完成；`blocking` 用于至少间隔
-   2 分钟的两次确定性确认，`off` 只复用现有已验证缓存；
-5. 每次响应最多选择一个媒体对象，同时验证主路线和一个备用路线；
-6. 首次探索使用同一 256 KiB 前缀；第二次确认和后续复核使用同一 1 MiB 文件内部
-   区间并轮转位置。两端必须同时满足：状态 `206`、Content-Range 起止相同、总文件
-   长度相同、实际样本长度相同、样本 hash 相同、Content-Type 兼容、没有内容编码、
-   重定向或 HTML/JSON/XML/错误页；
-7. 以文件内部 1 MiB 样本吞吐中位数为主、总耗时和抖动/失败率为保护条件；备用路线需
-   同时达到 `切换阈值`、媒体类型绝对吞吐下限和声明带宽的 1.35 倍余量，再至少
-   间隔 2 分钟成功确认两次；第二份样本已经显示高抖动时拒绝晋升；
-8. 学习请求本身不改写，只有后续重新获取的播放地址可以使用已确认选择；
-9. 晋升备用 URL 后保留原始主 URL 作为备用；完整签名 URL 只能来自当前响应的
-   同一 alias lane，不复用过期 query，也不把 camelCase 签名写进 snake_case；
-10. 全局探测至少间隔 2 分钟；单资源使用持久化锁和令牌、失败退避及探索间隔；
-11. 已选候选最多每 8 分钟非阻塞复核一次；失败、对象不一致或不再更快时清除
-    选择，下一份响应恢复服务端原始 URL，不缩短配置的选择 TTL；
-12. v7 选择状态最多 64 项；另有最多 48 项匿名候选健康摘要，只把硬失败或连续
-    低速候选临时熔断，不允许把一个对象的 URL、签名或选择用于另一个对象；
-13. TTL 严格等于用户选择的 6–72 小时，只保存匿名对象/表示摘要、候选 ID、计数
-    和时间戳，不保存媒体路径、主机名、URL、query 或 token；改变 `resetToken`
-    会幂等清空一次学习状态。
+1. `bilibili-cdn-benchmark.js` 由六字段 cron 每两小时唤醒，按参数中的 2–72 小时
+   间隔决定是否运行；它只使用轮换的公共未登录 BVID，不读取用户 Cookie、
+   `access_key`、设备标识或日志 URL；
+2. cron 优先选服务端完整 Akamai 作为参考，先取 64 KiB 前缀总长，再在 1/4、
+   1/2、3/4 附近轮换同一个 1 MiB 内部 Range；参考、当前胜者、待二次对象确认的
+   主机和一个轮换挑战者串行测试，每请求硬截止 5 秒；
+3. 所有候选必须与参考的 `206`、Range、总长、实际长度、内容 hash 和内容类型
+   一致，且无压缩、跨对象重定向或 HTML/JSON 错误体；
+4. v8 每网络档案最多 16 主机，每主机 8 个样本、4 个对象 hash。主机至少通过两个
+   不同对象，最近 6 小时成功，失败率不高于 25%，未熔断，且 p25 吞吐达到
+   `max(10 Mbps, 表示所需吞吐 × 1.8)` 才合格；
+5. 稳定分数以 p25 吞吐为主，失败率与 MAD/中位抖动比作为惩罚。连续两次失败或
+   最近四次中两次失败会熔断两小时；一次失败不清空最后胜者；
+6. JSON、gRPC 与 Story 播放响应只同步读 `BiliCDN.hostAuto.v8`，不发 probe、
+   不等待 cron 锁、也不在 `$done()` 后写状态；
+7. 新鲜合格的完整服务端候选直接重排。经两个对象验证的维护列表非 Akamai alias
+   可以从当前主 URL复制并只替换 hostname；scheme、port、path 和 query 保留；
+8. Akamai 从不做 hostname 拼接。没有合格状态时，只在本次响应带完整签名 Akamai
+   URL 时立即提升它，并把原主 URL 放在备选首位；否则保留服务器主 URL；
+9. alias 6 小时后失效，状态超过 24 小时只执行冷启动回退；最多 4 个显式网络
+   档案。持久化只保存主机名、对象 hash、统计和时间戳，不保存 path、query、
+   token、完整 URL 或正文；
+10. v7 exact-object 状态不迁移。旧 `nonblocking` 输入归一化为 `cron`；显式
+    `blocking` 保留旧 v7 同对象诊断路径，`off` 停止 cron 但仍允许完整 Akamai
+    冷启动回退。
 
-存储、HTTP、解析、超时或持久化任一环节异常时，脚本返回原始响应。
+状态损坏、过期或持久化不可用时仍能执行完整 Akamai 冷启动规则；响应无法解析时
+原样放行。
 JSON 和 gRPC 入口都优先使用 Shadowrocket 提供的二进制正文；受支持的 gzip
 gRPC 消息在 4 MiB 上限内逐帧解压，修改后封装为标准未压缩消息。固定主机模式
 只接受已审核媒体域，并且只提升当前媒体对象已经返回的完整目标-host URL；目标
@@ -110,7 +113,7 @@ host 不在当前候选或任一 alias lane 不匹配时原样放行，不执行
   携带 AV/video 类型与具体视频身份；每次响应按服务端原顺序最多保留前 6 个；
 - 播放页推荐是明确例外：`推荐仅普通视频=true` 时采用普通 AV 白名单，无法确认
   为普通视频的推荐卡删除；
-- Story 与 `/story/cart` 由一个生成运行时依次执行过滤和 CDN 处理，避免两个
+- Story、`/story/cart` 与 `/relate/story` 由一个生成运行时依次执行过滤和 CDN 处理，避免两个
   响应脚本分别写回；Story 严格模式还要求真实视频身份和非负可用状态；
 - JSON 搜索与 gRPC `SearchAll`/`SearchByType` 仅删除已验证商业 oneof、商业
   角标或商业 URI，未知搜索 schema 原样保留；
@@ -151,7 +154,7 @@ AV/video 类型和视频身份，拒绝横幅、CM、
 `bilibili.app.show.v1.Popular/Index` 备用流执行相同边界：只接受
 标准小/大封面 AV oneof、明确 `av/video` 类型且带视频身份的卡，最多保留 6 条。
 
-`src/bilibili-refresh.js` 只在四个 splash、Home/Story、View、
+`src/bilibili-refresh.js` 只在四个 splash、Home/Story/Relate Story、View、
 Mine/Mine-iPad/myinfo 与 VIP materials/material-report 易变请求上移除 ETag/
 时间条件校验头，并设置 `no-cache, no-store`。它不改 URL、查询参数、正文或
 签名；目标是让冷/热启动、刷新和后台恢复后的新服务端响应再次进入过滤链，而
@@ -231,7 +234,8 @@ GitHub 可用时，生成接口读取并验证 `main` 的最新目录与对应�
 
 | 故障 | 默认行为 | 最小回滚 |
 | --- | --- | --- |
-| 播放地址无法解析或探测失败 | 原始响应放行 | `CDN=off` |
+| 播放地址无法解析 | 原始响应放行 | `CDN=off` |
+| cron 失败、状态损坏或长期未运行 | 使用服务端完整 Akamai；缺少则保留原主 URL | `测速方式=off` 或 `CDN=off` |
 | CDN/PCDN 策略导致播放异常 | 不改账号或内容数据 | PCDN 改为与分流相同 |
 | 广告/UI 端点变更 | 通常保留；首页/播放页未知推荐类型按各自白名单删除 | 关闭对应严格开关、总开关或逐项开关 |
 | gRPC gzip 解压、消息解析或大小检查失败 | 整份响应原样返回 | 关闭 `广告过滤` |
@@ -247,5 +251,6 @@ GitHub 可用时，生成接口读取并验证 `main` 的最新目录与对应�
    漂移/中断失败关闭测试。
 3. `npm run check:all`：CI 与发布工作流使用的完整离线门禁。
 4. `npm run smoke:auto`：可选联网冒烟；不作为合并门禁。
-5. [真机验收清单](DEVICE_ACCEPTANCE.md)：iPhone/iPad、iOS、Shadowrocket、
+5. `npm run benchmark:cdn`：可选匿名联网逐主机 Range/hash 基准。
+6. [真机验收清单](DEVICE_ACCEPTANCE.md)：iPhone/iPad、iOS、Shadowrocket、
    Bilibili App、账号与网络组合的最终人工确认。

@@ -547,6 +547,46 @@ test("strict Story filtering keeps only ordinary vertical videos", () => {
   );
 });
 
+test("9.5 relate Story uses the same strict ad filter and no-store response", () => {
+  const result = transform(
+    `${appRoot}/x/v2/feed/index/relate/story?aid=117024873257043`,
+    {
+      code: 0,
+      data: {
+        items: [
+          {
+            bvid: "BV1normal",
+            card_goto: "vertical_av",
+            title: "正常竖屏视频",
+            uri: "bilibili://video/BV1normal",
+          },
+          {
+            card_goto: "vertical_ad_av",
+            ad_info: { creative_id: 1 },
+            title: "商业视频",
+          },
+          {
+            card_goto: "future_type",
+            card_business_badge: { text: "AD" },
+            title: "未来广告结构",
+          },
+          {
+            card_goto: "vertical_pgc",
+            title: "番剧推荐",
+          },
+        ],
+      },
+    },
+  );
+
+  assert.equal(result.endpoint, "story");
+  assert.equal(result.changed, 3);
+  assert.deepEqual(
+    JSON.parse(result.body).data.items.map((item) => item.title),
+    ["正常竖屏视频"],
+  );
+});
+
 test("Story cart removes only verified commercial payloads and containers", () => {
   const fixture = {
     code: 0,

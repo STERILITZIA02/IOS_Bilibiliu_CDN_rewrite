@@ -95,7 +95,7 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(moduleText, /隐藏设置:false/);
   assert.match(moduleText, /PCDN策略:DIRECT/);
   assert.match(moduleText, /网络档案:auto/);
-  assert.match(moduleText, /测速方式:nonblocking/);
+  assert.match(moduleText, /测速方式:cron/);
   assert.match(moduleText, /重置令牌:none/);
   assert.match(
     moduleText,
@@ -145,6 +145,35 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   );
 });
 
+test("every CDN module has exactly one versioned wake-system cron benchmark", () => {
+  for (const generatedModule of [enhancedModule, cdnOnlyModule]) {
+    const cronLines = generatedModule
+      .split(/\r?\n/)
+      .filter((line) => line.includes("type=cron"));
+    assert.equal(cronLines.length, 1);
+    assert.match(cronLines[0], /^Bilibili CDN Background Benchmark = type=cron,/);
+    assert.match(cronLines[0], /cronexp=0 17 \*\/2 \* \* \*/);
+    assert.match(cronLines[0], /wake-system=1/);
+    assert.match(cronLines[0], /timeout=45/);
+    assert.match(cronLines[0], /engine=webview/);
+    assert.match(
+      cronLines[0],
+      new RegExp(
+        `script-path=https://raw\\.githubusercontent\\.com/.+/bilibili-cdn-benchmark\\.js\\?v=${packageJson.version.replaceAll(".", "\\.")}`,
+      ),
+    );
+    assert.match(cronLines[0], /"probeMode":"\{\{\{测速方式\}\}\}"/);
+    assert.match(cronLines[0], /"intervalHours":\{\{\{测速间隔\}\}\}/);
+  }
+  const benchmarkDist = fs.readFileSync(
+    path.join(root, "dist", "bilibili-cdn-benchmark.js"),
+    "utf8",
+  );
+  assert.match(benchmarkDist, /BiliCDN Benchmark/);
+  assert.match(benchmarkDist, /BiliCdnSwitcher/);
+  assert.match(benchmarkDist, /var PROBE_TIMEOUT_MS = 5000;/);
+});
+
 test("fresh UI request guard covers every reviewed cache-sensitive metadata API", () => {
   const scriptLine = moduleText
     .split(/\r?\n/)
@@ -158,6 +187,7 @@ test("fresh UI request guard covers every reviewed cache-sensitive metadata API"
     "https://app.bilibili.com/x/v2/feed/index?pull=1",
     "https://app.biliapi.net/x/v2/feed/index/story?pull=1",
     "https://app.biliapi.net/x/v2/feed/index/story/cart?pull=1",
+    "https://app.bilibili.com/x/v2/feed/index/relate/story?aid=1",
     "https://app.bilibili.com/x/v2/account/mine?build=9400000",
     "https://app.biliapi.net/x/v2/account/mine/ipad",
     "https://app.bilibili.com/x/v2/account/myinfo",
@@ -268,6 +298,7 @@ test("Story uses one exact filter-then-CDN response pipeline", () => {
   for (const url of [
     "https://app.bilibili.com/x/v2/feed/index/story",
     "https://app.biliapi.net/x/v2/feed/index/story/cart?pull=1",
+    "https://app.bilibili.com/x/v2/feed/index/relate/story?aid=1",
   ]) {
     assert.match(url, storyPattern);
     assert.doesNotMatch(url, enhancePattern);
@@ -282,7 +313,7 @@ test("Story uses one exact filter-then-CDN response pipeline", () => {
   assert.match(storySource, /processSafeAutoResponse/);
 });
 
-test("combined Story runtime filters ads once and preserves current URLs", () => {
+test("combined Story runtime filters ads once and cold-promotes complete Akamai", () => {
   const primary =
     "https://upos-sz-mirrorcosov.bilivideo.com/upgcxcode/1/2/story.m4s?token=current-primary";
   const backup =
@@ -333,7 +364,7 @@ test("combined Story runtime filters ads once and preserves current URLs", () =>
       },
     },
     $request: {
-      url: "https://app.bilibili.com/x/v2/feed/index/story",
+      url: "https://app.bilibili.com/x/v2/feed/index/relate/story?aid=1",
     },
     $response: {
       body: JSON.stringify(fixture),
@@ -364,11 +395,11 @@ test("combined Story runtime filters ads once and preserves current URLs", () =>
   assert.equal(output.data.items.length, 1);
   assert.equal(
     output.data.items[0].player_args.dash.video[0].base_url,
-    primary,
+    backup,
   );
   assert.deepEqual(
     Array.from(output.data.items[0].player_args.dash.video[0].backup_url),
-    [backup],
+    [primary],
   );
   assert.equal(completions[0].headers.ETag, undefined);
   assert.equal(
@@ -574,6 +605,7 @@ test("generated artifacts are local, non-empty, and checksummed", () => {
     "Bilibili.CDN.Switcher.sgmodule",
     "Bilibili.list",
     "bilibili-cdn.js",
+    "bilibili-cdn-benchmark.js",
     "bilibili-enhance.js",
     "bilibili-refresh.js",
     "bilibili-story.js",
@@ -632,6 +664,7 @@ test("release metadata and workflow publish every runtime artifact", () => {
     "Bilibili.CDN.Switcher.sgmodule",
     "Bilibili.list",
     "bilibili-cdn.js",
+    "bilibili-cdn-benchmark.js",
     "bilibili-enhance.js",
     "bilibili-refresh.js",
     "bilibili-story.js",

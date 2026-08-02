@@ -521,6 +521,9 @@ this.__BILIFLOW_COMBINED__ = true;
       if (path === "/x/v2/feed/index/story/cart") {
         return "story-cart";
       }
+      if (path === "/x/v2/feed/index/relate/story") {
+        return "story";
+      }
       if (path === "/x/v2/search/square") {
         return "search-square";
       }
@@ -5359,14 +5362,11 @@ this.__BILIFLOW_COMBINED__ = true;
 })(this);
 
 /*
- * Bilibili CDN Switcher v7 for Shadowrocket
+ * Bilibili CDN Switcher v8 for Shadowrocket
  *
- * Default auto mode is deliberately conservative:
- * - it only considers the primary and backup URLs returned for one media item;
- * - it validates a small byte range before persisting a choice;
- * - it isolates choices by resource, representation, codec, media kind,
- *   candidate set, and an explicit network profile;
- * - it never stores signed query strings or rewrites media response bodies.
+ * Default auto mode performs no network probes on playback responses. It reads
+ * bounded host-level state produced by the background cron benchmark and falls
+ * back to a complete, server-provided Akamai URL when learning is unavailable.
  *
  * Fixed-host mode remains available as an explicit compatibility option.
  * Live URLs are never rewritten because their signatures are bound to
@@ -5378,13 +5378,15 @@ this.__BILIFLOW_COMBINED__ = true;
   var NAME = "BiliCDN";
   var DEFAULT_CDN = "upos-sz-mirrorali.bilivideo.com";
   var AUTO_STATE_KEY = "BiliCDN.safeAuto.v7";
-  var DEFAULT_AUTO_INTERVAL_HOURS = 12;
+  var HOST_AUTO_STATE_KEY = "BiliCDN.hostAuto.v8";
+  var AKAMAI_COLD_HOST = "upos-hz-mirrorakam.akamaized.net";
+  var DEFAULT_AUTO_INTERVAL_HOURS = 2;
   var DEFAULT_SWITCH_THRESHOLD = 20;
   var RUNTIME_OPTION_LIMITS = {
     intervalHours: {
       defaultValue: DEFAULT_AUTO_INTERVAL_HOURS,
       maximum: 72,
-      minimum: 6
+      minimum: 2
     },
     switchThreshold: {
       defaultValue: DEFAULT_SWITCH_THRESHOLD,
@@ -5417,6 +5419,17 @@ this.__BILIFLOW_COMBINED__ = true;
   var AUTO_MIN_SEGMENT_THROUGHPUT_KBPS = 1500;
   var AUTO_MIN_VIDEO_THROUGHPUT_KBPS = 2500;
   var AUTO_REPRESENTATION_HEADROOM = 1.35;
+  var HOST_PROFILE_CAPACITY = 4;
+  var HOST_AUTO_CAPACITY = 16;
+  var HOST_SAMPLE_CAPACITY = 8;
+  var HOST_OBJECT_CAPACITY = 4;
+  var HOST_ALIAS_FRESH_MS = 6 * 60 * 60 * 1000;
+  var HOST_STATE_STALE_MS = 24 * 60 * 60 * 1000;
+  var HOST_CIRCUIT_OPEN_MS = 2 * 60 * 60 * 1000;
+  var HOST_MIN_OBJECTS = 2;
+  var HOST_MAX_FAILURE_RATE = 0.25;
+  var HOST_MIN_THROUGHPUT_KBPS = 10000;
+  var HOST_REPRESENTATION_HEADROOM = 1.8;
 
   /*
    * This list is documentation and fixed-mode input guidance only. Safe auto
@@ -5724,9 +5737,7 @@ this.__BILIFLOW_COMBINED__ = true;
   function normalizeProbeMode(value) {
     var mode =
       typeof value === "string" ? value.trim().toLowerCase() : "";
-    return mode === "blocking" || mode === "off"
-      ? mode
-      : "nonblocking";
+    return mode === "blocking" || mode === "off" ? mode : "cron";
   }
 
   function normalizeResetToken(value) {
@@ -5742,7 +5753,7 @@ this.__BILIFLOW_COMBINED__ = true;
       debug: false,
       intervalHours: DEFAULT_AUTO_INTERVAL_HOURS,
       networkProfile: "auto",
-      probeMode: "nonblocking",
+      probeMode: "cron",
       resetToken: "",
       switchThreshold: DEFAULT_SWITCH_THRESHOLD,
       valid: true
@@ -5937,6 +5948,29 @@ this.__BILIFLOW_COMBINED__ = true;
     return parsed.scheme + "://" + cdnHost + parsed.remainder;
   }
 
+  function replaceVodHostname(value, cdnHost) {
+    var parsed;
+    var portMatch;
+    if (
+      FIXED_CDN_CANDIDATES.indexOf(String(cdnHost || "").toLowerCase()) === -1 ||
+      !isVodMediaUrl(value)
+    ) {
+      return "";
+    }
+    parsed = parseHttpUrl(value);
+    if (!parsed) {
+      return "";
+    }
+    portMatch = /:(\d+)$/.exec(parsed.authority);
+    return (
+      parsed.scheme +
+      "://" +
+      String(cdnHost).toLowerCase() +
+      (portMatch ? ":" + portMatch[1] : "") +
+      parsed.remainder
+    );
+  }
+
   function rewriteJsonValue(value, config, state, depth) {
     var index;
     var keys;
@@ -6074,6 +6108,43 @@ this.__BILIFLOW_COMBINED__ = true;
       if (itemId === selectedId || itemId === lane.primaryId) {
         continue;
       }
+      next.push(item);
+    }
+    if (JSON.stringify(next) !== JSON.stringify(array)) {
+      value[lane.backupKey] = next;
+      changed += 1;
+    }
+    return changed;
+  }
+
+  function rotateJsonAliasLaneToUrl(value, lane, selectedUrl) {
+    var selectedId = candidateIdForUrl(selectedUrl);
+    var array = value[lane.backupKey];
+    var next = [lane.primaryUrl];
+    var seen = {};
+    var index;
+    var item;
+    var itemId;
+    var changed = 0;
+    if (!selectedId || selectedId === lane.primaryId || !isVodMediaUrl(selectedUrl)) {
+      return 0;
+    }
+    seen[lane.primaryUrl] = true;
+    if (value[lane.primaryKey] !== selectedUrl) {
+      value[lane.primaryKey] = selectedUrl;
+      changed += 1;
+    }
+    for (index = 0; index < array.length; index += 1) {
+      item = array[index];
+      itemId = typeof item === "string" ? candidateIdForUrl(item) : null;
+      if (
+        itemId === selectedId ||
+        itemId === lane.primaryId ||
+        seen[item]
+      ) {
+        continue;
+      }
+      seen[item] = true;
       next.push(item);
     }
     if (JSON.stringify(next) !== JSON.stringify(array)) {
@@ -7157,12 +7228,87 @@ this.__BILIFLOW_COMBINED__ = true;
     return Boolean(health && health.openUntil > now);
   }
 
+  function descriptorCandidateForHost(descriptor, hostname) {
+    var index;
+    var parsed;
+    for (index = 0; index < descriptor.candidates.length; index += 1) {
+      parsed = parseHttpUrl(descriptor.candidates[index].url);
+      if (parsed && parsed.hostname === hostname) {
+        return descriptor.candidates[index].url;
+      }
+    }
+    return "";
+  }
+
+  function selectHostUrlForDescriptor(descriptor, config, now) {
+    var stableHost = selectStableHost(
+      config && config.hostAutoState,
+      config,
+      descriptor,
+      now
+    );
+    var primary = parseHttpUrl(descriptor.primaryUrl);
+    var exactUrl;
+    var aliasUrl;
+
+    descriptor.selectedAlias = false;
+    descriptor.selectedHost = "";
+    descriptor.selectionSource = "server-primary";
+    if (stableHost) {
+      descriptor.selectedHost = stableHost;
+      if (primary && primary.hostname === stableHost) {
+        descriptor.selectionSource = "host-state-primary";
+        return null;
+      }
+      exactUrl = descriptorCandidateForHost(descriptor, stableHost);
+      if (exactUrl) {
+        descriptor.selectionSource = "host-state";
+        return exactUrl;
+      }
+      if (
+        stableHost !== AKAMAI_COLD_HOST &&
+        FIXED_CDN_CANDIDATES.indexOf(stableHost) !== -1 &&
+        descriptor.family === "standard"
+      ) {
+        aliasUrl = replaceVodHostname(descriptor.primaryUrl, stableHost);
+        if (aliasUrl) {
+          descriptor.selectedAlias = true;
+          descriptor.selectionSource = "host-state";
+          return aliasUrl;
+        }
+      }
+      /* Never synthesize an Akamai URL: its query may be host-bound. */
+      if (stableHost === AKAMAI_COLD_HOST) {
+        descriptor.selectionSource = "server-primary";
+        return null;
+      }
+    }
+
+    exactUrl = descriptorCandidateForHost(descriptor, AKAMAI_COLD_HOST);
+    if (
+      exactUrl &&
+      candidateIdForUrl(exactUrl) !== descriptor.primaryId
+    ) {
+      descriptor.selectedHost = AKAMAI_COLD_HOST;
+      descriptor.selectionSource = "cold-akamai";
+      return exactUrl;
+    }
+    return null;
+  }
+
   function selectedUrlForDescriptor(descriptor, config, state, now) {
     var key = descriptorResourceKey(descriptor, config);
     var entry = state.entries[key];
     var selectedUrl;
 
     descriptor.resourceKey = key;
+    if (
+      config &&
+      config.hostAutoState &&
+      config.hostAutoState.version === 8
+    ) {
+      return selectHostUrlForDescriptor(descriptor, config, now);
+    }
     if (
       !entry ||
       entry.candidateSetHash !== descriptor.candidateSetHash ||
@@ -7230,6 +7376,7 @@ this.__BILIFLOW_COMBINED__ = true;
     var descriptor;
     var selectedUrl;
     var selectedId;
+    var laneSelectedUrl;
     var changed = 0;
 
     if (!lanes) {
@@ -7264,12 +7411,30 @@ this.__BILIFLOW_COMBINED__ = true;
     }
     selectedId = candidateIdForUrl(selectedUrl);
     for (index = 0; index < lanes.length; index += 1) {
-      if (!laneUrlForCandidate(lanes[index], selectedId)) {
+      laneSelectedUrl = laneUrlForCandidate(lanes[index], selectedId);
+      if (!laneSelectedUrl && descriptor.selectedAlias) {
+        laneSelectedUrl = replaceVodHostname(
+          lanes[index].primaryUrl,
+          descriptor.selectedHost
+        );
+      }
+      if (!laneSelectedUrl) {
         return { changed: 0, descriptor: descriptor };
       }
     }
     for (index = 0; index < lanes.length; index += 1) {
-      changed += rotateJsonAliasLane(value, lanes[index], selectedId);
+      laneSelectedUrl = laneUrlForCandidate(lanes[index], selectedId);
+      if (!laneSelectedUrl && descriptor.selectedAlias) {
+        laneSelectedUrl = replaceVodHostname(
+          lanes[index].primaryUrl,
+          descriptor.selectedHost
+        );
+      }
+      changed += rotateJsonAliasLaneToUrl(
+        value,
+        lanes[index],
+        laneSelectedUrl
+      );
     }
     return { changed: changed, descriptor: descriptor };
   }
@@ -7441,6 +7606,491 @@ this.__BILIFLOW_COMBINED__ = true;
       sampleCount: samples.length,
       successCount: successful.length
     };
+  }
+
+  function percentile25(values) {
+    var sorted;
+    var index;
+    if (!Array.isArray(values) || values.length === 0) {
+      return 0;
+    }
+    sorted = values.slice().sort(function (left, right) {
+      return left - right;
+    });
+    index = Math.floor((sorted.length - 1) * 0.25);
+    return sorted[index];
+  }
+
+  function createEmptyHostAutoState() {
+    return {
+      lock: null,
+      profiles: {},
+      resetToken: "",
+      version: 8
+    };
+  }
+
+  function sanitizeHostObjectId(value) {
+    return /^o2_[0-9a-f]{32}$/.test(value || "") ? value : "";
+  }
+
+  function sanitizeHostBenchmarkSample(value) {
+    var objectId;
+    if (!isObject(value) || Array.isArray(value)) {
+      return null;
+    }
+    objectId = sanitizeHostObjectId(value.objectId);
+    return {
+      at: boundedNumber(value.at, 0, 0, 9e15),
+      elapsedMs: boundedNumber(value.elapsedMs, 0, 0, 60000),
+      objectId: objectId,
+      ok: Boolean(value.ok),
+      reason:
+        typeof value.reason === "string"
+          ? value.reason.slice(0, 48)
+          : "",
+      status: boundedInteger(value.status, 0, 0, 999),
+      throughputKbps: boundedNumber(
+        value.throughputKbps,
+        0,
+        0,
+        100000000
+      ),
+      ttfbMs: boundedNumber(value.ttfbMs, 0, 0, 60000)
+    };
+  }
+
+  function summarizeHostSamples(samples, objects) {
+    var successful = samples.filter(function (sample) {
+      return sample.ok;
+    });
+    var elapsed = successful.map(function (sample) {
+      return sample.elapsedMs;
+    });
+    var throughput = successful.map(function (sample) {
+      return sample.throughputKbps;
+    });
+    var ttfb = successful.map(function (sample) {
+      return sample.ttfbMs;
+    });
+    var medianMs = median(elapsed);
+    var deviations = elapsed.map(function (value) {
+      return Math.abs(value - medianMs);
+    });
+    return {
+      failureRate:
+        samples.length === 0
+          ? 0
+          : (samples.length - successful.length) / samples.length,
+      jitterRatio:
+        medianMs > 0 ? median(deviations) / medianMs : 0,
+      medianThroughputKbps: median(throughput),
+      medianTtfbMs: median(ttfb),
+      objectCount: Array.isArray(objects) ? objects.length : 0,
+      p25ThroughputKbps: percentile25(throughput),
+      sampleCount: samples.length,
+      successCount: successful.length
+    };
+  }
+
+  function sanitizeHostAutoHealth(value) {
+    var health = {
+      failureStreak: 0,
+      lastFailureAt: 0,
+      lastSuccessAt: 0,
+      lastUsedAt: 0,
+      metrics: summarizeHostSamples([], []),
+      objects: [],
+      openUntil: 0,
+      samples: []
+    };
+    var objects = [];
+    var samples = [];
+    var seenObjects = {};
+    var index;
+    var objectId;
+    var sample;
+
+    if (!isObject(value) || Array.isArray(value)) {
+      return health;
+    }
+    if (Array.isArray(value.objects)) {
+      for (
+        index = Math.max(0, value.objects.length - HOST_OBJECT_CAPACITY);
+        index < value.objects.length;
+        index += 1
+      ) {
+        objectId = sanitizeHostObjectId(value.objects[index]);
+        if (objectId && !seenObjects[objectId]) {
+          seenObjects[objectId] = true;
+          objects.push(objectId);
+        }
+      }
+    }
+    if (Array.isArray(value.samples)) {
+      for (
+        index = Math.max(0, value.samples.length - HOST_SAMPLE_CAPACITY);
+        index < value.samples.length;
+        index += 1
+      ) {
+        sample = sanitizeHostBenchmarkSample(value.samples[index]);
+        if (sample) {
+          samples.push(sample);
+          if (sample.ok && sample.objectId && !seenObjects[sample.objectId]) {
+            seenObjects[sample.objectId] = true;
+            objects.push(sample.objectId);
+            if (objects.length > HOST_OBJECT_CAPACITY) {
+              delete seenObjects[objects.shift()];
+            }
+          }
+        }
+      }
+    }
+    health.failureStreak = boundedInteger(
+      value.failureStreak,
+      0,
+      0,
+      HOST_SAMPLE_CAPACITY
+    );
+    health.lastFailureAt = boundedNumber(value.lastFailureAt, 0, 0, 9e15);
+    health.lastSuccessAt = boundedNumber(value.lastSuccessAt, 0, 0, 9e15);
+    health.lastUsedAt = boundedNumber(value.lastUsedAt, 0, 0, 9e15);
+    health.objects = objects.slice(-HOST_OBJECT_CAPACITY);
+    health.openUntil = boundedNumber(value.openUntil, 0, 0, 9e15);
+    health.samples = samples;
+    health.metrics = summarizeHostSamples(samples, health.objects);
+    return health;
+  }
+
+  function sanitizeHostProfile(value) {
+    var profile = {
+      challengerCursor: 0,
+      hosts: {},
+      lastRunAt: 0,
+      nextRunAt: 0,
+      pendingHost: "",
+      rangeCursor: 0,
+      sampleCursor: 0,
+      selectedAt: 0,
+      selectedHost: ""
+    };
+    var hostRows = [];
+    var keys;
+    var index;
+    var hostname;
+    var health;
+
+    if (!isObject(value) || Array.isArray(value)) {
+      return profile;
+    }
+    profile.challengerCursor = boundedInteger(
+      value.challengerCursor,
+      0,
+      0,
+      1000000
+    );
+    profile.lastRunAt = boundedNumber(value.lastRunAt, 0, 0, 9e15);
+    profile.nextRunAt = boundedNumber(value.nextRunAt, 0, 0, 9e15);
+    hostname = String(value.pendingHost || "").toLowerCase();
+    if (FIXED_CDN_CANDIDATES.indexOf(hostname) !== -1) {
+      profile.pendingHost = hostname;
+    }
+    profile.rangeCursor = boundedInteger(value.rangeCursor, 0, 0, 1000000);
+    profile.sampleCursor = boundedInteger(value.sampleCursor, 0, 0, 1000000);
+    profile.selectedAt = boundedNumber(value.selectedAt, 0, 0, 9e15);
+    hostname = String(value.selectedHost || "").toLowerCase();
+    if (FIXED_CDN_CANDIDATES.indexOf(hostname) !== -1) {
+      profile.selectedHost = hostname;
+    }
+    if (isObject(value.hosts) && !Array.isArray(value.hosts)) {
+      keys = Object.keys(value.hosts);
+      for (index = 0; index < keys.length; index += 1) {
+        hostname = String(keys[index] || "").toLowerCase();
+        if (!isValidHostname(hostname) || !isBilibiliMediaHost(hostname)) {
+          continue;
+        }
+        health = sanitizeHostAutoHealth(value.hosts[keys[index]]);
+        hostRows.push({ health: health, hostname: hostname });
+      }
+    }
+    hostRows.sort(function (left, right) {
+      return right.health.lastUsedAt - left.health.lastUsedAt;
+    });
+    for (
+      index = 0;
+      index < hostRows.length && index < HOST_AUTO_CAPACITY;
+      index += 1
+    ) {
+      profile.hosts[hostRows[index].hostname] = hostRows[index].health;
+    }
+    return profile;
+  }
+
+  function sanitizeHostAutoState(value, now) {
+    var state = createEmptyHostAutoState();
+    var profileRows = [];
+    var keys;
+    var index;
+    var profileName;
+    var profile;
+    var lock;
+
+    if (!isObject(value) || Array.isArray(value) || value.version !== 8) {
+      return state;
+    }
+    state.resetToken = normalizeResetToken(value.resetToken);
+    if (isObject(value.profiles) && !Array.isArray(value.profiles)) {
+      keys = Object.keys(value.profiles);
+      for (index = 0; index < keys.length; index += 1) {
+        profileName = normalizeNetworkProfile(keys[index]);
+        if (profileName !== keys[index]) {
+          continue;
+        }
+        profile = sanitizeHostProfile(value.profiles[keys[index]]);
+        profileRows.push({ name: profileName, profile: profile });
+      }
+    }
+    profileRows.sort(function (left, right) {
+      return Math.max(right.profile.lastRunAt, right.profile.selectedAt) -
+        Math.max(left.profile.lastRunAt, left.profile.selectedAt);
+    });
+    for (
+      index = 0;
+      index < profileRows.length && index < HOST_PROFILE_CAPACITY;
+      index += 1
+    ) {
+      state.profiles[profileRows[index].name] = profileRows[index].profile;
+    }
+    lock = value.lock;
+    if (
+      isObject(lock) &&
+      !Array.isArray(lock) &&
+      typeof lock.token === "string" &&
+      /^[a-z0-9_-]{1,64}$/i.test(lock.token) &&
+      boundedNumber(lock.expiresAt, 0, 0, 9e15) > boundedNumber(now, 0, 0, 9e15)
+    ) {
+      state.lock = {
+        createdAt: boundedNumber(lock.createdAt, 0, 0, 9e15),
+        expiresAt: boundedNumber(lock.expiresAt, 0, 0, 9e15),
+        token: lock.token
+      };
+    }
+    return state;
+  }
+
+  function loadHostAutoState(services) {
+    var raw;
+    var parsed;
+    var now =
+      services && typeof services.now === "function" ? services.now() : 0;
+    try {
+      raw = services && typeof services.read === "function"
+        ? services.read(HOST_AUTO_STATE_KEY)
+        : null;
+      parsed = raw ? JSON.parse(raw) : null;
+    } catch (error) {
+      parsed = null;
+    }
+    return sanitizeHostAutoState(parsed, now);
+  }
+
+  function saveHostAutoState(services, state, now) {
+    try {
+      return Boolean(
+        services &&
+        typeof services.write === "function" &&
+        services.write(
+          JSON.stringify(sanitizeHostAutoState(state, now)),
+          HOST_AUTO_STATE_KEY
+        )
+      );
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function ensureHostProfile(state, networkProfile) {
+    var profileName = normalizeNetworkProfile(networkProfile);
+    var profile;
+    var rows;
+    var index;
+    if (!isObject(state.profiles) || Array.isArray(state.profiles)) {
+      state.profiles = {};
+    }
+    profile = state.profiles[profileName];
+    if (!profile) {
+      profile = sanitizeHostProfile(null);
+      state.profiles[profileName] = profile;
+    }
+    rows = Object.keys(state.profiles);
+    if (rows.length > HOST_PROFILE_CAPACITY) {
+      rows.sort(function (left, right) {
+        var leftProfile = state.profiles[left];
+        var rightProfile = state.profiles[right];
+        return Math.max(rightProfile.lastRunAt, rightProfile.selectedAt) -
+          Math.max(leftProfile.lastRunAt, leftProfile.selectedAt);
+      });
+      for (index = HOST_PROFILE_CAPACITY; index < rows.length; index += 1) {
+        if (rows[index] !== profileName) {
+          delete state.profiles[rows[index]];
+        }
+      }
+    }
+    return profile;
+  }
+
+  function recordHostSample(
+    state,
+    networkProfile,
+    hostname,
+    value,
+    now
+  ) {
+    var profile;
+    var health;
+    var sample;
+    var recentFailures = 0;
+    var index;
+    hostname = String(hostname || "").toLowerCase();
+    if (
+      !isObject(state) ||
+      state.version !== 8 ||
+      !isValidHostname(hostname) ||
+      !isBilibiliMediaHost(hostname)
+    ) {
+      return null;
+    }
+    sample = sanitizeHostBenchmarkSample(value);
+    if (!sample) {
+      return null;
+    }
+    if (!sample.at) {
+      sample.at = boundedNumber(now, 0, 0, 9e15);
+    }
+    profile = ensureHostProfile(state, networkProfile);
+    health = sanitizeHostAutoHealth(profile.hosts[hostname]);
+    health.samples.push(sample);
+    if (health.samples.length > HOST_SAMPLE_CAPACITY) {
+      health.samples = health.samples.slice(-HOST_SAMPLE_CAPACITY);
+    }
+    health.lastUsedAt = sample.at;
+    if (sample.ok) {
+      health.failureStreak = 0;
+      health.lastSuccessAt = sample.at;
+      health.openUntil = 0;
+      if (sample.objectId && health.objects.indexOf(sample.objectId) === -1) {
+        health.objects.push(sample.objectId);
+        if (health.objects.length > HOST_OBJECT_CAPACITY) {
+          health.objects = health.objects.slice(-HOST_OBJECT_CAPACITY);
+        }
+      }
+    } else {
+      health.failureStreak = Math.min(
+        HOST_SAMPLE_CAPACITY,
+        health.failureStreak + 1
+      );
+      health.lastFailureAt = sample.at;
+      for (
+        index = Math.max(0, health.samples.length - 4);
+        index < health.samples.length;
+        index += 1
+      ) {
+        if (!health.samples[index].ok) {
+          recentFailures += 1;
+        }
+      }
+      if (health.failureStreak >= 2 || recentFailures >= 2) {
+        health.openUntil = Math.max(
+          health.openUntil,
+          sample.at + HOST_CIRCUIT_OPEN_MS
+        );
+      }
+    }
+    health.metrics = summarizeHostSamples(health.samples, health.objects);
+    profile.hosts[hostname] = health;
+    return health;
+  }
+
+  function stableHostScore(health) {
+    var metrics = health && health.metrics;
+    if (!metrics) {
+      return -1;
+    }
+    return (
+      (metrics.p25ThroughputKbps || 0) *
+      Math.max(0, 1 - (metrics.failureRate || 0)) /
+      Math.max(1, 1 + (metrics.jitterRatio || 0))
+    );
+  }
+
+  function hostEligibleForDescriptor(health, descriptor, now) {
+    var metrics = health && health.metrics;
+    var required = Math.max(
+      HOST_MIN_THROUGHPUT_KBPS,
+      Math.ceil(
+        Math.max(0, descriptor && descriptor.requiredKbps || 0) *
+          HOST_REPRESENTATION_HEADROOM
+      )
+    );
+    return Boolean(
+      health &&
+      metrics &&
+      health.openUntil <= now &&
+      health.lastSuccessAt > 0 &&
+      health.lastSuccessAt + HOST_ALIAS_FRESH_MS >= now &&
+      metrics.objectCount >= HOST_MIN_OBJECTS &&
+      metrics.failureRate <= HOST_MAX_FAILURE_RATE &&
+      metrics.p25ThroughputKbps >= required
+    );
+  }
+
+  function selectStableHost(state, config, descriptor, now) {
+    var profileName = normalizeNetworkProfile(
+      config && config.networkProfile
+    );
+    var profile =
+      state && state.version === 8 && state.profiles
+        ? state.profiles[profileName]
+        : null;
+    var selected;
+    var keys;
+    var index;
+    var hostname;
+    var score;
+    var bestHost = "";
+    var bestScore = -1;
+    if (!profile) {
+      return "";
+    }
+    if (
+      profile.lastRunAt > 0 &&
+      profile.lastRunAt + HOST_STATE_STALE_MS < now
+    ) {
+      return "";
+    }
+    selected = String(profile.selectedHost || "").toLowerCase();
+    if (
+      FIXED_CDN_CANDIDATES.indexOf(selected) !== -1 &&
+      hostEligibleForDescriptor(profile.hosts[selected], descriptor, now)
+    ) {
+      return selected;
+    }
+    keys = Object.keys(profile.hosts || {});
+    for (index = 0; index < keys.length; index += 1) {
+      hostname = keys[index];
+      if (
+        FIXED_CDN_CANDIDATES.indexOf(hostname) === -1 ||
+        !hostEligibleForDescriptor(profile.hosts[hostname], descriptor, now)
+      ) {
+        continue;
+      }
+      score = stableHostScore(profile.hosts[hostname]);
+      if (score > bestScore) {
+        bestScore = score;
+        bestHost = hostname;
+      }
+    }
+    return bestHost;
   }
 
   function sanitizeProbeSample(value) {
@@ -8252,6 +8902,7 @@ this.__BILIFLOW_COMBINED__ = true;
     var nextChanges;
     var childPath;
     var pathState;
+    var originalAlreadyBackedUp = false;
     path = Array.isArray(path) ? path : [];
 
     if (!bytes || depth > MAX_PROTO_DEPTH) {
@@ -8278,6 +8929,14 @@ this.__BILIFLOW_COMBINED__ = true;
       nextChanges = 0;
 
       if (field.wireType === 2) {
+        if (
+          descriptor &&
+          field.fieldNumber === descriptor.backupField &&
+          field.text &&
+          candidateIdForUrl(field.text) === descriptor.primaryId
+        ) {
+          originalAlreadyBackedUp = true;
+        }
         directPayload = transformDirectProtoField(field, descriptor);
         if (directPayload) {
           nextPayload = directPayload;
@@ -8316,6 +8975,19 @@ this.__BILIFLOW_COMBINED__ = true;
       } else {
         chunks.push(bytes.subarray(field.rawStart, field.end));
       }
+    }
+    if (
+      descriptor &&
+      descriptor.selectedAlias &&
+      descriptor.selectedUrl &&
+      changed > 0 &&
+      !originalAlreadyBackedUp
+    ) {
+      directPayload = asciiStringToBytes(descriptor.primaryUrl);
+      chunks.push(encodeVarint(descriptor.backupField * 8 + 2));
+      chunks.push(encodeVarint(directPayload.length));
+      chunks.push(directPayload);
+      changed += 1;
     }
     return {
       bytes: changed > 0 ? concatBytes(chunks) : bytes,
@@ -8940,6 +9612,127 @@ this.__BILIFLOW_COMBINED__ = true;
     entry.validatedAt = 0;
   }
 
+  function applyHostResetToken(services, state, config, now) {
+    var token = normalizeResetToken(config && config.resetToken);
+    var reset;
+    if (!token || state.resetToken === token) {
+      return state;
+    }
+    reset = createEmptyHostAutoState();
+    reset.resetToken = token;
+    if (hasStateServices(services)) {
+      saveHostAutoState(services, reset, now);
+    }
+    return reset;
+  }
+
+  function processHostAutoResponse(
+    input,
+    binary,
+    config,
+    services,
+    callback
+  ) {
+    var original = input;
+    var now =
+      services && typeof services.now === "function"
+        ? services.now()
+        : Date.now();
+    var state = hasStateServices(services)
+      ? loadHostAutoState(services)
+      : createEmptyHostAutoState();
+    var hotConfig = {};
+    var keys;
+    var index;
+    var prepared;
+    var reason = "server-primary";
+    var families = {};
+    var candidateCount = 0;
+
+    if (typeof callback !== "function") {
+      return;
+    }
+    if (!config || !config.valid || !config.auto) {
+      callback({
+        body: original,
+        candidateCount: 0,
+        candidateFamilies: "none",
+        changed: 0,
+        descriptors: 0,
+        probed: false,
+        probeCount: 0,
+        probeSummary: "none",
+        reason: "invalid-config",
+        scriptElapsedMs: 0,
+        valid: Boolean(config && config.valid)
+      });
+      return;
+    }
+    state = applyHostResetToken(services, state, config, now);
+    keys = Object.keys(config);
+    for (index = 0; index < keys.length; index += 1) {
+      hotConfig[keys[index]] = config[keys[index]];
+    }
+    hotConfig.hostAutoState = state;
+    prepared = binary
+      ? prepareSafeGrpc(input, hotConfig, createEmptyAutoState(), now)
+      : prepareSafeJson(
+          typeof input === "string" ? input : "",
+          hotConfig,
+          createEmptyAutoState(),
+          now
+        );
+    if (!prepared.valid) {
+      callback({
+        body: original,
+        candidateCount: 0,
+        candidateFamilies: "none",
+        changed: 0,
+        descriptors: 0,
+        probed: false,
+        probeCount: 0,
+        probeSummary: "none",
+        reason: "unsupported-response",
+        scriptElapsedMs: Math.max(0, (
+          services && typeof services.now === "function"
+            ? services.now()
+            : now
+        ) - now),
+        valid: false
+      });
+      return;
+    }
+    for (index = 0; index < prepared.descriptors.length; index += 1) {
+      candidateCount += prepared.descriptors[index].candidates.length;
+      families[prepared.descriptors[index].family] = true;
+      if (/^host-state/.test(prepared.descriptors[index].selectionSource || "")) {
+        reason = "host-auto-selected";
+      } else if (
+        reason !== "host-auto-selected" &&
+        prepared.descriptors[index].selectionSource === "cold-akamai"
+      ) {
+        reason = "cold-akamai";
+      }
+    }
+    callback({
+      body: prepared.body,
+      candidateCount: candidateCount,
+      candidateFamilies: Object.keys(families).join(",") || "none",
+      changed: prepared.changed,
+      descriptors: prepared.descriptors.length,
+      probed: false,
+      probeCount: 0,
+      probeSummary: "none",
+      reason: reason,
+      scriptElapsedMs: Math.max(0, (
+        services && typeof services.now === "function"
+          ? services.now()
+          : now
+      ) - now),
+      valid: true
+    });
+  }
+
   function nextSelectedProbeAt(now, expiresAt) {
     return Math.min(
       expiresAt,
@@ -9131,6 +9924,22 @@ this.__BILIFLOW_COMBINED__ = true;
     var callbackDelivered = false;
     var claimedLockUntil = 0;
     var claimedLockToken = "";
+
+    if (
+      config &&
+      config.auto &&
+      config.valid &&
+      config.probeMode !== "blocking"
+    ) {
+      processHostAutoResponse(
+        input,
+        binary,
+        config,
+        services,
+        callback
+      );
+      return;
+    }
 
     function deliver(result) {
       var descriptors;
@@ -9703,6 +10512,14 @@ this.__BILIFLOW_COMBINED__ = true;
         typeof $request !== "undefined" && $request && $request.url
           ? String($request.url)
           : "";
+      if (
+        typeof $request !== "undefined" &&
+        $request &&
+        headerValue($request.headers, "x-bilicdn-background") === "1"
+      ) {
+        $done({});
+        return;
+      }
       config.grpcAdapter = classifyGrpcAdapter(requestUrl);
       grpcResponse = Boolean(config.grpcAdapter);
       body =
@@ -9771,6 +10588,9 @@ this.__BILIFLOW_COMBINED__ = true;
     AUTO_RANGE_END: AUTO_RANGE_END,
     AUTO_SELECTED_REVALIDATE_MS: AUTO_SELECTED_REVALIDATE_MS,
     AUTO_STATE_KEY: AUTO_STATE_KEY,
+    HOST_ALIAS_FRESH_MS: HOST_ALIAS_FRESH_MS,
+    HOST_AUTO_STATE_KEY: HOST_AUTO_STATE_KEY,
+    HOST_STATE_STALE_MS: HOST_STATE_STALE_MS,
     DEFAULT_CDN: DEFAULT_CDN,
     RUNTIME_OPTION_LIMITS: RUNTIME_OPTION_LIMITS,
     asciiBytesToString: asciiBytesToString,
@@ -9781,6 +10601,7 @@ this.__BILIFLOW_COMBINED__ = true;
     candidateIdForUrl: candidateIdForUrl,
     concatBytes: concatBytes,
     createEmptyAutoState: createEmptyAutoState,
+    createEmptyHostAutoState: createEmptyHostAutoState,
     createShadowrocketServices: createShadowrocketServices,
     descriptorResourceKey: descriptorResourceKey,
     decompressGrpcFrames: decompressGrpcFrames,
@@ -9792,19 +10613,26 @@ this.__BILIFLOW_COMBINED__ = true;
     isVodMediaUrl: isVodMediaUrl,
     hasCompressedGrpcFrame: hasCompressedGrpcFrame,
     loadAutoState: loadAutoState,
+    loadHostAutoState: loadHostAutoState,
     normalizeCdnHost: normalizeCdnHost,
     normalizeNetworkProfile: normalizeNetworkProfile,
     parseArgument: parseArgument,
     prepareSafeGrpc: prepareSafeGrpc,
     prepareSafeJson: prepareSafeJson,
     probeRangeForEntry: probeRangeForEntry,
+    probeBodyHash: probeBodyHash,
     processSafeAutoResponse: processSafeAutoResponse,
+    recordHostSample: recordHostSample,
     queryFreeCandidateFingerprint: queryFreeCandidateFingerprint,
     readVarint: readVarint,
     requiredThroughputKbps: requiredThroughputKbps,
     rewriteVodUrl: rewriteVodUrl,
+    replaceVodHostname: replaceVodHostname,
     runShadowrocket: runShadowrocket,
     stableHash: stableHash,
+    sanitizeHostAutoState: sanitizeHostAutoState,
+    saveHostAutoState: saveHostAutoState,
+    selectStableHost: selectStableHost,
     transformGrpcBody: transformGrpcBody,
     transformJsonText: transformJsonText,
     transformProtoMessage: transformProtoMessage,

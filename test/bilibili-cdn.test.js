@@ -138,15 +138,20 @@ function validProbe(candidate, elapsedMs = 100, overrides = {}) {
 }
 
 function makeEnvironment({
+  hostState,
   now = Date.UTC(2026, 6, 26, 12, 0, 0),
   responder,
   state,
 } = {}) {
   let clock = now;
   const calls = [];
+  const writes = [];
   const storage = {};
   if (state) {
     storage[cdn.AUTO_STATE_KEY] = JSON.stringify(state);
+  }
+  if (hostState) {
+    storage[cdn.HOST_AUTO_STATE_KEY] = JSON.stringify(hostState);
   }
 
   return {
@@ -173,11 +178,13 @@ function makeEnvironment({
         return storage[key] || null;
       },
       write(value, key) {
+        writes.push({ key, value });
         storage[key] = value;
         return true;
       },
     },
     storage,
+    writes,
   };
 }
 
@@ -231,9 +238,9 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
     auto: true,
     cdnHost: null,
     debug: false,
-    intervalHours: 12,
+    intervalHours: 2,
     networkProfile: "auto",
-    probeMode: "nonblocking",
+    probeMode: "cron",
     resetToken: "",
     switchThreshold: 20,
     valid: true,
@@ -242,9 +249,9 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
     auto: false,
     cdnHost: targetHost,
     debug: false,
-    intervalHours: 12,
+    intervalHours: 2,
     networkProfile: "auto",
-    probeMode: "nonblocking",
+    probeMode: "cron",
     resetToken: "",
     switchThreshold: 20,
     valid: true,
@@ -255,9 +262,9 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
       auto: true,
       cdnHost: null,
       debug: false,
-      intervalHours: 6,
-      networkProfile: "home_wifi",
-      probeMode: "nonblocking",
+    intervalHours: 2,
+    networkProfile: "home_wifi",
+    probeMode: "cron",
       resetToken: "",
       switchThreshold: 80,
       valid: true,
@@ -266,11 +273,206 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
   assert.equal(cdn.parseArgument("cdn=%").valid, false);
   assert.equal(cdn.normalizeNetworkProfile("../../secret"), "auto");
   assert.deepEqual(cdn.RUNTIME_OPTION_LIMITS, {
-    intervalHours: { defaultValue: 12, maximum: 72, minimum: 6 },
+    intervalHours: { defaultValue: 2, maximum: 72, minimum: 2 },
     switchThreshold: { defaultValue: 20, maximum: 80, minimum: 10 },
   });
+  assert.equal(cdn.parseArgument("probeMode=nonblocking").probeMode, "cron");
   assert.equal(cdn.isBilibiliMediaHost("edge.ksyungslb.com"), true);
   assert.equal(cdn.isAllowedFixedCdnHost("edge.ksyungslb.com"), false);
+});
+
+test("v8 host state is bounded, profile-isolated, and never migrates v7 selections", () => {
+  const now = Date.UTC(2026, 7, 2, 12, 0, 0);
+  const oversized = {
+    version: 8,
+    resetToken: "reset_1",
+    profiles: {},
+    lock: { createdAt: now, expiresAt: now + 60_000, token: "lock_1" },
+  };
+  for (let profileIndex = 0; profileIndex < 6; profileIndex += 1) {
+    const hosts = {};
+    for (let hostIndex = 0; hostIndex < 20; hostIndex += 1) {
+      const hostname = `probe-${profileIndex}-${hostIndex}.bilivideo.com`;
+      hosts[hostname] = {
+        lastUsedAt: now - hostIndex,
+        objects: Array.from({ length: 8 }, (_, index) =>
+          cdn.stableHash("o", `object-${index}`),
+        ),
+        samples: Array.from({ length: 12 }, (_, index) => ({
+          at: now - index,
+          elapsedMs: 100 + index,
+          objectId: cdn.stableHash("o", `object-${index % 4}`),
+          ok: true,
+          status: 206,
+          throughputKbps: 12_000 + index,
+          ttfbMs: 20 + index,
+        })),
+      };
+    }
+    oversized.profiles[`profile_${profileIndex}`] = {
+      challengerCursor: profileIndex,
+      hosts,
+      lastRunAt: now,
+      nextRunAt: now + 1,
+      rangeCursor: profileIndex,
+      selectedAt: now,
+      selectedHost: targetHost,
+    };
+  }
+
+  const sanitized = cdn.sanitizeHostAutoState(oversized, now);
+  assert.equal(sanitized.version, 8);
+  assert.equal(Object.keys(sanitized.profiles).length, 4);
+  for (const profile of Object.values(sanitized.profiles)) {
+    assert.equal(Object.keys(profile.hosts).length, 16);
+    for (const host of Object.values(profile.hosts)) {
+      assert.ok(host.samples.length <= 8);
+      assert.ok(host.objects.length <= 4);
+    }
+  }
+  assert.deepEqual(
+    cdn.loadHostAutoState({
+      read(key) {
+        if (key === cdn.AUTO_STATE_KEY) {
+          return JSON.stringify(cdn.createEmptyAutoState());
+        }
+        return key === cdn.HOST_AUTO_STATE_KEY ? "{broken" : null;
+      },
+    }),
+    cdn.createEmptyHostAutoState(),
+  );
+});
+
+test("stable host selection uses p25 throughput, two objects, freshness, and circuit state", () => {
+  const now = Date.UTC(2026, 7, 2, 12, 0, 0);
+  const state = cdn.createEmptyHostAutoState();
+  const descriptor = cdn.buildMediaDescriptor(
+    "json",
+    "video",
+    originalUrl,
+    [backupUrl],
+    "id=80",
+    1_800_000,
+  );
+  [12_000, 18_000, 14_000, 16_000].forEach((throughputKbps, index) => {
+    cdn.recordHostSample(
+      state,
+      "home_wifi",
+      targetHost,
+      {
+        at: now - (3 - index) * 1_000,
+        elapsedMs: 100 + index,
+        objectId: cdn.stableHash("o", index < 2 ? "object-a" : "object-b"),
+        ok: true,
+        status: 206,
+        throughputKbps,
+        ttfbMs: 25 + index,
+      },
+      now,
+    );
+  });
+  state.profiles.home_wifi.selectedHost = targetHost;
+  state.profiles.home_wifi.selectedAt = now;
+
+  const health = state.profiles.home_wifi.hosts[targetHost];
+  assert.equal(health.metrics.p25ThroughputKbps, 12_000);
+  assert.equal(health.metrics.objectCount, 2);
+  assert.equal(
+    cdn.selectStableHost(state, { networkProfile: "home_wifi" }, descriptor, now),
+    targetHost,
+  );
+  assert.equal(
+    cdn.selectStableHost(
+      state,
+      { networkProfile: "auto" },
+      descriptor,
+      now,
+    ),
+    "",
+  );
+  assert.equal(
+    cdn.selectStableHost(
+      state,
+      { networkProfile: "home_wifi" },
+      descriptor,
+      now + 6 * 60 * 60 * 1000 + 1,
+    ),
+    "",
+  );
+  health.openUntil = now + 1;
+  assert.equal(
+    cdn.selectStableHost(state, { networkProfile: "home_wifi" }, descriptor, now),
+    "",
+  );
+  assert.doesNotMatch(JSON.stringify(state), /upgcxcode|deadline=|token=/);
+});
+
+test("default hot path performs zero probes and cold-promotes only a complete Akamai URL", async () => {
+  const input = JSON.stringify(videoFixture());
+  const environment = makeEnvironment();
+  const config = cdn.parseArgument("");
+  const result = await processAuto(input, false, config, environment);
+  const output = JSON.parse(result.body).data.dash.video[0];
+
+  assert.equal(result.reason, "cold-akamai");
+  assert.equal(result.probeCount, 0);
+  assert.equal(environment.calls.length, 0);
+  assert.equal(environment.writes.length, 0);
+  assert.equal(output.base_url, backupUrl);
+  assert.deepEqual(output.backup_url, [originalUrl]);
+
+  const withoutAkamai = JSON.stringify(videoFixture({ backup: secondBackupUrl }));
+  const secondEnvironment = makeEnvironment();
+  const unchanged = await processAuto(
+    withoutAkamai,
+    false,
+    config,
+    secondEnvironment,
+  );
+  assert.equal(unchanged.reason, "server-primary");
+  assert.equal(unchanged.body, withoutAkamai);
+  assert.equal(secondEnvironment.calls.length, 0);
+  assert.equal(secondEnvironment.writes.length, 0);
+});
+
+test("a fresh two-object non-Akamai winner aliases a new signed object and preserves backups", async () => {
+  const now = Date.UTC(2026, 7, 2, 12, 0, 0);
+  const state = cdn.createEmptyHostAutoState();
+  ["object-a", "object-b"].forEach((object, index) => {
+    cdn.recordHostSample(
+      state,
+      "auto",
+      targetHost,
+      {
+        at: now - index * 1_000,
+        elapsedMs: 80 + index,
+        objectId: cdn.stableHash("o", object),
+        ok: true,
+        status: 206,
+        throughputKbps: 30_000,
+        ttfbMs: 20,
+      },
+      now,
+    );
+  });
+  state.profiles.auto.selectedHost = targetHost;
+  state.profiles.auto.selectedAt = now;
+  const newPrimary = originalUrl.replace("video.m4s", "next-video.m4s");
+  const newAkamai = backupUrl.replace("video.m4s", "next-video.m4s");
+  const input = JSON.stringify(
+    videoFixture({ primary: newPrimary, backup: newAkamai, secondBackup: secondBackupUrl }),
+  );
+  const environment = makeEnvironment({ hostState: state, now });
+  const result = await processAuto(input, false, cdn.parseArgument(""), environment);
+  const output = JSON.parse(result.body).data.dash.video[0];
+  const expected = newPrimary.replace(originalHost, targetHost);
+
+  assert.equal(result.reason, "host-auto-selected");
+  assert.equal(environment.calls.length, 0);
+  assert.equal(environment.writes.length, 0);
+  assert.equal(output.base_url, expected);
+  assert.deepEqual(output.backup_url, [newPrimary, newAkamai, secondBackupUrl]);
+  assert.match(output.base_url, /token=old-primary$/);
 });
 
 test("fixed mode rewrites only Bilibili VOD URLs and preserves signed live URLs", () => {
@@ -1097,7 +1299,7 @@ test("a matching cached prefix cannot promote a CDN whose interior sample differ
   assert.equal(entry.pendingCandidateId, null);
 });
 
-test("default nonblocking mode completes before probes and never calls completion twice", () => {
+test("legacy nonblocking input maps to cron and never schedules a hot-path probe", () => {
   const input = JSON.stringify(videoFixture());
   const callbacks = [];
   const storage = {};
@@ -1127,22 +1329,17 @@ test("default nonblocking mode completes before probes and never calls completio
     completionCount += 1;
   });
   assert.equal(completionCount, 1);
-  assert.equal(completion.body, input);
-  assert.equal(completion.reason, "probe-started-nonblocking");
+  assert.equal(completion.reason, "cold-akamai");
   assert.equal(completion.scriptElapsedMs, 0);
   assert.ok(completion.candidateCount >= 2);
   assert.equal(completion.candidateFamilies, "standard");
-  assert.equal(completion.probeSummary, "started");
-  assert.equal(callbacks.length, 2);
-
-  callbacks[0].callback(validProbe(callbacks[0].candidate, 100));
-  callbacks[1].callback(validProbe(callbacks[1].candidate, 40));
+  assert.equal(completion.probeSummary, "none");
+  assert.equal(callbacks.length, 0);
   assert.equal(completionCount, 1);
-  const state = JSON.parse(storage[cdn.AUTO_STATE_KEY]);
-  assert.equal(Object.values(state.entries)[0].pendingSuccesses, 1);
+  assert.equal(storage[cdn.AUTO_STATE_KEY], undefined);
 });
 
-test("cache-only mode applies a verified choice immediately without starting probes", () => {
+test("off mode disables learning but still uses the complete Akamai cold fallback", () => {
   const input = JSON.stringify(videoFixture());
   const now = 75_000;
   const state = cdn.createEmptyAutoState();
@@ -1173,7 +1370,7 @@ test("cache-only mode applies a verified choice immediately without starting pro
     },
   );
 
-  assert.equal(result.reason, "probe-disabled");
+  assert.equal(result.reason, "cold-akamai");
   assert.equal(result.probeCount, 0);
   assert.ok(result.candidateCount >= 2);
   assert.equal(result.candidateFamilies, "standard");
@@ -1372,7 +1569,7 @@ test("probe mode falls back to the server URL when a selection is stale", () => 
   );
 });
 
-test("corrupted state fails open and a changed reset token clears learning exactly once", async () => {
+test("corrupted state fails open and a changed reset token clears v8 learning exactly once", async () => {
   const input = JSON.stringify(videoFixture());
   const environment = makeEnvironment();
   environment.storage[cdn.AUTO_STATE_KEY] = "{corrupted";
@@ -1381,34 +1578,37 @@ test("corrupted state fails open and a changed reset token clears learning exact
     cdn.createEmptyAutoState(),
   );
 
-  const discovered = cdn.prepareSafeJson(
-    input,
-    autoConfig,
-    cdn.createEmptyAutoState(),
-    environment.now,
+  environment.storage[cdn.HOST_AUTO_STATE_KEY] = "{corrupted";
+  assert.deepEqual(
+    cdn.loadHostAutoState(environment.services),
+    cdn.createEmptyHostAutoState(),
   );
-  const populated = cdn.createEmptyAutoState();
-  populated.entries[discovered.descriptors[0].resourceKey] =
-    descriptorStateEntry(
-      discovered.descriptors[0],
-      discovered.descriptors[0].candidates[1].id,
-      environment.now,
-      environment.now + 60_000,
-    );
-  environment.storage[cdn.AUTO_STATE_KEY] = JSON.stringify(populated);
+  const populated = cdn.createEmptyHostAutoState();
+  populated.profiles.auto = {
+    challengerCursor: 1,
+    hosts: {},
+    lastRunAt: environment.now,
+    nextRunAt: environment.now + 60_000,
+    rangeCursor: 1,
+    selectedAt: environment.now,
+    selectedHost: targetHost,
+  };
+  environment.storage[cdn.HOST_AUTO_STATE_KEY] = JSON.stringify(populated);
   const resetConfig = cdn.parseArgument(
     "cdn=auto&probeMode=off&resetToken=reset_20260728",
   );
   await processAuto(input, false, resetConfig, environment);
-  const reset = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
+  const reset = JSON.parse(environment.storage[cdn.HOST_AUTO_STATE_KEY]);
   assert.equal(reset.resetToken, "reset_20260728");
-  assert.deepEqual(reset.entries, {});
+  assert.deepEqual(reset.profiles, {});
+  assert.equal(environment.writes.length, 1);
 
-  reset.entries.keep = { ignored: true };
-  environment.storage[cdn.AUTO_STATE_KEY] = JSON.stringify(reset);
+  reset.profiles.auto = { ignored: true };
+  environment.storage[cdn.HOST_AUTO_STATE_KEY] = JSON.stringify(reset);
   await processAuto(input, false, resetConfig, environment);
-  const repeated = JSON.parse(environment.storage[cdn.AUTO_STATE_KEY]);
+  const repeated = JSON.parse(environment.storage[cdn.HOST_AUTO_STATE_KEY]);
   assert.equal(repeated.resetToken, "reset_20260728");
+  assert.equal(environment.writes.length, 1);
 });
 
 test("v7 ignores older learned selections instead of reusing prefix-only validation", () => {
@@ -1604,6 +1804,60 @@ test("safe Protobuf mode isolates DashVideo, DashItem audio, and ResponseUrl", (
   assert.equal(output.split(backupHost).length - 1, 2);
   assert.equal(output.split(secondBackupHost).length - 1, 1);
   assert.equal(output.split(originalHost).length - 1, 3);
+});
+
+test("default gRPC hot path cold-falls back without probes and aliasing retains the original URL", async () => {
+  const now = Date.UTC(2026, 7, 2, 12, 0, 0);
+  const dashVideo = bytes(
+    stringField(1, originalUrl),
+    stringField(2, backupUrl),
+    varintField(3, 1_800_000),
+  );
+  const input = grpcFrame(
+    messageField(1, messageField(5, messageField(2, dashVideo))),
+  );
+  const config = {
+    ...cdn.parseArgument(""),
+    grpcAdapter: "app-playurl-v1",
+  };
+  const coldEnvironment = makeEnvironment({ now });
+  const cold = await processAuto(input, true, config, coldEnvironment);
+  const coldText = asciiFromBinary(cold.body);
+  assert.equal(cold.reason, "cold-akamai");
+  assert.equal(coldEnvironment.calls.length, 0);
+  assert.equal(coldEnvironment.writes.length, 0);
+  assert.match(coldText, new RegExp(backupHost));
+  assert.match(coldText, new RegExp(originalHost));
+
+  const state = cdn.createEmptyHostAutoState();
+  ["grpc-object-a", "grpc-object-b"].forEach((object, index) => {
+    cdn.recordHostSample(
+      state,
+      "auto",
+      targetHost,
+      {
+        at: now - index,
+        elapsedMs: 75,
+        objectId: cdn.stableHash("o", object),
+        ok: true,
+        status: 206,
+        throughputKbps: 32_000,
+        ttfbMs: 18,
+      },
+      now,
+    );
+  });
+  state.profiles.auto.selectedHost = targetHost;
+  state.profiles.auto.selectedAt = now;
+  const aliasEnvironment = makeEnvironment({ hostState: state, now });
+  const aliased = await processAuto(input, true, config, aliasEnvironment);
+  const aliasText = asciiFromBinary(aliased.body);
+  assert.equal(aliased.reason, "host-auto-selected");
+  assert.equal(aliasEnvironment.calls.length, 0);
+  assert.equal(aliasEnvironment.writes.length, 0);
+  assert.match(aliasText, new RegExp(targetHost));
+  assert.match(aliasText, new RegExp(originalHost));
+  assert.match(aliasText, new RegExp(backupHost));
 });
 
 test("safe gRPC fails open for malformed input and never edits compressed frames", () => {

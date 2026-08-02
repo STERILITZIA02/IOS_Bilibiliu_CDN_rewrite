@@ -469,9 +469,9 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.7.0 已覆盖 Bilibili iOS
-              9.5.0 的 Story/搜索商业卡、Mine 大会员横幅、播放页精确过滤、
-              后台响应恢复与首页六条补齐。
+              使用本站同版本的已审核快照。Enhanced 3.8.0 已覆盖 Bilibili iOS
+              9.5.0 的 Relate Story/搜索商业卡、Mine 大会员横幅、播放页精确过滤、
+              后台响应恢复、首页六条补齐与 CDN v8 后台预热。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
@@ -563,8 +563,8 @@ export function Customizer({
                     <Icon name="check" size={15} />
                   </span>
                   <span>
-                    <strong>安全自动测速</strong>
-                    <small>256 KiB 轻探测、内部 1 MiB 复核与双确认</small>
+                    <strong>播放热路径零测速</strong>
+                    <small>独立 cron、内部 1 MiB 严格复核与稳定评分</small>
                   </span>
                   <span className="status-text">开启</span>
                 </div>
@@ -594,7 +594,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>CDN + Enhanced</strong>
-                    <small>推荐 · 9.5.0 精确去广告、六条 AV 与 CDN v7</small>
+                    <small>推荐 · 9.5.0 精确去广告、六条 AV 与 CDN v8</small>
                   </span>
                   <span className="radio-dot">
                     {variant === "enhanced" && <span />}
@@ -829,28 +829,29 @@ export function Customizer({
                       }
                       value={String(values.probeMode)}
                     >
-                      <option value="nonblocking">
-                        不阻塞首播（推荐）
+                      <option value="cron">
+                        后台定时测速（推荐）
                       </option>
+                      <option value="nonblocking">旧版 nonblocking（映射为 cron）</option>
                       <option value="blocking">
-                        确定性学习（需两次确认）
+                        热路径诊断（会等待）
                       </option>
-                      <option value="off">关闭探测，仅使用缓存</option>
+                      <option value="off">关闭后台测速，保留 Akamai 回退</option>
                     </select>
                     <small>
-                      升级后若要立即建立 v7 对象级缓存，可临时选择此项并在至少间隔
-                      2 分钟的两次播放中完成验证，再改回“不阻塞首播”。已选线路
-                      最多每 8 分钟非阻塞健康复核一次；失败或连续低速主机会短期熔断。
+                      默认测速在独立 cron 中完成，打开视频、拖动和倍速响应均不发
+                      Range 探测。主机需在两个不同匿名对象上通过内部 Range/hash
+                      校验；连续失败会短期熔断，状态异常时使用服务端完整 Akamai URL。
                     </small>
                   </label>
                   <label className="range-field">
                     <span>
-                      选择缓存有效期
+                      后台测速间隔
                       <strong>{Number(values.intervalHours)} 小时</strong>
                     </span>
                     <input
                       max={intervalOption?.maximum ?? 72}
-                      min={intervalOption?.minimum ?? 6}
+                      min={intervalOption?.minimum ?? 2}
                       onChange={(event) =>
                         setValue(
                           "intervalHours",

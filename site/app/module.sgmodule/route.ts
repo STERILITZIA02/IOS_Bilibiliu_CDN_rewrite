@@ -97,10 +97,10 @@ function parseString(value: string, option: ModuleOption): string {
   }
   if (
     option.key === "probeMode" &&
-    !["nonblocking", "blocking", "off"].includes(value)
+    !["cron", "nonblocking", "blocking", "off"].includes(value)
   ) {
     throw new RequestError(
-      "probeMode 只能是 nonblocking、blocking 或 off",
+      "probeMode 只能是 cron、nonblocking、blocking 或 off",
     );
   }
   if (
