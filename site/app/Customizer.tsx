@@ -469,8 +469,8 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.8.1 已覆盖 Bilibili iOS
-              9.5.0 的 Relate Story/搜索商业卡、Mine 大会员横幅、播放页精确过滤、
+              使用本站同版本的已审核快照。Enhanced 3.8.2 已覆盖 Bilibili iOS
+              9.5.0 的魔力赏角标/操作卡、Relate Story/搜索商业卡、Mine 大会员横幅、播放页精确过滤、
               后台响应恢复、首页六条补齐、CDN v8 后台预热与 v9 缓存媒体直达。
             </p>
             <div className="hero-actions">

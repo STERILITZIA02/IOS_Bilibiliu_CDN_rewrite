@@ -825,7 +825,7 @@ this.__BILIFLOW_COMBINED__ = true;
     for (index = 0; index < keys.length; index += 1) {
       value = knownLabelText(item[keys[index]], 0);
       if (
-        /(?:广告|必火推广|必火推荐|小火箭|商业推广)/.test(value)
+        /(?:广告|必火推广|必火推荐|小火箭|商业推广|魔力[赏賞])/.test(value)
       ) {
         return true;
       }
@@ -3786,7 +3786,7 @@ this.__BILIFLOW_COMBINED__ = true;
         ? String.fromCharCode(bytes[index])
         : " ";
     }
-    return /(?:https?:\/\/(?:[^/\s]+\.)?(?:cm|ad)\.bili(?:bili)?\.(?:com|net)|(?:https?:\/\/|bilibili:\/\/)[^\s]{0,160}(?:taobao|tmall|jd\.com|pinduoduo|sponsor|commercial|creative|advert)|(?:^|[^a-z0-9])(?:ad_info|ad_report|adver_id|creative_id|commercial_id|pause[-_]?(?:ad|commerce)|under[-_]?player[-_]?ad|flash[-_]?sale|mall[-_/]ad)(?:[^a-z0-9]|$))/i.test(
+    return /(?:https?:\/\/(?:[^/\s]+\.)?(?:cm|ad)\.bili(?:bili)?\.(?:com|net)|(?:https?:\/\/|bilibili:\/\/)[^\s]{0,160}(?:taobao|tmall|jd\.com|pinduoduo|sponsor|commercial|creative|advert|mall-magic-c)|(?:^|[^a-z0-9])(?:ad_info|ad_report|adver_id|creative_id|commercial_id|pause[-_]?(?:ad|commerce)|under[-_]?player[-_]?ad|flash[-_]?sale|mall[-_/]ad)(?:[^a-z0-9]|$))/i.test(
       text
     );
   }

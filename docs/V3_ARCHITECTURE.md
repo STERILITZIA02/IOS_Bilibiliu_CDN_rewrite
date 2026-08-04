@@ -1,6 +1,6 @@
 # v3 架构、数据流与安全边界
 
-> 适用版本：`3.8.1`
+> 适用版本：`3.8.2`
 >
 > 本文描述仓库当前实现，不代表所有 Bilibili App/iOS 组合已完成真机验证。
 > 当前专项入口以 Bilibili iOS 9.5.0 请求构建号 `90500100` 为验收基线。
@@ -120,7 +120,8 @@ host 不在当前候选或任一 alias lane 不匹配时原样放行，不执行
 `src/bilibili-enhance.js` 使用精确主机与路径分类，不对任意 JSON 递归搜索并删除
 疑似广告。处理原则：
 
-- JSON 通常只删除明确广告字段、已审核类型或同时命中多项商业特征的对象；
+- JSON 通常只删除明确广告字段、已审核类型或同时命中多项商业特征的对象；魔力赏
+  只在已审核的角标/推荐理由等营销字段中匹配，不读取普通视频标题；
 - 首页/推荐流是明确例外：`首页推荐6个普通视频=true` 时，普通视频必须同时
   携带 AV/video 类型与具体视频身份；每次响应按服务端原顺序最多保留前 6 个；
 - 播放页推荐是明确例外：`推荐仅普通视频=true` 时采用普通 AV 白名单，无法确认
@@ -147,7 +148,8 @@ host 不在当前候选或任一 alias lane 不匹配时原样放行，不执行
 `dm(4)` 只删除 `OperationCard(3)` 中预约活动、跳转和预约游戏业务，普通 command
 DM、AttentionCard、关注视频/追番卡及未知字段均保留。9.4.0/9.5.0 的
 `View/PlayPause` 只删除含明确商业
-URL/creative/广告字段证据的 length-delimited 字段，
+URL/creative/广告字段证据的 length-delimited 字段；`mall-magic-c` 魔力赏路由族
+属于明确商业 URL 证据，
 `View/ViewEndPage` 只过滤已验证 `ViewEndPageCard.relate(1)` 中的广告或
 非普通 AV 关系卡。Chronos、视频快照、进度点、播放地址、普通 AV、未知顶层
 wire bytes 和无商业证据的暂停字段不在删除目标中。未知 schema 原样放行。

@@ -36,7 +36,7 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /你的 Bilibili/);
   assert.match(html, /CDN \+ Enhanced/);
   assert.match(html, /仅 CDN Switcher/);
-  assert.match(html, /Enhanced 3\.8\.1/);
+  assert.match(html, /Enhanced 3\.8\.2/);
   assert.match(html, /独立 cron、v9 缓存直达与稳定评分/);
   assert.match(html, /CDN v8/);
   assert.match(html, /v9 缓存媒体直达/);
@@ -46,7 +46,7 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /生成重置令牌/);
   assert.match(html, /一键安装到 Shadowrocket/);
   assert.match(html, /明确的安全边界/);
-  assert.doesNotMatch(html, /Enhanced 3\.8\.0|v7 对象级缓存/);
+  assert.doesNotMatch(html, /Enhanced 3\.8\.[01]|v7 对象级缓存/);
   assert.doesNotMatch(html, /Your site is taking shape|SkeletonPreview/);
 });
 

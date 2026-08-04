@@ -185,6 +185,38 @@ test("high-confidence promotion detection preserves ambiguous content", () => {
   );
 });
 
+test("magic reward recommendation badges are removed without matching video titles", () => {
+  const ordinary = (id, title) => ({
+    card_type: "small_cover_v2",
+    card_goto: "av",
+    goto: "av",
+    param: String(id),
+    uri: `bilibili://video/${id}`,
+    player_args: { aid: id, cid: id + 1000, type: "av" },
+    title,
+  });
+  const result = transform(`${appRoot}/x/v2/feed/index?device=phone`, {
+    code: 0,
+    data: {
+      items: [
+        {
+          ...ordinary(1, "一元抽鼠标"),
+          rcmd_reason_style: { text: "魔力赏" },
+        },
+        ordinary(2, "魔力赏活动复盘"),
+        ordinary(3, "普通视频"),
+      ],
+    },
+  });
+  const output = JSON.parse(result.body);
+
+  assert.equal(result.changed, 1);
+  assert.deepEqual(
+    output.data.items.map((item) => item.title),
+    ["魔力赏活动复盘", "普通视频"],
+  );
+});
+
 test("four splash endpoints return endpoint-specific empty success responses", () => {
   const cases = [
     {
@@ -2326,6 +2358,13 @@ test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field b
     messageField(3, operationCard(3, "jump-link-card")),
     messageField(3, operationCard(4, "favorite-season-card")),
     messageField(3, operationCard(5, "reserve-game-card")),
+    messageField(
+      3,
+      operationCard(
+        1,
+        "https://mall.bilibili.com/mall-magic-c/promotion",
+      ),
+    ),
     stringField(99, "keep-dm-future-field"),
   );
   const reply = bytes(
@@ -2350,7 +2389,7 @@ test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field b
     const filteredDm = fieldPayload(output, dmField);
 
     assert.equal(result.valid, true);
-    assert.equal(result.changed, 5);
+    assert.equal(result.changed, 6);
     assert.equal(result.body[0], 0);
     assert.equal(protoFields(filteredGuide, 1, 2).length, 1);
     assert.equal(protoFields(filteredGuide, 2, 2).length, 1);
@@ -2372,7 +2411,7 @@ test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field b
     );
     assert.doesNotMatch(
       outputText,
-      /activity-material|under_player_ad|reserve-activity-card|jump-link-card|reserve-game-card/,
+      /activity-material|under_player_ad|reserve-activity-card|jump-link-card|reserve-game-card|mall-magic-c/,
     );
   }
 

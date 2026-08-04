@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here.
 
+## [3.8.2] - 2026-08-04
+
+- Remove Magic Reward recommendations that keep an ordinary `av` card type but
+  disclose `魔力赏` / `魔力賞` only in reviewed promotional metadata such as a
+  badge or recommendation reason. Ordinary video titles are still never used as
+  commercial evidence.
+- Recognize the Bilibili Magic Reward route family `mall-magic-c` inside reviewed
+  gRPC commercial fields, closing pause, progress, and background-resume
+  operation-card reinjection without intercepting the mall domain or changing
+  account, order, payment, playback, and unknown fields.
+- Add JSON false-positive and gRPC `ViewProgress` regressions for both paths and
+  regenerate version-keyed Shadowrocket modules, scripts, and checksums.
+
 ## [3.8.1] - 2026-08-03
 
 - Close the cached/preloaded-playback race found in the 2026-08-03
