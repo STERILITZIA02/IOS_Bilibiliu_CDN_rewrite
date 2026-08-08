@@ -18,9 +18,11 @@
 > 组合的真机验收。仓库会明确区分“代码测试通过”和“真机已验证”；发布前后的
 > 检查矩阵见 [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
 >
-> v3.9.0 针对 Bilibili iOS 9.6.1 统一 endpoint registry、补齐首页商业 AV/大
-> Banner 与闲鱼操作卡过滤，并上线 TTFB 优先的 hostAuto v10；证据、字段边界与
-> 真机复测项见 [v3.9 审计](docs/V3_9_AUDIT.md)。v3.8.2 的魔力赏修复见
+> v3.9.1 修复 Bilibili iOS 9.6.1 普通视频身份字段不完整时被全部过滤的首页空流
+> 回归，并增加非空响应 fail-open；规则与回归边界见
+> [v3.9.1 审计](docs/V3_9_1_AUDIT.md)。v3.9.0 的 endpoint registry、商业
+> AV/大 Banner、闲鱼操作卡与 TTFB 优先 hostAuto v10 见
+> [v3.9 审计](docs/V3_9_AUDIT.md)。v3.8.2 的魔力赏修复见
 > [v3.8.2 审计](docs/V3_8_2_AUDIT.md)。v3.8.1 针对 App 缓存/预加载地址
 > 早于新 PlayView 响应发出的竞态，增加了同一媒体对象的完整签名 URL 直达，见
 > [v3.8.1 审计](docs/V3_8_1_AUDIT.md)。
@@ -142,15 +144,17 @@ Enhanced 还会加入 `api.live.bilibili.com`、
 | `会员营销` | `true` | 隐藏“我的”页与大会员中心营销横幅/弹层，不改会员数据 |
 
 `首页推荐6个普通视频=true` 对每一份新的 `/x/v2/feed/index` 响应独立执行，
-不会只清理首次结果：卡片必须同时有 `goto/card_goto=av|video`，以及
-正数 AVID、合法 BVID、正数 CID 和合法 `/video/` URI 的完整普通视频身份。
-JSON 卡片还必须属于当前已验证的普通 AV 卡型
-`small_cover_v2`、`large_cover_single_v9` 或 `large_cover_v1`。如果第一份响应
-不足 6 个，Enhanced 最多使用原始完整请求 URL 和原请求身份做 **1 次** 2.2 秒
-有界、禁止条件缓存的补取；补取响应再次经过同一白名单，按 AV 身份去重，只补到
-6 个为止。补取失败或仍不足时保留已经过滤的实际数量，不伪造、不复用旧卡片，也
-不递归请求。普通视频标题即使含“广告”“纪录片”或“魔力赏”也不会仅凭标题误删；
-只有协议分类、营销字段或商业动作明确命中才删除。
+不会只清理首次结果。判定顺序是先删除明确商业与非普通视频卡，再确认
+`goto/card_goto/type`、`player_args` 或已知普通卡型给出的 AV/video 类型；AVID、
+BVID、数字/BVID `param`、受支持 `/video/` URI 或嵌套播放器身份任一强证据即可，
+CID 只作 fallback 辅助。已知卡型是正向证据而非硬白名单，未知新卡型只要有明确
+AV 类型和视频身份也会保留。第一份结果为 1–5 条时，Enhanced 最多使用原始完整
+请求 URL 和原请求身份做 **1 次** 2.2 秒有界、禁止条件缓存的补取；补取响应经过
+相同判定，并按 AVID/BVID/`param`/视频 URI 规范化去重。若严格过滤会把服务端非空
+响应变空，则依次启用“字段不完整但明显是 AV”和“只删明确商业卡”两级 fallback；
+仍为空时原样返回并记录 `feed-empty-fail-open`，绝不主动写出空首页。补取失败保留
+首份结果，不伪造、不复用旧卡片，也不递归请求。普通视频标题即使含“广告”、
+“闲鱼”“魔力赏”或“推广”也不会仅凭标题误删。
 
 `推荐仅普通视频=true` 是播放页推荐列表的有意严格边界：JSON 必须有
 `goto/card_goto/type=av|video`、普通视频 `player_args` 或 `/video/` 地址，只有
@@ -334,8 +338,8 @@ DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 Shadowrocket 会取得新的远程资源地址，不会继续复用上一版同名脚本缓存。
 
 如果原先安装的是 README 的固定 `main/dist/*.sgmodule` 地址、历史兼容地址或
-BiliFlow 生成的固定 URL，升级到 3.9.0 **不需要重新订阅**，只需执行上述“更新
-模块”。更新后模块详情应显示 `3.9.0`，脚本 URL 应含 `?v=3.9.0`。只有把 Release
+BiliFlow 生成的固定 URL，升级到 3.9.1 **不需要重新订阅**，只需执行上述“更新
+模块”。更新后模块详情应显示 `3.9.1`，脚本 URL 应含 `?v=3.9.1`。只有把 Release
 附件下载成本地文件、或使用不带远程 URL 的旧副本时，才需要重新安装固定地址。
 
 按影响最小顺序回滚：

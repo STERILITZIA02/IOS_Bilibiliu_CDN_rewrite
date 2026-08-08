@@ -3,7 +3,7 @@
   "data": {
     "items": [
       { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 101, "bvid": "BV1AA411c7m1", "cid": 1001, "uri": "bilibili://video/BV1AA411c7m1", "player_args": { "aid": 101, "cid": 1001, "type": "av" }, "title": "普通视频 1" },
-      { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 777, "param": "777", "uri": "bilibili://video/777", "player_args": { "aid": 777, "type": "av" }, "title": "身份字段不完整的伪 AV" },
+      { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 777, "param": "777", "player_args": { "aid": 777, "type": "av" }, "title": "aid + param + player_args 普通视频" },
       { "card_type": "banner_v8", "card_goto": "banner", "banner_item": [{ "type": "activity", "title": "大型活动 Banner" }] },
       { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 901, "bvid": "BV1AD411c7m1", "cid": 9001, "uri": "bilibili://video/BV1AD411c7m1", "player_args": { "aid": 901, "cid": 9001, "type": "av" }, "title": "ROG NUC 抽奖", "ad_badge": { "text": "广告" }, "creative": { "creative_id": 88 }, "exposure": { "url": "https://cm.bilibili.com/show" } },
       { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 102, "bvid": "BV1AB411c7m2", "cid": 1002, "uri": "bilibili://video/BV1AB411c7m2", "player_args": { "aid": 102, "cid": 1002, "type": "av" }, "title": "闲鱼和广告行业观察" },

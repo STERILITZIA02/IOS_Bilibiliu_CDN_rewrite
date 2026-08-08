@@ -230,7 +230,7 @@ test("magic reward recommendation badges are removed without matching video titl
   );
 });
 
-test("9.6.1 home fixture removes commercial AVs and Banner but keeps six strict ordinary videos", () => {
+test("9.6.1 home fixture removes commercial AVs and Banner without requiring every identity field", () => {
   const fixture = JSON.parse(
     fs.readFileSync(
       path.join(
@@ -251,22 +251,194 @@ test("9.6.1 home fixture removes commercial AVs and Banner but keeps six strict 
     output.data.items.map((item) => item.title),
     [
       "普通视频 1",
+      "aid + param + player_args 普通视频",
       "闲鱼和广告行业观察",
       "魔力赏活动复盘",
       "普通视频 4",
       "普通视频 5",
-      "普通视频 6",
     ],
   );
   assert.ok(
-    output.data.items.every(
-      (item) =>
-        Number(item.aid) > 0 &&
-        /^BV/.test(item.bvid) &&
-        Number(item.cid) > 0 &&
-        /(?:bilibili:\/\/video\/|bilibili\.com\/video\/)/.test(item.uri),
-    ),
+    output.data.items.every((item) => enhance.isPlainHomeFeedVideo(item)),
   );
+});
+
+test("9.6.1 home AV recognition accepts partial real identities and rejects explicit ads or non-video cards", () => {
+  const accepted = [
+    {
+      title: "aid + param + player_args without bvid cid or URI",
+      goto: "av",
+      aid: 11,
+      param: "11",
+      player_args: { type: "av", aid: 11 },
+    },
+    {
+      title: "bvid plus card_goto without cid",
+      card_goto: "av",
+      bvid: "BV1a2B3c4D5",
+    },
+    {
+      title: "aid cid and numeric scheme URI",
+      type: "video",
+      aid: 13,
+      cid: 130,
+      uri: "bilibili://video/13?from=home",
+    },
+    {
+      title: "bvid plus mobile video URI",
+      card_type: "small_cover_v2",
+      bvid: "BV9Z8y7X6w5",
+      uri: "https://m.bilibili.com/video/BV9Z8y7X6w5/#reply",
+    },
+    {
+      title: "identity only in player_args",
+      card_goto: "video",
+      player_args: { type: "video", avid: 15 },
+    },
+    {
+      title: "identity only in camel playerArgs",
+      goto: "av",
+      playerArgs: { type: "av", bvid: "BV1234AbCdEf" },
+    },
+    {
+      title: "numeric param",
+      card_type: "large_cover_v1",
+      param: "17",
+    },
+    {
+      title: "BVID param",
+      card_type: "large_cover_single_v9",
+      param: "BV1q2W3e4R5",
+    },
+    {
+      title: "mixed-case alphanumeric BVID",
+      goto: "video",
+      bvid: "BV1A2b3C4d5",
+    },
+    {
+      title: "known small card",
+      card_type: "small_cover_v2",
+      aid: 20,
+    },
+    {
+      title: "known large v1 card",
+      card_type: "large_cover_v1",
+      aid: 21,
+    },
+    {
+      title: "known large v9 card",
+      card_type: "large_cover_single_v9",
+      aid: 22,
+    },
+    {
+      title: "unknown future card type",
+      card_type: "future_cover_v12",
+      card_goto: "av",
+      aid: 23,
+    },
+    {
+      title: "广告从业者的一天",
+      goto: "av",
+      aid: 24,
+    },
+    {
+      title: "闲鱼购物经验",
+      goto: "av",
+      aid: 25,
+    },
+    {
+      title: "魔力赏活动复盘",
+      goto: "av",
+      aid: 26,
+    },
+    {
+      title: "推广算法研究",
+      goto: "av",
+      aid: 27,
+    },
+  ];
+  const rejected = [
+    { title: "commercial AV", goto: "av", aid: 101, is_commercial: 1 },
+    { title: "ad card", card_goto: "ad", aid: 102 },
+    { title: "cm card", type: "cm", aid: 103 },
+    { title: "commercial badge", goto: "av", aid: 104, business_badge: { text: "广告" } },
+    { title: "creative payload", goto: "av", aid: 105, creative: { creative_id: 5 } },
+    { title: "tracking payload", goto: "av", aid: 106, tracking: { show_url: "https://cm.bilibili.com/show" } },
+    { title: "exposure payload", goto: "av", aid: 107, exposure: { exposure_url: "https://cm.bilibili.com/exposure" } },
+    { title: "click payload", goto: "av", aid: 108, click: { click_url: "https://cm.bilibili.com/click" } },
+    { title: "Banner", card_type: "banner_v8", card_goto: "banner" },
+    { title: "直播", card_goto: "live", room_id: 1 },
+    { title: "PGC", goto: "pgc", season_id: 2 },
+    { title: "游戏", type: "game", game_info: { id: 3 } },
+    { title: "课程", card_goto: "course", course_id: 4 },
+    { title: "活动", goto: "activity", uri: "bilibili://activity/5" },
+    { title: "AV empty shell", goto: "av", card_type: "small_cover_v2" },
+  ];
+
+  for (const item of accepted) {
+    assert.equal(enhance.isPlainHomeFeedVideo(item), true, item.title);
+  }
+  for (const item of rejected) {
+    assert.equal(enhance.isPlainHomeFeedVideo(item), false, item.title);
+  }
+});
+
+test("non-empty home responses use bounded fallbacks instead of becoming an empty feed", () => {
+  const cidFallback = transform(`${appRoot}/x/v2/feed/index?pull=0`, {
+    code: 0,
+    data: {
+      items: [
+        {
+          title: "cid-only but explicit AV",
+          card_goto: "av",
+          cid: 701,
+        },
+        { title: "explicit ad", card_goto: "ad", ad_info: { ad_id: 1 } },
+      ],
+      config: { keep: true },
+    },
+  });
+  assert.deepEqual(
+    JSON.parse(cidFallback.body).data.items.map((item) => item.title),
+    ["cid-only but explicit AV"],
+  );
+  assert.deepEqual(JSON.parse(cidFallback.body).data.config, { keep: true });
+
+  const commercialOnlyFallback = transform(`${appRoot}/x/v2/feed/index?pull=1`, {
+    code: 0,
+    data: {
+      items: [
+        { title: "直播占位", card_goto: "live", room_id: 8 },
+        { title: "未来普通模块", card_type: "future_module" },
+        { title: "绝不放回广告", goto: "av", aid: 9, ad_badge: { text: "广告" } },
+      ],
+    },
+  });
+  assert.deepEqual(
+    JSON.parse(commercialOnlyFallback.body).data.items.map((item) => item.title),
+    ["直播占位", "未来普通模块"],
+  );
+
+  const allCommercialFixture = {
+    code: 0,
+    data: {
+      items: [
+        { title: "only ad", goto: "av", aid: 10, ad_info: { ad_id: 10 } },
+      ],
+    },
+  };
+  const allCommercial = transform(
+    `${appRoot}/x/v2/feed/index?pull=2`,
+    allCommercialFixture,
+  );
+  assert.equal(allCommercial.changed, 0);
+  assert.equal(allCommercial.reason, "feed-empty-fail-open");
+  assert.deepEqual(JSON.parse(allCommercial.body), allCommercialFixture);
+
+  const emptyFixture = { code: 0, data: { items: [], config: { keep: true } } };
+  const serverEmpty = transform(`${appRoot}/x/v2/feed/index?pull=3`, emptyFixture);
+  assert.equal(serverEmpty.changed, 0);
+  assert.deepEqual(JSON.parse(serverEmpty.body), emptyFixture);
 });
 
 test("9.6.1 View JSON removes Goofish operation card without title keyword false positives", () => {
@@ -3223,7 +3395,7 @@ test("unknown endpoints, malformed JSON, and disabled UI fail open", () => {
   assert.equal(disabled.changed, 0);
 });
 
-test("9.5 feed entrypoint performs one bounded no-cache refill to reach six AVs", () => {
+test("9.6.1 feed entrypoint performs one bounded no-cache refill to reach six AVs", () => {
   const source = shadowrocketRuntimeSource("bilibili-enhance.js");
   const ordinary = (id) => ({
     aid: id,
@@ -3242,12 +3414,24 @@ test("9.5 feed entrypoint performs one bounded no-cache refill to reach six AVs"
   const duplicateWithDifferentShape = ordinary(1);
   delete duplicateWithDifferentShape.param;
   delete duplicateWithDifferentShape.uri;
+  assert.deepEqual(enhance.feedItemIdentities({ param: "42" }), ["aid:42"]);
+  assert.deepEqual(
+    enhance.feedItemIdentities({ uri: "https://m.bilibili.com/video/av42?from=home" }),
+    ["aid:42"],
+  );
+  assert.deepEqual(
+    enhance.feedItemIdentities({ archive: { bvid: "BV1a2B3c4D5" } }),
+    ["bvid:BV1A2B3C4D5"],
+  );
+  assert.deepEqual(enhance.feedItemIdentities({ cid: 42 }), []);
   let completion;
+  let doneCalls = 0;
   let refillRequest;
   let refillCalls = 0;
   const context = {
     $argument: "",
     $done(value) {
+      doneCalls += 1;
       completion = value;
     },
     $httpClient: {
@@ -3311,6 +3495,7 @@ test("9.5 feed entrypoint performs one bounded no-cache refill to reach six AVs"
   });
 
   assert.equal(refillCalls, 1);
+  assert.equal(doneCalls, 1);
   assert.equal(refillRequest.url, exactUrl);
   assert.equal(refillRequest.headers["X-BiliFlow-Refill"], "1");
   assert.equal("If-None-Match" in refillRequest.headers, false);
@@ -3325,6 +3510,133 @@ test("9.5 feed entrypoint performs one bounded no-cache refill to reach six AVs"
   assert.equal(completion.headers["Content-Type"], "application/json");
   assert.equal("ETag" in completion.headers, false);
   assert.equal("Content-Length" in completion.headers, false);
+});
+
+test("feed refill failure preserves existing videos, skips zero-video fail-open, and completes once", () => {
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
+
+  function run(items, mode = "failure") {
+    const responseBody = JSON.stringify({ code: 0, data: { items } });
+    let completion;
+    let doneCalls = 0;
+    let refillCalls = 0;
+    let timeoutDelay = 0;
+    let lateCallback;
+    const context = {
+      $argument: "",
+      $done(value) {
+        doneCalls += 1;
+        completion = value;
+      },
+      $httpClient: {
+        get(request, callback) {
+          refillCalls += 1;
+          if (mode === "timeout") {
+            lateCallback = callback;
+            return;
+          }
+          callback(new Error("network unavailable"), null, "");
+        },
+      },
+      $request: {
+        headers: mode === "inbound-refill"
+          ? {
+              "User-Agent": "bilibili/9.6.1",
+              "X-BiliFlow-Refill": "1",
+            }
+          : { "User-Agent": "bilibili/9.6.1" },
+        url: `${appRoot}/x/v2/feed/index?build=90601000&pull=1`,
+      },
+      $response: {
+        body: responseBody,
+        headers: { "Content-Type": "application/json" },
+      },
+      clearTimeout: mode === "timeout" ? () => {} : clearTimeout,
+      console,
+      setTimeout: mode === "timeout"
+        ? (callback, delay) => {
+            timeoutDelay = delay;
+            callback();
+            return 1;
+          }
+        : setTimeout,
+    };
+
+    vm.runInNewContext(source, context, {
+      filename: "bilibili-enhance.js",
+    });
+    return {
+      body: completion && completion.body ? completion.body : responseBody,
+      completion,
+      doneCalls,
+      getDoneCalls: () => doneCalls,
+      lateCallback,
+      refillCalls,
+      timeoutDelay,
+    };
+  }
+
+  const partial = run([
+    {
+      title: "existing partial identity video",
+      card_goto: "av",
+      aid: 801,
+      param: "801",
+      player_args: { type: "av", aid: 801 },
+    },
+  ]);
+  assert.equal(partial.refillCalls, 1);
+  assert.equal(partial.doneCalls, 1);
+  assert.deepEqual(
+    JSON.parse(partial.body).data.items.map((item) => item.title),
+    ["existing partial identity video"],
+  );
+
+  const timedOut = run([
+    {
+      title: "existing video survives refill timeout",
+      card_goto: "av",
+      aid: 803,
+    },
+  ], "timeout");
+  assert.equal(timedOut.refillCalls, 1);
+  assert.equal(timedOut.timeoutDelay, 2450);
+  assert.equal(timedOut.getDoneCalls(), 1);
+  assert.deepEqual(
+    JSON.parse(timedOut.body).data.items.map((item) => item.title),
+    ["existing video survives refill timeout"],
+  );
+  timedOut.lateCallback(null, { statusCode: 200 }, JSON.stringify({
+    code: 0,
+    data: { items: [{ title: "late", goto: "av", aid: 804 }] },
+  }));
+  assert.equal(timedOut.getDoneCalls(), 1);
+
+  const inboundRefill = run([
+    {
+      title: "inbound refill marker prevents recursion",
+      card_goto: "av",
+      aid: 805,
+    },
+  ], "inbound-refill");
+  assert.equal(inboundRefill.refillCalls, 0);
+  assert.equal(inboundRefill.doneCalls, 1);
+  assert.deepEqual(
+    JSON.parse(inboundRefill.body).data.items.map((item) => item.title),
+    ["inbound refill marker prevents recursion"],
+  );
+
+  const failOpen = run([
+    {
+      title: "all-commercial response remains original only as final fail-open",
+      goto: "av",
+      aid: 802,
+      ad_info: { ad_id: 802 },
+    },
+  ]);
+  assert.equal(failOpen.refillCalls, 0);
+  assert.equal(failOpen.doneCalls, 1);
+  assert.equal(JSON.parse(failOpen.body).data.items.length, 1);
 });
 
 test("Shadowrocket entrypoint returns a changed body without leaking response data", () => {

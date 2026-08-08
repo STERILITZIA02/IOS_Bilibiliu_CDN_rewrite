@@ -469,9 +469,9 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.9.0 已覆盖 Bilibili iOS
-              9.6.1 的商业 AV/大型 Banner、闲鱼操作卡、魔力赏、Relate Story/搜索商业卡、
-              后台恢复与首页六条补齐，并提供 TTFB 优先 CDN v10 与 v9 缓存媒体直达。
+              使用本站同版本的已审核快照。Enhanced 3.9.1 已修复 Bilibili iOS
+              9.6.1 普通视频身份字段不完整导致的首页空流，同时保留商业 AV/大型 Banner、
+              闲鱼操作卡与魔力赏过滤，并继续提供 TTFB 优先 CDN v10 与 v9 缓存媒体直达。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">

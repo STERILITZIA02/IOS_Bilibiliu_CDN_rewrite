@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here.
 
+## [3.9.1] - 2026-08-08
+
+- Fix the Bilibili iOS 9.6.1 empty-home regression by accepting ordinary AV
+  cards with an explicit video type and any strong identity from AVID, BVID,
+  `param`, a supported video URI, or nested player arguments. CID is auxiliary
+  and known card types are positive evidence rather than a hard allowlist.
+- Preserve the exclusion-first commercial and non-video checks without using
+  ordinary titles as ad evidence. Unknown future card types remain eligible
+  when they carry an explicit AV type and valid video identity.
+- Add two bounded non-empty-feed fallbacks: first retain incomplete but evident
+  AV cards, then remove only explicit commercial cards. If both would still
+  empty a non-empty server response, return the original response and emit
+  `feed-empty-fail-open` instead of writing `data.items=[]`.
+- Limit refill to initial results containing one through five retained cards,
+  canonicalize AVID/BVID/`param`/video-URI identities for deduplication, and
+  preserve the first response on refill failure while completing exactly once.
+- Add Bilibili 9.6.1 partial-identity, mixed-case BVID, unknown-card, title false
+  positive, fallback, refill, cold/refresh/resume and single-completion
+  regressions; regenerate every module, runtime, catalog and checksum.
+
 ## [3.9.0] - 2026-08-08
 
 - Centralize reviewed JSON and gRPC metadata endpoints in one registry used by

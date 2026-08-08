@@ -1336,10 +1336,11 @@
     return changes > 0 ? 1 : 0;
   }
 
-  function handleFeed(body, config) {
+  function handleFeed(body, config, meta) {
     var data = body.data;
     var source;
     var kept = [];
+    var fallback = [];
     var changes = 0;
     var index;
     var item;
@@ -1351,24 +1352,57 @@
       return 0;
     }
     source = data.items;
+    if (source.length === 0) {
+      return 0;
+    }
+    if (config.homeFeedVideoOnly !== false) {
+      for (index = 0; index < source.length; index += 1) {
+        if (
+          isPlainHomeFeedVideo(source[index]) &&
+          kept.length < HOME_FEED_VIDEO_LIMIT
+        ) {
+          kept.push(source[index]);
+        }
+      }
+      if (kept.length === 0) {
+        for (index = 0; index < source.length; index += 1) {
+          if (
+            isFallbackHomeFeedVideo(source[index]) &&
+            fallback.length < HOME_FEED_VIDEO_LIMIT
+          ) {
+            fallback.push(source[index]);
+          }
+        }
+        kept = fallback;
+      }
+      if (kept.length === 0) {
+        for (index = 0; index < source.length; index += 1) {
+          if (
+            !hasExplicitHomeCommercialEvidence(source[index]) &&
+            kept.length < HOME_FEED_VIDEO_LIMIT
+          ) {
+            kept.push(source[index]);
+          }
+        }
+      }
+      if (kept.length === 0) {
+        if (isPlainObject(meta)) {
+          meta.reason = "feed-empty-fail-open";
+        }
+        return 0;
+      }
+      if (kept.length !== source.length) {
+        data.items = kept;
+        return source.length - kept.length;
+      }
+      return 0;
+    }
     for (index = 0; index < source.length; index += 1) {
       item = source[index];
       if (isHighConfidencePromotion(item)) {
         changes += 1;
         continue;
       }
-      if (config.homeFeedVideoOnly !== false) {
-        if (
-          !isPlainHomeFeedVideo(item) ||
-          kept.length >= HOME_FEED_VIDEO_LIMIT
-        ) {
-          changes += 1;
-          continue;
-        }
-        kept.push(item);
-        continue;
-      }
-
       cardType = isPlainObject(item)
         ? String(item.card_type || "")
         : "";
@@ -1407,44 +1441,44 @@
   }
 
   function feedItemIdentities(item) {
-    var playerArgs;
+    var nodes;
+    var node;
     var value;
-    var keys = ["bvid", "aid", "avid", "cid", "param"];
     var output = [];
     var index;
+    var identity;
     if (!isPlainObject(item)) {
       return output;
     }
-    for (index = 0; index < keys.length; index += 1) {
-      value = item[keys[index]];
-      if (
-        (typeof value === "string" || typeof value === "number") &&
-        String(value).trim()
-      ) {
-        output.push(keys[index] + ":" + String(value).trim());
+    nodes = homeVideoIdentityNodes(item);
+    for (index = 0; index < nodes.length; index += 1) {
+      node = nodes[index];
+      if (!isPlainObject(node)) {
+        continue;
       }
-    }
-    playerArgs = isPlainObject(item.player_args)
-      ? item.player_args
-      : isPlainObject(item.playerArgs)
-        ? item.playerArgs
-        : null;
-    if (playerArgs) {
-      for (index = 0; index < keys.length; index += 1) {
-        value = playerArgs[keys[index]];
-        if (
-        (typeof value === "string" || typeof value === "number") &&
-        String(value).trim()
-      ) {
-          output.push(
-            "player:" + keys[index] + ":" + String(value).trim()
-          );
-        }
+      value = positiveHomeVideoId(node.aid) || positiveHomeVideoId(node.avid);
+      identity = value ? "aid:" + value : "";
+      if (identity && !includes(output, identity)) {
+        output.push(identity);
       }
-    }
-    value = objectLink(item);
-    if (value) {
-      output.push("uri:" + value);
+      value = normalizedHomeBvid(node.bvid, true);
+      identity = value ? "bvid:" + value.toUpperCase() : "";
+      if (identity && !includes(output, identity)) {
+        output.push(identity);
+      }
+      value = String(node.param || "").trim();
+      identity = positiveHomeVideoId(value)
+        ? "aid:" + positiveHomeVideoId(value)
+        : normalizedHomeBvid(value, true)
+          ? "bvid:" + normalizedHomeBvid(value, true).toUpperCase()
+          : "";
+      if (identity && !includes(output, identity)) {
+        output.push(identity);
+      }
+      identity = homeVideoIdentityFromUri(objectLink(node));
+      if (identity && !includes(output, identity)) {
+        output.push(identity);
+      }
     }
     return output;
   }
@@ -2738,74 +2772,239 @@
     );
   }
 
-  function strictHomeVideoIdentity(item) {
-    var nodes;
+  function homeVideoIdentityNodes(item) {
+    return [
+      item,
+      item && item.player_args,
+      item && item.playerArgs,
+      item && item.archive,
+      item && item.video,
+      item && item.basic
+    ];
+  }
+
+  function positiveHomeVideoId(value) {
+    var number;
+    if (typeof value !== "string" && typeof value !== "number") {
+      return 0;
+    }
+    if (typeof value === "string" && !/^\d+$/.test(value.trim())) {
+      return 0;
+    }
+    number = Number(value);
+    return Number.isSafeInteger(number) && number > 0 ? number : 0;
+  }
+
+  function normalizedHomeBvid(value, allowRelaxed) {
+    var bvid = String(value || "").trim();
+    if (/^BV[0-9A-Za-z]{10}$/.test(bvid)) {
+      return bvid;
+    }
+    return allowRelaxed && /^BV[0-9A-Za-z]{8,20}$/.test(bvid)
+      ? bvid
+      : "";
+  }
+
+  function homeVideoIdentityFromUri(value) {
+    var uri = String(value || "").trim();
+    var match = /^(?:bilibili:\/\/video\/|https?:\/\/(?:www|m)\.bilibili\.com\/video\/)(?:av)?(\d+)(?:[/?#]|$)/i.exec(
+      uri
+    );
+    if (match && positiveHomeVideoId(match[1])) {
+      return "aid:" + positiveHomeVideoId(match[1]);
+    }
+    match = /^(?:bilibili:\/\/video\/|https?:\/\/(?:www|m)\.bilibili\.com\/video\/)(BV[0-9A-Za-z]{8,20})(?:[/?#]|$)/i.exec(
+      uri
+    );
+    return match ? "bvid:" + match[1].toUpperCase() : "";
+  }
+
+  function hasExplicitHomeAvType(item) {
+    var playerArgs;
+    var values;
     var index;
-    var node;
-    var aid = 0;
-    var cid = 0;
-    var bvid = "";
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    if (HOME_FEED_AV_CARD_TYPES[String(item.card_type || "").toLowerCase()]) {
+      return true;
+    }
+    values = [item.goto, item.card_goto, item.type];
+    for (index = 0; index < values.length; index += 1) {
+      if (includes(["av", "video"], String(values[index] || "").toLowerCase())) {
+        return true;
+      }
+    }
+    playerArgs = isPlainObject(item.player_args)
+      ? item.player_args
+      : isPlainObject(item.playerArgs)
+        ? item.playerArgs
+        : null;
+    return (
+      isPlainObject(playerArgs) &&
+      includes(
+        ["av", "video"],
+        String(playerArgs.type || "").toLowerCase()
+      )
+    );
+  }
+
+  function hasExplicitHomeCommercialEvidence(item) {
+    var marker;
+    var keys = [
+      "commercial",
+      "commercial_info",
+      "commercialInfo"
+    ];
+    var index;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    if (
+      isHighConfidencePromotion(item) ||
+      hasCommercialAction(item) ||
+      hasExplicitAdMarker(item)
+    ) {
+      return true;
+    }
+    marker = recommendationMarker(
+      item,
+      ["goto", "card_goto", "type", "card_type", "card_type_en"]
+    );
+    if (
+      /(?:^|\|)(?:ad|cm|banner)(?:[_-][^|]*)?(?:\||$)/i.test(marker)
+    ) {
+      return true;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      if (hasOwn.call(item, keys[index]) && hasMarkerValue(item[keys[index]])) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function hasExplicitHomeNonVideoEvidence(item) {
+    var marker;
+    var labels;
     var uri;
     if (!isPlainObject(item)) {
       return false;
     }
-    nodes = [
+    marker = recommendationMarker(
       item,
-      item.player_args,
-      item.playerArgs,
-      item.archive,
-      item.video
-    ];
+      ["goto", "card_goto", "type", "card_type", "card_type_en"]
+    );
+    if (
+      /(?:^|\|)(?:ogv|pgc|bangumi|bangumi_av|bangumi_ugc|season|episode|live|game|resource|course|cheese|special|article|read|comic|audio|activity)(?:[_-][^|]*)?(?:\||$)/i.test(
+        marker
+      )
+    ) {
+      return true;
+    }
+    if (
+      hasAnyMarker(
+        item,
+        [
+          "season_id",
+          "seasonId",
+          "ep_id",
+          "epId",
+          "epid",
+          "pgc_info",
+          "pgcInfo",
+          "ogv_info",
+          "ogvInfo",
+          "live_info",
+          "liveInfo",
+          "room_id",
+          "roomId",
+          "game_info",
+          "gameInfo",
+          "course_id",
+          "courseId",
+          "article_id",
+          "articleId",
+          "comic_id",
+          "comicId",
+          "activity_id",
+          "activityId"
+        ]
+      )
+    ) {
+      return true;
+    }
+    labels = recommendationLabels(item);
+    if (
+      /(?:纪录片|综艺|番剧|国创|电影|电视剧|影视|直播|游戏|课程|课堂|专栏|文章|漫画|音频|播单|活动|documentary|variety|bangumi|ogv|pgc|live|game|course|cheese|special|article|comic|audio|activity)/i.test(
+        labels
+      )
+    ) {
+      return true;
+    }
+    uri = objectLink(item);
+    return /^(?:bilibili:\/\/(?:live|bangumi|pgc|season|ep|game|cheese|course|article|read|comic|audio|activity)(?:[/?#]|$)|https?:\/\/(?:www\.)?bilibili\.com\/(?:bangumi|cheese|read|comic|audio|blackboard|festival)(?:[/?#]|$)|https?:\/\/live\.bilibili\.com(?:[/?#]|$))/i.test(
+      uri
+    );
+  }
+
+  function hasHomeVideoIdentity(item, allowCid) {
+    var nodes;
+    var index;
+    var node;
+    var param;
+    var explicitAv;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    explicitAv = hasExplicitHomeAvType(item);
+    nodes = homeVideoIdentityNodes(item);
     for (index = 0; index < nodes.length; index += 1) {
       node = nodes[index];
       if (!isPlainObject(node)) {
         continue;
       }
-      if (!aid) {
-        aid = Number(node.aid || node.avid || 0);
+      if (
+        positiveHomeVideoId(node.aid) ||
+        positiveHomeVideoId(node.avid) ||
+        normalizedHomeBvid(node.bvid, explicitAv) ||
+        homeVideoIdentityFromUri(objectLink(node))
+      ) {
+        return true;
       }
-      if (!cid) {
-        cid = Number(node.cid || 0);
+      param = String(node.param || "").trim();
+      if (
+        positiveHomeVideoId(param) ||
+        normalizedHomeBvid(param, explicitAv)
+      ) {
+        return true;
       }
-      if (!bvid && /^BV[0-9A-Za-z]{10}$/.test(String(node.bvid || ""))) {
-        bvid = String(node.bvid);
+      if (allowCid && positiveHomeVideoId(node.cid)) {
+        return true;
       }
     }
-    uri = objectLink(item);
-    return Boolean(
-      Number.isSafeInteger(aid) &&
-      aid > 0 &&
-      Number.isSafeInteger(cid) &&
-      cid > 0 &&
-      bvid &&
-      /^(?:bilibili:\/\/video\/(?:av\d+|BV[0-9A-Za-z]{10})|https?:\/\/(?:www\.)?bilibili\.com\/video\/(?:av\d+|BV[0-9A-Za-z]{10}))(?:[/?#]|$)/i.test(
-        uri
-      )
-    );
+    return false;
   }
 
-  function isPlainHomeFeedVideo(item, requireKnownCardType) {
-    var cardType;
-    var cardGoto;
-    var gotoValue;
+  function isPlainHomeFeedVideo(item) {
     if (
-      !isPlainVideoRecommendation(item) ||
-      !strictHomeVideoIdentity(item)
+      !isPlainObject(item) ||
+      hasExplicitHomeCommercialEvidence(item) ||
+      hasExplicitHomeNonVideoEvidence(item) ||
+      !hasExplicitHomeAvType(item)
     ) {
       return false;
     }
-    cardType = String(item.card_type || "").toLowerCase();
-    if (
-      requireKnownCardType !== false &&
-      !HOME_FEED_AV_CARD_TYPES[cardType]
-    ) {
-      return false;
-    }
-    cardGoto = String(item.card_goto || "").toLowerCase();
-    gotoValue = String(item.goto || "").toLowerCase();
-    return (
-      includes(["av", "video"], cardGoto) ||
-      includes(["av", "video"], gotoValue)
+    return hasHomeVideoIdentity(item, false);
+  }
+
+  function isFallbackHomeFeedVideo(item) {
+    return Boolean(
+      isPlainObject(item) &&
+      !hasExplicitHomeCommercialEvidence(item) &&
+      !hasExplicitHomeNonVideoEvidence(item) &&
+      hasExplicitHomeAvType(item) &&
+      hasHomeVideoIdentity(item, true)
     );
   }
 
@@ -3129,7 +3328,7 @@
     return changes;
   }
 
-  function transformObject(body, endpoint, config) {
+  function transformObject(body, endpoint, config, meta) {
     if (!isPlainObject(body)) {
       return 0;
     }
@@ -3176,7 +3375,7 @@
       case "splash-brand-list":
         return handleSplash(body, endpoint);
       case "feed":
-        return handleFeed(body, config);
+        return handleFeed(body, config, meta);
       case "story":
         return handleStory(body, config);
       case "story-cart":
@@ -3205,6 +3404,7 @@
     var endpoint;
     var changes;
     var data;
+    var meta = {};
     var arrayCounts = [];
     var effectiveConfig = config || parseArgument("");
 
@@ -3232,7 +3432,7 @@
     }
 
     try {
-      changes = transformObject(parsed, endpoint, effectiveConfig);
+      changes = transformObject(parsed, endpoint, effectiveConfig, meta);
     } catch (error) {
       return {
         body: original,
@@ -3265,13 +3465,14 @@
       endpoint: endpoint,
       hitType: changes > 0 ? endpoint + "-filter" : "",
       reason:
-        changes > 0
+        meta.reason ||
+        (changes > 0
           ? "changed"
           : (
               endpoint === "myinfo-diagnostic"
                 ? "diagnostic-only"
                 : "no-ad-fields"
-            ),
+            )),
       topKeys: Object.keys(parsed).slice(0, 12),
       valid: true
     };
@@ -5668,7 +5869,8 @@
         result.valid &&
         endpoint === "feed" &&
         config.homeFeedVideoOnly !== false &&
-        filteredFeedLength(result) >= 0 &&
+        result.reason !== "feed-empty-fail-open" &&
+        filteredFeedLength(result) > 0 &&
         filteredFeedLength(result) < HOME_FEED_VIDEO_LIMIT &&
         headerValue(context.requestHeaders, FEED_REFILL_HEADER) !== "1"
       ) {
