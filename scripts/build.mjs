@@ -24,6 +24,10 @@ const assetVersion = encodeURIComponent(packageJson.version);
 const domains = await readJson("config/domains.json");
 const candidateConfig = await readJson("config/cdn-candidates.json");
 const moduleOptions = await readJson("config/module-options.json");
+const endpointScript = await readFile(
+  path.join(rootDirectory, "src", "bilibili-endpoints.js"),
+  "utf8",
+);
 const sourceScript = await readFile(
   path.join(rootDirectory, "src", "bilibili-cdn.js"),
   "utf8",
@@ -238,6 +242,12 @@ const sourceApi = require(path.join(rootDirectory, "src", "bilibili-cdn.js"));
 const enhanceApi = require(
   path.join(rootDirectory, "src", "bilibili-enhance.js"),
 );
+const endpointApi = require(
+  path.join(rootDirectory, "src", "bilibili-endpoints.js"),
+);
+if (!endpointApi.validateRegistry()) {
+  throw new Error("src/bilibili-endpoints.js has an invalid registry");
+}
 if (
   JSON.stringify(sourceApi.FIXED_CDN_CANDIDATES) !==
   JSON.stringify(configuredCandidates)
@@ -346,6 +356,7 @@ const benchmarkScriptArgument = scriptArgument([
   "probeMode",
   "resetToken",
   "intervalHours",
+  "switchThreshold",
   "debug",
 ]);
 const enhanceScriptArgument = scriptArgument(enhanceArgumentKeys);
@@ -364,6 +375,7 @@ function storyScriptArgument(includeEnhancements) {
 
 const combinedStoryScript = [
   '"use strict";\nthis.__BILIFLOW_COMBINED__ = true;',
+  endpointScript,
   enhanceScript,
   sourceScript,
   `(function (root) {
@@ -607,20 +619,29 @@ const ruleList = [
   "",
 ].join("\n");
 
-const jsonPattern =
-  String.raw`^https?:\/\/(?:(?:api|app)\.(?:bilibili\.com|biliapi\.net)|interface\.bilibili\.com)\/(?:x\/(?:player\/(?:wbi\/)?playurl(?:v2)?|v2\/playurl)|pgc\/player\/(?:api\/playurl(?:proj)?|web\/(?:v2\/)?playurl(?:\/html5)?)|pugv\/player\/(?:api|web)\/playurl|v2\/playurl)(?:\?|$)`;
-const grpcPattern =
-  String.raw`^https?:\/\/(?:(?:grpc|app)\.(?:bilibili\.com|biliapi\.net))\/(?:bilibili\.app\.playerunite\.v1\.Player\/PlayViewUnite|bilibili\.app\.playurl\.v1\.PlayURL\/PlayView|bilibili\.(?:pgc\.gateway\.player\.(?:v1|v2)|cheese\.gateway\.player\.v1)\.PlayURL\/PlayView)(?:\?|$)`;
+const jsonPattern = endpointApi.matcherPattern({
+  runtime: "cdn",
+  transport: "json",
+});
+const grpcPattern = endpointApi.matcherPattern({
+  runtime: "cdn",
+  transport: "grpc",
+});
 const mediaRoutePattern =
   String.raw`^https?:\/\/(?:(?:[a-z0-9-]+\.)+(?:acgvideo\.com|bilivideo\.com|bilivideo\.cn|bilivideo\.net|bilibilivideo\.com|ourdvsss\.com|ksyungslb\.com|00cdn\.com)|upos-[a-z0-9-]+\.akamaized\.net|uposdash-[a-z0-9-]+\.yfcdn\.net)(?::\d+)?\/upgcxcode\/`;
-const enhancePattern =
-  String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index|search(?:\/square|\/type)?|view|account\/(?:mine(?:\/ipad)?|myinfo))|x\/(?:resource\/(?:show\/tab\/v2|top\/activity|patch\/tab(?:\/v2)?)|vip\/ads\/(?:materials|material\/report)))|(?:api\.bilibili\.com|api\.biliapi\.net)\/(?:pgc\/(?:page\/(?:bangumi|cinema\/tab)|activity\/deliver\/material\/receive)|x\/(?:resource\/(?:top\/activity|patch\/tab(?:\/v2)?)|vip\/(?:web\/vip_center\/combine|ads\/(?:materials|material\/report))|web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd|v2\/reply\/main))|api\.live\.bilibili\.com\/xlive\/(?:app-room\/v1\/index\/getInfoByRoom|e-commerce-interface\/v1\/ecommerce-user\/get_shopping_info)|line3-h5-mobile-api\.biligame\.com\/game\/live\/large_card_material|api\.vc\.bilibili\.com\/search_svr\/v\d+\/Search\/recommend_words|manga\.bilibili\.com\/twirp\/comic\.v\d+\.Comic\/(?:Flash|ListFlash))(?:\?|$)`;
-const storyPattern =
-  String.raw`^https?:\/\/(?:app\.bilibili\.com|app\.biliapi\.net)\/x\/v2\/feed\/index\/(?:story(?:\/cart)?|relate\/story)(?:\?|$)`;
-const enhanceGrpcPattern =
-  String.raw`^https?:\/\/(?:(?:grpc|app)\.bilibili\.com|(?:grpc|app)\.biliapi\.net)\/(?:bilibili\.app\.(?:view\.v1\.View\/(?:View|ViewProgress|RelatesFeed|TFInfo)|viewunite\.v1\.View\/(?:View|ViewProgress|PlayPause|ViewEndPage|RelatesFeed)|mine\.v1\.Mine\/(?:PubModule|DeviceFeature)|resource\.v1\.Module\/List|show\.v1\.Popular\/Index|dynamic\.v2\.Dynamic\/DynAll|interface\.v1\.Search\/DefaultWords)|bilibili\.polymer\.app\.search\.v1\.Search\/(?:SearchAll|SearchByType)|bilibili\.main\.community\.reply\.v1\.Reply\/MainList)(?:\?|$)`;
-const refreshPattern =
-  String.raw`^https?:\/\/(?:(?:app\.bilibili\.com|app\.biliapi\.net)\/(?:x\/v2\/(?:splash\/(?:brand\/list|event\/list2|list|show)|feed\/index(?:\/(?:story(?:\/cart)?|relate\/story))?|view|account\/(?:mine(?:\/ipad)?|myinfo))|x\/vip\/ads\/(?:materials|material\/report))|(?:api\.bilibili\.com|api\.biliapi\.net)\/x\/vip\/ads\/(?:materials|material\/report)|api\.vc\.bilibili\.com\/search_svr\/v\d+\/Search\/recommend_words|manga\.bilibili\.com\/twirp\/comic\.v\d+\.Comic\/(?:Flash|ListFlash))(?:\?|$)`;
+const enhancePattern = endpointApi.matcherPattern({
+  runtime: "enhance",
+  transport: "json",
+});
+const storyPattern = endpointApi.matcherPattern({
+  runtime: "story",
+  transport: "json",
+});
+const enhanceGrpcPattern = endpointApi.matcherPattern({
+  runtime: "enhance",
+  transport: "grpc",
+});
+const refreshPattern = endpointApi.matcherPattern({ requestGuard: true });
 
 function versionedRaw(relativePath) {
   return `${rawRoot}/${relativePath}?v=${assetVersion}`;
@@ -675,20 +696,18 @@ function buildModule({
   variant,
   includeEnhancements,
 }) {
+  const enabledRuntimes = includeEnhancements
+    ? new Set(["cdn", "enhance", "story"])
+    : new Set(["cdn", "story"]);
   const mitmHosts = [
-    "api.bilibili.com",
-    "app.bilibili.com",
-    "interface.bilibili.com",
-    "api.biliapi.net",
-    "app.biliapi.net",
-    "grpc.bilibili.com",
-    "grpc.biliapi.net",
+    ...new Set(
+      endpointApi.REGISTRY
+        .filter((row) => row.runtimes.some((runtime) => enabledRuntimes.has(runtime)))
+        .flatMap((row) => row.hosts),
+    ),
   ];
   if (includeEnhancements) {
-    mitmHosts.push("api.live.bilibili.com");
-    mitmHosts.push("line3-h5-mobile-api.biligame.com");
-    mitmHosts.push("api.vc.bilibili.com");
-    mitmHosts.push("manga.bilibili.com");
+    // Registry-derived hosts already include every enhancement-only endpoint.
   }
 
   return [
@@ -732,6 +751,17 @@ const enhancedModule = buildModule({
   includeEnhancements: true,
 });
 const publishedCatalog = `${JSON.stringify(moduleOptions, null, 2)}\n`;
+const modulesList = [
+  `# BiliFlow Shadowrocket modules v${packageJson.version}`,
+  `# Repository: ${homepage}`,
+  `# Enhanced: ${versionedRaw("dist/Bilibili.CDN.Enhanced.sgmodule")}`,
+  `# CDN-only: ${versionedRaw("dist/Bilibili.CDN.Switcher.sgmodule")}`,
+  `# Enhanced compatibility alias: ${versionedRaw("dist/Bilibili.CDN.sgmodule")}`,
+  versionedRaw("dist/Bilibili.CDN.Enhanced.sgmodule"),
+  versionedRaw("dist/Bilibili.CDN.Switcher.sgmodule"),
+  versionedRaw("dist/Bilibili.CDN.sgmodule"),
+  "",
+].join("\n");
 
 function sha256(content) {
   return createHash("sha256").update(content).digest("hex");
@@ -746,11 +776,12 @@ const outputs = new Map([
   ["dist/bilibili-cdn.js", sourceScript],
   ["dist/bilibili-cdn-route.js", routeScript],
   ["dist/bilibili-cdn-benchmark.js", combinedBenchmarkScript],
-  ["dist/bilibili-enhance.js", enhanceScript],
-  ["dist/bilibili-refresh.js", refreshScript],
+  ["dist/bilibili-enhance.js", [endpointScript, enhanceScript].join("\n")],
+  ["dist/bilibili-refresh.js", [endpointScript, refreshScript].join("\n")],
   ["dist/bilibili-story.js", combinedStoryScript],
   ["dist/bilibili-story-cdn.js", cdnOnlyStoryScript],
   ["dist/module-options.json", publishedCatalog],
+  ["dist/modules.list", modulesList],
 ]);
 
 const checksums = [...outputs.entries()]

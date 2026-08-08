@@ -373,7 +373,7 @@
       "argument": "网络档案",
       "group": "network",
       "label": "网络档案",
-      "description": "auto 只是共享缓存档案，不会自动识别 Wi-Fi、蜂窝或 SSID；手动命名可隔离不同网络",
+      "description": "auto 在运行时支持时区分 Wi-Fi/蜂窝并只保存稳定标识 hash，不支持时回落共享 auto；也可手动命名隔离网络",
       "type": "string",
       "default": "auto",
       "variants": ["cdn", "enhanced"]
@@ -415,7 +415,7 @@
       "argument": "切换阈值",
       "group": "network",
       "label": "切换阈值",
-      "description": "仅供 blocking 诊断兼容；默认 cron 使用 p25 吞吐、失败率、抖动和两个不同对象的稳定评分",
+      "description": "当前线路健康时，挑战者的 TTFB/短段/持续吞吐综合分至少领先该百分比才切换；线路不健康时立即切换",
       "type": "number",
       "default": 20,
       "minimum": 10,

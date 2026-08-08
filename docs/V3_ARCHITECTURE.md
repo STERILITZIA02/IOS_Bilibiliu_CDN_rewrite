@@ -1,9 +1,10 @@
 # v3 架构、数据流与安全边界
 
-> 适用版本：`3.8.2`
+> 适用版本：`3.9.0`
 >
 > 本文描述仓库当前实现，不代表所有 Bilibili App/iOS 组合已完成真机验证。
-> 当前专项入口以 Bilibili iOS 9.5.0 请求构建号 `90500100` 为验收基线。
+> 当前自动化专项覆盖 Bilibili iOS 9.6.1 fixture；现有 PacketTunnel 日志仍是
+> 9.5.0 请求构建号 `90500100`，9.6.1 真实流量需按真机清单复核。
 
 ## 设计目标
 
@@ -22,6 +23,8 @@ iPhone/iPad 优先的网站生成可持续更新的定制 URL：
 ## 单一配置源与构建流程
 
 `config/module-options.json` 是模块参数与网站选项的单一配置源。
+`src/bilibili-endpoints.js` 是 JSON/gRPC 主机、路径/RPC、transport、handler、
+缓存敏感度、请求守卫和响应过滤能力的单一 endpoint registry。
 `scripts/build.mjs` 在生成前同时校验：
 
 - 分组、键名、中文参数名、类型、默认值、数值范围和适用变体；
@@ -33,6 +36,7 @@ iPhone/iPad 优先的网站生成可持续更新的定制 URL：
 ```mermaid
 flowchart LR
   A[config/module-options.json] --> B[scripts/build.mjs]
+  P[src/bilibili-endpoints.js] --> B
   C[src/bilibili-cdn.js] --> B
   R[src/bilibili-cdn-route.js] --> B
   M[src/bilibili-cdn-benchmark.js] --> B
@@ -75,17 +79,20 @@ flowchart LR
 1. `bilibili-cdn-benchmark.js` 由六字段 cron 每两小时唤醒，按参数中的 2–72 小时
    间隔决定是否运行；它只使用轮换的公共未登录 BVID，不读取用户 Cookie、
    `access_key`、设备标识或日志 URL；
-2. cron 优先选服务端完整 Akamai 作为参考，先取 64 KiB 前缀总长，再在 1/4、
-   1/2、3/4 附近轮换同一个 1 MiB 内部 Range；参考、当前胜者、待二次对象确认的
-   主机和一个轮换挑战者串行测试，每请求硬截止 5 秒；
+2. cron 优先选服务端完整 Akamai 作为参考，第一阶段让参考、当前胜者、pending、
+   完整 Akamai 和轮换挑战者串行测试 64 KiB 前缀；第二阶段仅让参考与前两名挑战者
+   在 1/4、1/2、3/4 附近轮换同一个 1 MiB 内部 Range。每请求硬截止 5 秒，整轮
+   在 45 秒预算内；
 3. 所有候选必须与参考的 `206`、Range、总长、实际长度、内容 hash 和内容类型
    一致，且无压缩、跨对象重定向或 HTML/JSON 错误体；
-4. v8 每网络档案最多 16 主机，每主机 8 个样本、4 个对象 hash。主机至少通过两个
-   不同对象，最近 6 小时成功，失败率不高于 25%，未熔断，且 p25 吞吐达到
-   `max(10 Mbps, 表示所需吞吐 × 1.8)` 才合格；
-5. 稳定分数以 p25 吞吐为主，失败率与 MAD/中位抖动比作为惩罚。连续两次失败或
-   最近四次中两次失败会熔断两小时；一次失败不清空最后胜者；
-6. JSON、gRPC 与 Story 播放响应只同步读 `BiliCDN.hostAuto.v8`，不发 probe、
+4. v10 每网络档案最多 16 主机，并按 audio、normal-video、high-bitrate-video
+   保存各自的 64 KiB 启动样本、1 MiB 持续样本和 4 个对象 hash。主机至少通过
+   两个不同对象，最近 6 小时成功，失败率不高于 25%、抖动比不高于 0.65、未熔断，
+   且启动/持续低分位同时满足当前表示所需吞吐；
+5. 选择先做表示带宽门槛，再综合启动 TTFB、短段吞吐、持续 p25、失败率与抖动。
+   健康当前主机只有在挑战者领先配置阈值时切换；当前主机不健康时立即切换。连续
+   两次失败或最近四次中两次失败会熔断两小时；
+6. JSON、gRPC 与 Story 播放响应只同步读 `BiliCDN.hostAuto.v10`，不发 probe、
    不等待 cron 锁；选出当前响应的完整目标 URL 后，会在 `$done()` 前同步更新有界
    `BiliCDN.mediaRoutes.v9`；
 7. 新鲜合格的完整服务端候选直接重排。经两个对象验证的维护列表非 Akamai alias
@@ -93,9 +100,10 @@ flowchart LR
 8. Akamai 从不做 hostname 拼接。没有合格状态时，只在本次响应带完整签名 Akamai
    URL 时立即提升它，并把原主 URL 放在备选首位；否则保留服务器主 URL；
 9. alias 6 小时后失效，状态超过 24 小时只执行冷启动回退；最多 4 个显式网络
-   档案。v8 持久化只保存主机名、对象 hash、统计和时间戳，不保存 path、query、
+   档案。运行时可用时 Wi-Fi/蜂窝稳定标识只保存 hash；v10 持久化只保存主机名、
+   对象 hash、统计和时间戳，不保存 path、query、
    token、完整 URL 或正文；
-10. v7 exact-object 状态不迁移。旧 `nonblocking` 输入归一化为 `cron`；显式
+10. v8 host 状态不迁移。旧 `nonblocking` 输入归一化为 `cron`；显式
     `blocking` 保留旧 v7 同对象诊断路径，`off` 停止 cron 但仍允许完整 Akamai
     冷启动回退。
 
@@ -117,7 +125,7 @@ host 不在当前候选或任一 alias lane 不匹配时原样放行，不执行
 
 ### 3. Enhanced 响应过滤
 
-`src/bilibili-enhance.js` 使用精确主机与路径分类，不对任意 JSON 递归搜索并删除
+`src/bilibili-enhance.js` 使用 registry 的精确主机与路径分类，不对任意 JSON 递归搜索并删除
 疑似广告。处理原则：
 
 - JSON 通常只删除明确广告字段、已审核类型或同时命中多项商业特征的对象；魔力赏
@@ -133,7 +141,8 @@ host 不在当前候选或任一 alias lane 不匹配时原样放行，不执行
 - 首页导航和“我的”只从服务端原始数组中删除明确目标，不用静态白名单重建数组；
 - 两个严格推荐流以外的未知卡片，以及所有未知字段、登录、消息、未读数、真实
   会员状态和权益原样保留；
-- gRPC 只处理列出的精确方法和字段号；未知 wire bytes 原样复制；
+- gRPC transport 由 content-type 或合法 frame 独立识别；已知 handler 只处理审核过
+  的精确字段号，未知 RPC/wire bytes 原样复制并在 debug 输出帧与顶层字段分布；
 - Shadowrocket gRPC 入口优先读取 `bodyBytes`；gzip 帧在 WebView 的
   `DecompressionStream` 中按 4 MiB 上限解压，修改后输出标准未压缩帧；
 - 未知压缩格式、解压能力不可用、损坏消息、超大响应和未知方法全部原样返回；
@@ -168,9 +177,10 @@ AV/video 类型和视频身份，拒绝横幅、CM、
 `bilibili.app.show.v1.Popular/Index` 备用流执行相同边界：只接受
 标准小/大封面 AV oneof、明确 `av/video` 类型且带视频身份的卡，最多保留 6 条。
 
-`src/bilibili-refresh.js` 只在四个 splash、Home/Story/Relate Story、View、
-Mine/Mine-iPad/myinfo 与 VIP materials/material-report 易变请求上移除 ETag/
-时间条件校验头，并设置 `no-cache, no-store`。它不改 URL、查询参数、正文或
+`src/bilibili-refresh.js` 依据 endpoint registry 在 splash、Home/Story、View、
+ViewProgress、RelatesFeed、ViewUnite View/Progress/PlayPause/ViewEndPage、Mine 与
+VIP 等易变元数据请求上移除 ETag/时间条件校验头，并设置 `no-cache, no-store`；
+目标 gRPC 还把 `grpc-accept-encoding` 限制为 `gzip,identity`。它不改 URL、查询参数、正文或
 签名；目标是让冷/热启动、刷新和后台恢复后的新服务端响应再次进入过滤链，而
 不是依赖可能绕过响应脚本的 304/旧缓存。实际过滤的易变响应还会移除缓存元数据并
 返回 no-store；`myinfo` 和资源 `Module/List` 继续不改响应头。

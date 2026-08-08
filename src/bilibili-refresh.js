@@ -5,87 +5,24 @@
  * unmodified conditional-cache entry after refresh or background suspension.
  *
  * This request helper is deliberately narrow:
- * - exact Bilibili app hosts only;
- * - exact reviewed Splash / Home / View / Mine / VIP-ad paths only;
+ * - exact registry-reviewed Bilibili metadata hosts and paths only;
  * - request headers only (the signed URL and body are never changed).
  */
 (function (root) {
-  var VOLATILE_HOSTS = {
-    "app.bilibili.com": true,
-    "app.biliapi.net": true
-  };
-  var VIP_AD_HOSTS = {
-    "api.bilibili.com": true,
-    "api.biliapi.net": true,
-    "app.bilibili.com": true,
-    "app.biliapi.net": true
-  };
+  var endpointRegistry =
+    typeof module !== "undefined" && module.exports
+      ? require("./bilibili-endpoints.js")
+      : root.BiliEndpointRegistry;
 
-  function parseRequestUrl(requestUrl) {
-    var match = /^https?:\/\/([^/?#]+)(\/[^?#]*)?/i.exec(
-      String(requestUrl || "")
-    );
-    if (!match) {
-      return null;
-    }
-    return {
-      host: String(match[1]).toLowerCase(),
-      path: match[2] || "/"
-    };
+  function volatileEndpoint(requestUrl) {
+    return endpointRegistry && endpointRegistry.classify
+      ? endpointRegistry.classify(requestUrl, { requestGuard: true })
+      : null;
   }
 
   function classifyVolatileEndpoint(requestUrl) {
-    var parsed = parseRequestUrl(requestUrl);
-    if (!parsed) {
-      return "";
-    }
-    if (VOLATILE_HOSTS[parsed.host]) {
-      if (parsed.path === "/x/v2/splash/list") {
-        return "splash-list";
-      }
-      if (parsed.path === "/x/v2/splash/show") {
-        return "splash-show";
-      }
-      if (parsed.path === "/x/v2/splash/event/list2") {
-        return "splash-event-list2";
-      }
-      if (parsed.path === "/x/v2/splash/brand/list") {
-        return "splash-brand-list";
-      }
-      if (parsed.path === "/x/v2/feed/index") {
-        return "feed-index";
-      }
-      if (parsed.path === "/x/v2/feed/index/story") {
-        return "feed-story";
-      }
-      if (parsed.path === "/x/v2/feed/index/story/cart") {
-        return "feed-story-cart";
-      }
-      if (parsed.path === "/x/v2/feed/index/relate/story") {
-        return "feed-relate-story";
-      }
-      if (parsed.path === "/x/v2/view") {
-        return "view-json";
-      }
-      if (parsed.path === "/x/v2/account/mine") {
-        return "mine";
-      }
-      if (parsed.path === "/x/v2/account/mine/ipad") {
-        return "mine-ipad";
-      }
-      if (parsed.path === "/x/v2/account/myinfo") {
-        return "myinfo";
-      }
-    }
-    if (VIP_AD_HOSTS[parsed.host]) {
-      if (parsed.path === "/x/vip/ads/materials") {
-        return "vip-materials";
-      }
-      if (parsed.path === "/x/vip/ads/material/report") {
-        return "vip-material-report";
-      }
-    }
-    return "";
+    var matched = volatileEndpoint(requestUrl);
+    return matched ? matched.id : "";
   }
 
   function isVolatileMetadataUrl(requestUrl) {
@@ -123,7 +60,8 @@
 
   function guardRequest(requestUrl, headers) {
     var output;
-    var endpoint = classifyVolatileEndpoint(requestUrl);
+    var matched = volatileEndpoint(requestUrl);
+    var endpoint = matched ? matched.id : "";
     var keys;
     var index;
     var removedValidators = 0;
@@ -146,11 +84,16 @@
     deleteHeader(output, "if-range");
     setHeader(output, "Cache-Control", "no-cache, no-store");
     setHeader(output, "Pragma", "no-cache");
+    if (matched.transport === "grpc") {
+      setHeader(output, "grpc-accept-encoding", "gzip,identity");
+    }
     return {
       changed: true,
       endpoint: endpoint,
+      handler: matched.handler,
       headers: output,
-      removedValidators: removedValidators
+      removedValidators: removedValidators,
+      transport: matched.transport
     };
   }
 
@@ -197,6 +140,10 @@
       safeLog(
         "endpoint=" +
           (result.endpoint || "unmatched") +
+          " handler=" +
+          (result.handler || "none") +
+          " transport=" +
+          (result.transport || "unknown") +
           " changed=" +
           (result.changed ? 1 : 0) +
           " validatorsRemoved=" +

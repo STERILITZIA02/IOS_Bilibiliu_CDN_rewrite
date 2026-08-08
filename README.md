@@ -18,8 +18,10 @@
 > 组合的真机验收。仓库会明确区分“代码测试通过”和“真机已验证”；发布前后的
 > 检查矩阵见 [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
 >
-> v3.8.2 补齐魔力赏普通 AV 外壳角标和 `mall-magic-c` gRPC 操作卡过滤，分析与
-> 边界见 [v3.8.2 审计](docs/V3_8_2_AUDIT.md)。v3.8.1 针对 App 缓存/预加载地址
+> v3.9.0 针对 Bilibili iOS 9.6.1 统一 endpoint registry、补齐首页商业 AV/大
+> Banner 与闲鱼操作卡过滤，并上线 TTFB 优先的 hostAuto v10；证据、字段边界与
+> 真机复测项见 [v3.9 审计](docs/V3_9_AUDIT.md)。v3.8.2 的魔力赏修复见
+> [v3.8.2 审计](docs/V3_8_2_AUDIT.md)。v3.8.1 针对 App 缓存/预加载地址
 > 早于新 PlayView 响应发出的竞态，增加了同一媒体对象的完整签名 URL 直达，见
 > [v3.8.1 审计](docs/V3_8_1_AUDIT.md)。
 > v3.8 的后台测速、Akamai 冷启动与 9.5.0 `/relate/story` 修复仍见
@@ -141,7 +143,7 @@ Enhanced 还会加入 `api.live.bilibili.com`、
 
 `首页推荐6个普通视频=true` 对每一份新的 `/x/v2/feed/index` 响应独立执行，
 不会只清理首次结果：卡片必须同时有 `goto/card_goto=av|video`，以及
-AVID/BVID/CID、`param`、播放器参数或 `/video/` 地址中的至少一个视频身份。
+正数 AVID、合法 BVID、正数 CID 和合法 `/video/` URI 的完整普通视频身份。
 JSON 卡片还必须属于当前已验证的普通 AV 卡型
 `small_cover_v2`、`large_cover_single_v9` 或 `large_cover_v1`。如果第一份响应
 不足 6 个，Enhanced 最多使用原始完整请求 URL 和原请求身份做 **1 次** 2.2 秒
@@ -243,13 +245,14 @@ feed/story、mine、view、splash 与 VIP 素材/上报等实际过滤接口成�
 | `测速方式` | `cron` | 默认独立后台匿名测速；旧 `nonblocking` 映射为 `cron`；`blocking` 仅诊断；`off` 停止后台测速 |
 | `重置令牌` | `none` | 改成新的安全字符串时清空一次 CDN 学习状态 |
 | `测速间隔` | `2` | 后台 cron 每两小时唤醒，达到设置的 2–72 小时间隔后才实际测速 |
-| `切换阈值` | `20` | 仅供显式 `blocking` 诊断兼容；默认 cron 使用稳定评分 |
+| `切换阈值` | `20` | 当前线路健康时，挑战者综合分至少领先该百分比才切换；当前线路不健康时立即回退/切换 |
 | `调试日志` | `false` | 排错时临时开启；不输出完整 URL、签名或正文 |
 
-`网络档案=auto` 不声称自动识别 Wi‑Fi/SSID。需要严格隔离家庭 Wi‑Fi 与蜂窝网络
-缓存时，请切换网络后手动填写不同档案名。
+`网络档案=auto` 会在 Shadowrocket 暴露网络信息时区分 Wi‑Fi、蜂窝与未知网络；
+稳定网络名只以 16 位 hash 保存。运行时没有此能力时回落共享 `auto`，也可手动填写
+`home_wifi`、`cellular` 等档案名。
 
-### v8 稳定选择 + v9 缓存媒体直达
+### v10 启动优先选择 + v9 缓存媒体直达
 
 `CDN=auto` 把测速彻底移出播放响应热路径。打开视频、跳着看、切倍速、切清晰度或
 从后台恢复时，脚本只同步读取 `$persistentStore` 并重排 URL，调用 Range probe 的
@@ -257,24 +260,27 @@ feed/story、mine、view、splash 与 VIP 素材/上报等实际过滤接口成�
 
 1. Shadowrocket cron 每两小时唤醒；脚本按“测速间隔”决定是否真正运行。它轮换三个
    公共、未登录样本，不读取 App Cookie、`access_key`、`buvid`、设备 ID 或用户日志；
-2. 每轮先用服务端完整参考 URL 获取 64 KiB 前缀总长，再在 1/4、1/2、3/4 位置轮换
-   同一个 1 MiB 内部 Range。候选串行执行，每请求硬截止 5 秒；
+2. 第一阶段对完整参考 URL、当前选择、pending、完整 Akamai 和轮换挑战者逐个执行
+   64 KiB Range，校验前缀内容并记录启动 TTFB/短段吞吐；第二阶段只让参考与第一
+   阶段最优的两个挑战者在 1/4、1/2、3/4 位置轮换同一个 1 MiB 内部 Range；候选
+   串行执行，每请求硬截止 5 秒，整轮不超过 Shadowrocket 45 秒预算；
 3. 候选必须同时满足 `206`、Range 起止、总长、实长、内容 hash、类型、无压缩及
    无跨对象重定向；HTML/JSON 错误页直接失败；
-4. 每主机最多保存 8 个摘要和 4 个对象 hash。至少两个不同对象、最近 6 小时成功、
-   失败率不高于 25%、未熔断，且 p25 吞吐达到
-   `max(10 Mbps, 当前表示需要吞吐 × 1.8)` 才可被播放热路径使用；
-5. 评分以 p25 吞吐为主并惩罚失败率和抖动，避免“峰值很高、低分位很差”的节点
-   反复抢占。连续两次失败或最近四次中两次失败会熔断两小时；
+4. audio、normal-video、high-bitrate-video 各自最多保存 8 个摘要和 4 个对象 hash。
+   候选至少通过两个不同对象、最近 6 小时成功、失败率不高于 25%、抖动比不高于
+   0.65、未熔断，并同时满足当前表示的 64 KiB 与 1 MiB 吞吐余量；
+5. 先判定能否满足当前表示带宽，再按启动 TTFB、短段吞吐、持续吞吐、失败率和抖动
+   评分。健康当前线路只有在挑战者领先“切换阈值”时才切换；当前线路失效则立即切换。
+   连续两次失败或最近四次中两次失败会熔断两小时；
 6. 无新鲜合格状态时，如果当前响应带服务端完整 Akamai 备用 URL，会立即把它提升为
    主 URL，并把原主 URL 放在备选首位；这直接绕开日志中 cosov 内部卡住约 2 秒后
    才尝试 Akamai 的等待；
 7. Akamai 永远只使用服务端返回的完整签名 URL，绝不裸换 hostname。维护列表内的
    非 Akamai alias 只有通过两个不同对象验证后，才可从当前主 URL复制并仅替换主机名；
    scheme、port、path 和 query 保持不变；
-8. v8 键为 `BiliCDN.hostAuto.v8`，最多 4 个手动网络档案、每档 16 主机。持久化只含
+8. v10 键为 `BiliCDN.hostAuto.v10`，最多 4 个网络档案、每档 16 主机。持久化只含
    主机名、对象 hash、统计和时间戳，不含完整 URL、path、query、token 或正文；
-9. alias 6 小时后失效，状态 24 小时后只按冷启动规则处理。v7 对象状态不迁移；
+9. alias 6 小时后失效，状态 24 小时后只按冷启动规则处理。v8 主机状态不迁移；
    旧 `nonblocking` 参数会映射为 `cron`，不再依赖 `$done()` 后回调。
 
 日志还证明 App 有时会先用缓存/预加载的旧 PlayView 地址发起媒体请求，然后新
@@ -328,8 +334,8 @@ DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 Shadowrocket 会取得新的远程资源地址，不会继续复用上一版同名脚本缓存。
 
 如果原先安装的是 README 的固定 `main/dist/*.sgmodule` 地址、历史兼容地址或
-BiliFlow 生成的固定 URL，升级到 3.8.2 **不需要重新订阅**，只需执行上述“更新
-模块”。更新后模块详情应显示 `3.8.2`，脚本 URL 应含 `?v=3.8.2`。只有把 Release
+BiliFlow 生成的固定 URL，升级到 3.9.0 **不需要重新订阅**，只需执行上述“更新
+模块”。更新后模块详情应显示 `3.9.0`，脚本 URL 应含 `?v=3.9.0`。只有把 Release
 附件下载成本地文件、或使用不带远程 URL 的旧副本时，才需要重新安装固定地址。
 
 按影响最小顺序回滚：
@@ -387,8 +393,8 @@ npm run benchmark:cdn
 ```
 
 - `npm run check` 验证确定性生成物，并覆盖 JSON、gRPC/Protobuf、首次响应
-  `bodyBytes`/gzip、9.5.0 暂停/结束页、后台恢复缓存保护、首页/播放页普通视频
-  白名单、逐项开关、双模块、严格 Range、v9 请求直达、签名/对象隔离、阈值、锁、
+  `bodyBytes`/gzip、9.6.1 首页/操作卡、暂停/结束页、后台恢复缓存保护、首页/播放页普通视频
+  白名单、逐项开关、双模块、两阶段 Range、v10 评分、v9 请求直达、签名/对象隔离、阈值、锁、
   退避、容量和故障开放。
 - `npm run check:all` 在上述核心检查后继续执行网站 lint、生产构建和路由安全测试；
   CI 与 Release 均使用该命令。
@@ -405,11 +411,13 @@ npm run benchmark:cdn
 - `dist/bilibili-cdn.js`、`dist/bilibili-cdn-route.js`、`dist/bilibili-enhance.js`、
   `dist/bilibili-refresh.js`：播放地址、响应增强和易变页面请求缓存保护脚本；
 - `dist/module-options.json`：模块与网站共用的选项目录；
+- `dist/modules.list`：三个持续更新模块 URL 的版本化发行清单；
 - `dist/SHA256SUMS.txt`：发行资产 SHA-256。
 
 设计、数据流和失败边界见
 [v3 架构说明](docs/V3_ARCHITECTURE.md) 与
-[Protobuf 兼容说明](docs/PROTOBUF_COMPATIBILITY.md)。
+[Protobuf 兼容说明](docs/PROTOBUF_COMPATIBILITY.md)；本轮 9.6.1 根因和字段边界见
+[v3.9 审计](docs/V3_9_AUDIT.md)。
 
 ## 验收状态
 

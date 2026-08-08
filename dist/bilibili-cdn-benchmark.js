@@ -1,5 +1,5 @@
 /*
- * Bilibili CDN Switcher v8 for Shadowrocket
+ * Bilibili CDN Switcher v10 for Shadowrocket
  *
  * Default auto mode performs no network probes on playback responses. It reads
  * bounded host-level state produced by the background cron benchmark and falls
@@ -15,7 +15,8 @@
   var NAME = "BiliCDN";
   var DEFAULT_CDN = "upos-sz-mirrorali.bilivideo.com";
   var AUTO_STATE_KEY = "BiliCDN.safeAuto.v7";
-  var HOST_AUTO_STATE_KEY = "BiliCDN.hostAuto.v8";
+  var HOST_AUTO_STATE_KEY = "BiliCDN.hostAuto.v10";
+  var HOST_AUTO_STATE_VERSION = 10;
   var MEDIA_ROUTE_STATE_KEY = "BiliCDN.mediaRoutes.v9";
   var MEDIA_ROUTE_STATE_VERSION = 9;
   var AKAMAI_COLD_HOST = "upos-hz-mirrorakam.akamaized.net";
@@ -71,8 +72,11 @@
   var HOST_CIRCUIT_OPEN_MS = 2 * 60 * 60 * 1000;
   var HOST_MIN_OBJECTS = 2;
   var HOST_MAX_FAILURE_RATE = 0.25;
+  var HOST_MAX_JITTER_RATIO = 0.65;
   var HOST_MIN_THROUGHPUT_KBPS = 10000;
   var HOST_REPRESENTATION_HEADROOM = 1.8;
+  var HOST_MEDIA_BUCKETS = ["audio", "normal-video", "high-bitrate-video"];
+  var HIGH_BITRATE_REQUIRED_KBPS = 8000;
 
   /*
    * This list is documentation and fixed-mode input guidance only. Safe auto
@@ -375,6 +379,50 @@
     return /^[a-z0-9][a-z0-9_-]{0,31}$/.test(profile)
       ? profile
       : "auto";
+  }
+
+  function normalizedNetworkType(value) {
+    var type = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (/^(?:wifi|wi-fi|wlan)$/.test(type)) {
+      return "wifi";
+    }
+    if (/^(?:cell|cellular|mobile|wwan|4g|5g|lte)$/.test(type)) {
+      return "cellular";
+    }
+    return "";
+  }
+
+  function resolveRuntimeNetworkProfile(configuredProfile, services) {
+    var configured = normalizeNetworkProfile(configuredProfile);
+    var info;
+    var type;
+    var identifier;
+    var hash;
+    if (configured !== "auto") {
+      return configured;
+    }
+    try {
+      info = services && typeof services.networkInfo === "function"
+        ? services.networkInfo()
+        : null;
+    } catch (error) {
+      info = null;
+    }
+    if (!isObject(info) || Array.isArray(info)) {
+      return "auto";
+    }
+    type = normalizedNetworkType(info.type);
+    if (!type) {
+      return "auto";
+    }
+    identifier = typeof info.identifier === "string"
+      ? info.identifier.trim()
+      : "";
+    if (!identifier) {
+      return type;
+    }
+    hash = stableHash("n", type + "\u0000" + identifier);
+    return type + "_" + hash.slice(-16);
   }
 
   function normalizeProbeMode(value) {
@@ -2158,6 +2206,52 @@
     return Math.max(AUTO_MIN_VIDEO_THROUGHPUT_KBPS, representationFloor);
   }
 
+  function mediaBucketForDescriptor(descriptor) {
+    var kind = String(descriptor && descriptor.kind || "").toLowerCase();
+    var required = boundedNumber(
+      descriptor && descriptor.requiredKbps,
+      0,
+      0,
+      100000000
+    );
+    var bandwidth = boundedNumber(
+      descriptor && descriptor.bandwidthBitsPerSecond,
+      0,
+      0,
+      1000000000
+    );
+    var quality = boundedNumber(descriptor && descriptor.quality, 0, 0, 1000);
+    var codecid = boundedNumber(descriptor && descriptor.codecid, 0, 0, 1000);
+    if (kind === "audio") {
+      return "audio";
+    }
+    return (
+      required >= HIGH_BITRATE_REQUIRED_KBPS ||
+      bandwidth >= 5500000 ||
+      quality >= 112 ||
+      (
+        quality >= 80 &&
+        (codecid === 12 || codecid === 13) &&
+        bandwidth >= 4000000
+      )
+    )
+      ? "high-bitrate-video"
+      : "normal-video";
+  }
+
+  function metadataNumber(metadata, keys) {
+    var text = typeof metadata === "string" ? metadata : "";
+    var index;
+    var match;
+    for (index = 0; index < keys.length; index += 1) {
+      match = new RegExp("(?:^|&)" + keys[index] + "=([0-9]+)(?:&|$)").exec(text);
+      if (match) {
+        return boundedNumber(match[1], 0, 0, 1000000000);
+      }
+    }
+    return 0;
+  }
+
   function buildMediaDescriptor(
     format,
     kind,
@@ -2227,12 +2321,21 @@
       candidateIds: candidateIds,
       candidates: candidates,
       candidateSetHash: candidateSetHash,
+      codecid: metadataNumber(metadata, ["codecid"]),
       family: primaryFamily,
       format: format,
       keyMaterial: resourceMaterial,
       kind: kind || "unknown",
+      bandwidthBitsPerSecond: boundedNumber(
+        bandwidthBitsPerSecond,
+        0,
+        0,
+        1000000000
+      ),
+      metadata: metadata || "",
       primaryId: candidates[0].id,
       primaryUrl: primaryUrl,
+      quality: metadataNumber(metadata, ["quality", "id"]),
       requiredKbps: requiredThroughputKbps(
         kind || "unknown",
         bandwidthBitsPerSecond
@@ -2337,7 +2440,7 @@
     if (
       config &&
       config.hostAutoState &&
-      config.hostAutoState.version === 8
+      config.hostAutoState.version === HOST_AUTO_STATE_VERSION
     ) {
       return selectHostUrlForDescriptor(descriptor, config, now);
     }
@@ -2658,7 +2761,7 @@
       lock: null,
       profiles: {},
       resetToken: "",
-      version: 8
+      version: HOST_AUTO_STATE_VERSION
     };
   }
 
@@ -2668,15 +2771,25 @@
 
   function sanitizeHostBenchmarkSample(value) {
     var objectId;
+    var phase;
+    var bucket;
     if (!isObject(value) || Array.isArray(value)) {
       return null;
     }
     objectId = sanitizeHostObjectId(value.objectId);
+    phase = /^(?:startup|sustained)$/.test(String(value.phase || ""))
+      ? String(value.phase)
+      : "combined";
+    bucket = HOST_MEDIA_BUCKETS.indexOf(String(value.bucket || "")) !== -1
+      ? String(value.bucket)
+      : "normal-video";
     return {
       at: boundedNumber(value.at, 0, 0, 9e15),
+      bucket: bucket,
       elapsedMs: boundedNumber(value.elapsedMs, 0, 0, 60000),
       objectId: objectId,
       ok: Boolean(value.ok),
+      phase: phase,
       reason:
         typeof value.reason === "string"
           ? value.reason.slice(0, 48)
@@ -2696,55 +2809,78 @@
     var successful = samples.filter(function (sample) {
       return sample.ok;
     });
-    var elapsed = successful.map(function (sample) {
-      return sample.elapsedMs;
+    var startup = successful.filter(function (sample) {
+      return sample.phase === "startup" || sample.phase === "combined";
     });
-    var throughput = successful.map(function (sample) {
+    var sustained = successful.filter(function (sample) {
+      return sample.phase === "sustained" || sample.phase === "combined";
+    });
+    var startupThroughput = startup.map(function (sample) {
       return sample.throughputKbps;
     });
-    var ttfb = successful.map(function (sample) {
+    var sustainedThroughput = sustained.map(function (sample) {
+      return sample.throughputKbps;
+    });
+    var ttfb = startup.map(function (sample) {
       return sample.ttfbMs;
     });
-    var medianMs = median(elapsed);
-    var deviations = elapsed.map(function (value) {
-      return Math.abs(value - medianMs);
+    var medianTtfbMs = median(ttfb);
+    var ttfbDeviations = ttfb.map(function (value) {
+      return Math.abs(value - medianTtfbMs);
     });
+    var medianSustained = median(sustainedThroughput);
+    var throughputDeviations = sustainedThroughput.map(function (value) {
+      return Math.abs(value - medianSustained);
+    });
+    var ttfbJitter = medianTtfbMs > 0
+      ? median(ttfbDeviations) / medianTtfbMs
+      : 0;
+    var throughputJitter = medianSustained > 0
+      ? median(throughputDeviations) / medianSustained
+      : 0;
+    var p25Sustained = percentile25(sustainedThroughput);
     return {
       failureRate:
         samples.length === 0
           ? 0
           : (samples.length - successful.length) / samples.length,
-      jitterRatio:
-        medianMs > 0 ? median(deviations) / medianMs : 0,
-      medianThroughputKbps: median(throughput),
-      medianTtfbMs: median(ttfb),
+      jitterRatio: Math.max(ttfbJitter, throughputJitter),
+      lastSuccessAt: successful.reduce(function (latest, sample) {
+        return Math.max(latest, sample.at || 0);
+      }, 0),
+      medianStartupThroughputKbps: median(startupThroughput),
+      medianStartupTtfbMs: medianTtfbMs,
+      medianSustainedThroughputKbps: medianSustained,
+      medianThroughputKbps: medianSustained,
+      medianTtfbMs: medianTtfbMs,
       objectCount: Array.isArray(objects) ? objects.length : 0,
-      p25ThroughputKbps: percentile25(throughput),
+      p25StartupThroughputKbps: percentile25(startupThroughput),
+      p25SustainedThroughputKbps: p25Sustained,
+      p25ThroughputKbps: p25Sustained,
       sampleCount: samples.length,
-      successCount: successful.length
+      startupSuccessCount: startup.length,
+      successCount: successful.length,
+      sustainedSuccessCount: sustained.length
     };
   }
 
-  function sanitizeHostAutoHealth(value) {
-    var health = {
-      failureStreak: 0,
-      lastFailureAt: 0,
+  function createEmptyHostBucket() {
+    return {
       lastSuccessAt: 0,
-      lastUsedAt: 0,
       metrics: summarizeHostSamples([], []),
       objects: [],
-      openUntil: 0,
       samples: []
     };
-    var objects = [];
-    var samples = [];
+  }
+
+  function sanitizeHostBucket(value, bucketName) {
+    var bucket = createEmptyHostBucket();
     var seenObjects = {};
     var index;
     var objectId;
     var sample;
-
     if (!isObject(value) || Array.isArray(value)) {
-      return health;
+      return bucket;
     }
     if (Array.isArray(value.objects)) {
       for (
@@ -2755,7 +2891,7 @@
         objectId = sanitizeHostObjectId(value.objects[index]);
         if (objectId && !seenObjects[objectId]) {
           seenObjects[objectId] = true;
-          objects.push(objectId);
+          bucket.objects.push(objectId);
         }
       }
     }
@@ -2766,17 +2902,82 @@
         index += 1
       ) {
         sample = sanitizeHostBenchmarkSample(value.samples[index]);
-        if (sample) {
-          samples.push(sample);
-          if (sample.ok && sample.objectId && !seenObjects[sample.objectId]) {
-            seenObjects[sample.objectId] = true;
-            objects.push(sample.objectId);
-            if (objects.length > HOST_OBJECT_CAPACITY) {
-              delete seenObjects[objects.shift()];
-            }
+        if (!sample || sample.bucket !== bucketName) {
+          continue;
+        }
+        bucket.samples.push(sample);
+        if (
+          sample.ok &&
+          sample.objectId &&
+          (sample.phase === "sustained" || sample.phase === "combined") &&
+          !seenObjects[sample.objectId]
+        ) {
+          seenObjects[sample.objectId] = true;
+          bucket.objects.push(sample.objectId);
+          if (bucket.objects.length > HOST_OBJECT_CAPACITY) {
+            delete seenObjects[bucket.objects.shift()];
           }
         }
       }
+    }
+    bucket.lastSuccessAt = Math.max(
+      boundedNumber(value.lastSuccessAt, 0, 0, 9e15),
+      bucket.samples.reduce(function (latest, row) {
+        return row.ok ? Math.max(latest, row.at || 0) : latest;
+      }, 0)
+    );
+    bucket.objects = bucket.objects.slice(-HOST_OBJECT_CAPACITY);
+    bucket.metrics = summarizeHostSamples(bucket.samples, bucket.objects);
+    return bucket;
+  }
+
+  function sanitizeHostAutoHealth(value) {
+    var health = {
+      buckets: {},
+      failureStreak: 0,
+      lastFailureAt: 0,
+      lastSuccessAt: 0,
+      lastUsedAt: 0,
+      metrics: summarizeHostSamples([], []),
+      objects: [],
+      openUntil: 0,
+      samples: []
+    };
+    var index;
+    var sample;
+    var bucketName;
+    var bucketInput;
+    var directBuckets = {};
+
+    if (!isObject(value) || Array.isArray(value)) {
+      for (index = 0; index < HOST_MEDIA_BUCKETS.length; index += 1) {
+        health.buckets[HOST_MEDIA_BUCKETS[index]] = createEmptyHostBucket();
+      }
+      return health;
+    }
+    if (Array.isArray(value.samples)) {
+      for (index = 0; index < value.samples.length; index += 1) {
+        sample = sanitizeHostBenchmarkSample(value.samples[index]);
+        if (sample) {
+          if (!directBuckets[sample.bucket]) {
+            directBuckets[sample.bucket] = { objects: [], samples: [] };
+          }
+          directBuckets[sample.bucket].samples.push(sample);
+        }
+      }
+      if (Array.isArray(value.objects)) {
+        if (!directBuckets["normal-video"]) {
+          directBuckets["normal-video"] = { objects: [], samples: [] };
+        }
+        directBuckets["normal-video"].objects = value.objects;
+      }
+    }
+    for (index = 0; index < HOST_MEDIA_BUCKETS.length; index += 1) {
+      bucketName = HOST_MEDIA_BUCKETS[index];
+      bucketInput = value.buckets && value.buckets[bucketName]
+        ? value.buckets[bucketName]
+        : directBuckets[bucketName];
+      health.buckets[bucketName] = sanitizeHostBucket(bucketInput, bucketName);
     }
     health.failureStreak = boundedInteger(
       value.failureStreak,
@@ -2787,10 +2988,16 @@
     health.lastFailureAt = boundedNumber(value.lastFailureAt, 0, 0, 9e15);
     health.lastSuccessAt = boundedNumber(value.lastSuccessAt, 0, 0, 9e15);
     health.lastUsedAt = boundedNumber(value.lastUsedAt, 0, 0, 9e15);
-    health.objects = objects.slice(-HOST_OBJECT_CAPACITY);
     health.openUntil = boundedNumber(value.openUntil, 0, 0, 9e15);
-    health.samples = samples;
-    health.metrics = summarizeHostSamples(samples, health.objects);
+    for (index = 0; index < HOST_MEDIA_BUCKETS.length; index += 1) {
+      health.lastSuccessAt = Math.max(
+        health.lastSuccessAt,
+        health.buckets[HOST_MEDIA_BUCKETS[index]].lastSuccessAt
+      );
+    }
+    health.samples = health.buckets["normal-video"].samples;
+    health.objects = health.buckets["normal-video"].objects;
+    health.metrics = health.buckets["normal-video"].metrics;
     return health;
   }
 
@@ -2867,7 +3074,11 @@
     var profile;
     var lock;
 
-    if (!isObject(value) || Array.isArray(value) || value.version !== 8) {
+    if (
+      !isObject(value) ||
+      Array.isArray(value) ||
+      value.version !== HOST_AUTO_STATE_VERSION
+    ) {
       return state;
     }
     state.resetToken = normalizeResetToken(value.resetToken);
@@ -2986,7 +3197,7 @@
     hostname = String(hostname || "").toLowerCase();
     if (
       !isObject(state) ||
-      state.version !== 8 ||
+      state.version !== HOST_AUTO_STATE_VERSION ||
       !isValidHostname(hostname) ||
       !isBilibiliMediaHost(hostname)
     ) {
@@ -3001,19 +3212,25 @@
     }
     profile = ensureHostProfile(state, networkProfile);
     health = sanitizeHostAutoHealth(profile.hosts[hostname]);
-    health.samples.push(sample);
-    if (health.samples.length > HOST_SAMPLE_CAPACITY) {
-      health.samples = health.samples.slice(-HOST_SAMPLE_CAPACITY);
+    var bucket = health.buckets[sample.bucket];
+    bucket.samples.push(sample);
+    if (bucket.samples.length > HOST_SAMPLE_CAPACITY) {
+      bucket.samples = bucket.samples.slice(-HOST_SAMPLE_CAPACITY);
     }
     health.lastUsedAt = sample.at;
     if (sample.ok) {
       health.failureStreak = 0;
       health.lastSuccessAt = sample.at;
+      bucket.lastSuccessAt = sample.at;
       health.openUntil = 0;
-      if (sample.objectId && health.objects.indexOf(sample.objectId) === -1) {
-        health.objects.push(sample.objectId);
-        if (health.objects.length > HOST_OBJECT_CAPACITY) {
-          health.objects = health.objects.slice(-HOST_OBJECT_CAPACITY);
+      if (
+        sample.objectId &&
+        (sample.phase === "sustained" || sample.phase === "combined") &&
+        bucket.objects.indexOf(sample.objectId) === -1
+      ) {
+        bucket.objects.push(sample.objectId);
+        if (bucket.objects.length > HOST_OBJECT_CAPACITY) {
+          bucket.objects = bucket.objects.slice(-HOST_OBJECT_CAPACITY);
         }
       }
     } else {
@@ -3023,11 +3240,11 @@
       );
       health.lastFailureAt = sample.at;
       for (
-        index = Math.max(0, health.samples.length - 4);
-        index < health.samples.length;
+        index = Math.max(0, bucket.samples.length - 4);
+        index < bucket.samples.length;
         index += 1
       ) {
-        if (!health.samples[index].ok) {
+        if (!bucket.samples[index].ok) {
           recentFailures += 1;
         }
       }
@@ -3038,41 +3255,82 @@
         );
       }
     }
-    health.metrics = summarizeHostSamples(health.samples, health.objects);
+    bucket.metrics = summarizeHostSamples(bucket.samples, bucket.objects);
+    health.buckets[sample.bucket] = bucket;
+    health.samples = health.buckets["normal-video"].samples;
+    health.objects = health.buckets["normal-video"].objects;
+    health.metrics = health.buckets["normal-video"].metrics;
     profile.hosts[hostname] = health;
     return health;
   }
 
-  function stableHostScore(health) {
-    var metrics = health && health.metrics;
+  function hostBucketHealth(health, descriptor) {
+    var bucket = mediaBucketForDescriptor(descriptor);
+    return health && health.buckets ? health.buckets[bucket] : null;
+  }
+
+  function requiredHostThroughputKbps(descriptor) {
+    var bucket = mediaBucketForDescriptor(descriptor);
+    var representation = Math.ceil(
+      Math.max(0, descriptor && descriptor.requiredKbps || 0) *
+        HOST_REPRESENTATION_HEADROOM
+    );
+    if (bucket === "audio") {
+      return Math.max(512, representation);
+    }
+    if (bucket === "high-bitrate-video") {
+      return Math.max(HOST_MIN_THROUGHPUT_KBPS, representation);
+    }
+    return Math.max(3000, representation);
+  }
+
+  function stableHostScore(health, descriptor) {
+    var bucket = hostBucketHealth(health, descriptor);
+    var metrics = bucket && bucket.metrics;
+    var required = requiredHostThroughputKbps(descriptor);
+    var startupMargin;
+    var sustainedMargin;
+    var latencyScore;
+    var rawScore;
     if (!metrics) {
       return -1;
     }
-    return (
-      (metrics.p25ThroughputKbps || 0) *
-      Math.max(0, 1 - (metrics.failureRate || 0)) /
-      Math.max(1, 1 + (metrics.jitterRatio || 0))
+    startupMargin = Math.min(
+      3,
+      (metrics.p25StartupThroughputKbps || 0) / Math.max(1, required)
     );
+    sustainedMargin = Math.min(
+      3,
+      (metrics.p25SustainedThroughputKbps || 0) / Math.max(1, required)
+    );
+    latencyScore = 1000 / (100 + Math.max(1, metrics.medianStartupTtfbMs || 60000));
+    rawScore =
+      latencyScore * 5.5 +
+      (startupMargin / 3) * 20 +
+      (sustainedMargin / 3) * 25;
+    return rawScore *
+      Math.max(0, 1 - (metrics.failureRate || 0)) /
+      Math.max(1, 1 + (metrics.jitterRatio || 0));
   }
 
   function hostEligibleForDescriptor(health, descriptor, now) {
-    var metrics = health && health.metrics;
-    var required = Math.max(
-      HOST_MIN_THROUGHPUT_KBPS,
-      Math.ceil(
-        Math.max(0, descriptor && descriptor.requiredKbps || 0) *
-          HOST_REPRESENTATION_HEADROOM
-      )
-    );
+    var bucket = hostBucketHealth(health, descriptor);
+    var metrics = bucket && bucket.metrics;
+    var required = requiredHostThroughputKbps(descriptor);
     return Boolean(
       health &&
+      bucket &&
       metrics &&
       health.openUntil <= now &&
-      health.lastSuccessAt > 0 &&
-      health.lastSuccessAt + HOST_ALIAS_FRESH_MS >= now &&
+      bucket.lastSuccessAt > 0 &&
+      bucket.lastSuccessAt + HOST_ALIAS_FRESH_MS >= now &&
       metrics.objectCount >= HOST_MIN_OBJECTS &&
+      metrics.startupSuccessCount >= HOST_MIN_OBJECTS &&
+      metrics.sustainedSuccessCount >= HOST_MIN_OBJECTS &&
       metrics.failureRate <= HOST_MAX_FAILURE_RATE &&
-      metrics.p25ThroughputKbps >= required
+      metrics.jitterRatio <= HOST_MAX_JITTER_RATIO &&
+      metrics.p25StartupThroughputKbps >= required &&
+      metrics.p25SustainedThroughputKbps >= required
     );
   }
 
@@ -3081,7 +3339,7 @@
       config && config.networkProfile
     );
     var profile =
-      state && state.version === 8 && state.profiles
+      state && state.version === HOST_AUTO_STATE_VERSION && state.profiles
         ? state.profiles[profileName]
         : null;
     var selected;
@@ -3091,6 +3349,9 @@
     var score;
     var bestHost = "";
     var bestScore = -1;
+    var selectedScore = -1;
+    var selectedEligible = false;
+    var threshold;
     if (!profile) {
       return "";
     }
@@ -3101,11 +3362,12 @@
       return "";
     }
     selected = String(profile.selectedHost || "").toLowerCase();
-    if (
+    selectedEligible = Boolean(
       FIXED_CDN_CANDIDATES.indexOf(selected) !== -1 &&
       hostEligibleForDescriptor(profile.hosts[selected], descriptor, now)
-    ) {
-      return selected;
+    );
+    if (selectedEligible) {
+      selectedScore = stableHostScore(profile.hosts[selected], descriptor);
     }
     keys = Object.keys(profile.hosts || {});
     for (index = 0; index < keys.length; index += 1) {
@@ -3116,13 +3378,28 @@
       ) {
         continue;
       }
-      score = stableHostScore(profile.hosts[hostname]);
+      score = stableHostScore(profile.hosts[hostname], descriptor);
       if (score > bestScore) {
         bestScore = score;
         bestHost = hostname;
       }
     }
-    return bestHost;
+    if (!selectedEligible) {
+      return bestHost;
+    }
+    if (!bestHost || bestHost === selected) {
+      return selected;
+    }
+    threshold = boundedNumber(
+      config && config.switchThreshold,
+      DEFAULT_SWITCH_THRESHOLD,
+      RUNTIME_OPTION_LIMITS.switchThreshold.minimum,
+      RUNTIME_OPTION_LIMITS.switchThreshold.maximum
+    );
+    if (bestScore >= selectedScore * (1 + threshold / 100)) {
+      return bestHost;
+    }
+    return selected;
   }
 
   function sanitizeProbeSample(value) {
@@ -4708,6 +4985,10 @@
       hotConfig[keys[index]] = config[keys[index]];
     }
     hotConfig.hostAutoState = state;
+    hotConfig.networkProfile = resolveRuntimeNetworkProfile(
+      config.networkProfile,
+      services
+    );
     prepared = binary
       ? prepareSafeGrpc(input, hotConfig, createEmptyAutoState(), now)
       : prepareSafeJson(
@@ -5316,6 +5597,31 @@
       typeof $persistentStore.write === "function";
 
     return {
+      networkInfo: function () {
+        var network = typeof $network !== "undefined" ? $network : null;
+        var wifi;
+        var cellular;
+        if (!network || typeof network !== "object") {
+          return null;
+        }
+        wifi = network.wifi;
+        if (wifi && typeof wifi === "object") {
+          return {
+            identifier: String(wifi.ssid || wifi.bssid || ""),
+            type: "wifi"
+          };
+        }
+        cellular = network.cellular;
+        if (cellular && typeof cellular === "object") {
+          return {
+            identifier: String(
+              cellular.carrier || cellular.radio || cellular.network || ""
+            ),
+            type: "cellular"
+          };
+        }
+        return null;
+      },
       now: function () {
         return Date.now();
       },
@@ -5634,6 +5940,7 @@
     AUTO_STATE_KEY: AUTO_STATE_KEY,
     HOST_ALIAS_FRESH_MS: HOST_ALIAS_FRESH_MS,
     HOST_AUTO_STATE_KEY: HOST_AUTO_STATE_KEY,
+    HOST_AUTO_STATE_VERSION: HOST_AUTO_STATE_VERSION,
     HOST_STATE_STALE_MS: HOST_STATE_STALE_MS,
     MEDIA_ROUTE_CAPACITY: MEDIA_ROUTE_CAPACITY,
     MEDIA_ROUTE_EXPIRY_SAFETY_MS: MEDIA_ROUTE_EXPIRY_SAFETY_MS,
@@ -5664,6 +5971,7 @@
     loadAutoState: loadAutoState,
     loadHostAutoState: loadHostAutoState,
     loadMediaRouteState: loadMediaRouteState,
+    mediaBucketForDescriptor: mediaBucketForDescriptor,
     mediaRouteKeyForUrl: mediaRouteKeyForUrl,
     normalizeCdnHost: normalizeCdnHost,
     normalizeNetworkProfile: normalizeNetworkProfile,
@@ -5678,6 +5986,7 @@
     queryFreeCandidateFingerprint: queryFreeCandidateFingerprint,
     readVarint: readVarint,
     requiredThroughputKbps: requiredThroughputKbps,
+    resolveRuntimeNetworkProfile: resolveRuntimeNetworkProfile,
     rewriteVodUrl: rewriteVodUrl,
     replaceVodHostname: replaceVodHostname,
     runShadowrocket: runShadowrocket,
@@ -5709,7 +6018,7 @@
 })(this);
 
 /*
- * Bilibili CDN v8 background benchmark for Shadowrocket cron.
+ * Bilibili CDN v10 background benchmark for Shadowrocket cron.
  *
  * This script uses anonymous public play information, validates byte-identical
  * interior ranges serially, and persists only bounded host statistics.
@@ -5747,6 +6056,8 @@
   var ALIGNMENT = 65536;
   var RETRY_MS = 30 * 60 * 1000;
   var LOCK_MS = 60 * 1000;
+  var BENCHMARK_BUDGET_MS = 45 * 1000;
+  var SUSTAINED_SHORTLIST_SIZE = 3;
   var FRACTIONS = [0.25, 0.5, 0.75];
   var PUBLIC_SAMPLES = [
     { bvid: "BV1xx411c7mD" },
@@ -5777,7 +6088,8 @@
       networkProfile: cdn.normalizeNetworkProfile(parsed.networkProfile),
       probeMode: parsed.probeMode,
       resetToken:
-        typeof parsed.resetToken === "string" ? parsed.resetToken : ""
+        typeof parsed.resetToken === "string" ? parsed.resetToken : "",
+      switchThreshold: boundedNumber(parsed.switchThreshold, 20, 10, 80)
     };
   }
 
@@ -5812,6 +6124,10 @@
     var exactByHost = {};
     var index;
     var requiredKbps;
+    var kind = "video";
+    var bandwidth = 0;
+    var quality = 0;
+    var codecid = 0;
     if (typeof value === "string") {
       try {
         parsed = JSON.parse(value);
@@ -5842,6 +6158,9 @@
             "video",
             video.bandwidth
           );
+          bandwidth = boundedNumber(video.bandwidth, 0, 0, 1000000000);
+          quality = boundedNumber(video.id || video.quality, 0, 0, 1000);
+          codecid = boundedNumber(video.codecid, 0, 0, 1000);
           break;
         }
       }
@@ -5858,6 +6177,7 @@
           backups.length > 0
         ) {
           requiredKbps = cdn.requiredThroughputKbps("segment", 0);
+          kind = "segment";
           break;
         }
         primaryUrl = "";
@@ -5872,9 +6192,20 @@
     }
     return {
       exactByHost: exactByHost,
+      bandwidthBitsPerSecond: bandwidth,
+      bucket: cdn.mediaBucketForDescriptor({
+        bandwidthBitsPerSecond: bandwidth,
+        codecid: codecid,
+        kind: kind,
+        quality: quality,
+        requiredKbps: requiredKbps || 0
+      }),
+      codecid: codecid,
+      kind: kind,
       objectId: cdn.stableHash("o", pathForUrl(primaryUrl)),
       primaryHost: hostnameForUrl(primaryUrl),
       primaryUrl: primaryUrl,
+      quality: quality,
       requiredKbps: requiredKbps || 0
     };
   }
@@ -5914,7 +6245,7 @@
     return cdn.replaceVodHostname(media.primaryUrl, hostname);
   }
 
-  function buildCandidatePlan(media, state, config) {
+  function buildCandidatePlan(media, state, config, now) {
     var profile = ensureProfile(state, config && config.networkProfile);
     var maintained =
       config && Array.isArray(config.candidates) && config.candidates.length > 0
@@ -5928,12 +6259,22 @@
     var challenger;
     var challengerIndex;
 
+    function circuitOpen(hostname) {
+      var health = profile.hosts && profile.hosts[hostname];
+      return Boolean(
+        health &&
+        boundedNumber(health.openUntil, 0, 0, 9e15) >
+          boundedNumber(now, 0, 0, 9e15)
+      );
+    }
+
     function add(hostname, source) {
       var url;
       hostname = String(hostname || "").toLowerCase();
       if (
         !hostname ||
         seen[hostname] ||
+        circuitOpen(hostname) ||
         cdn.FIXED_CDN_CANDIDATES.indexOf(hostname) === -1
       ) {
         return;
@@ -5946,6 +6287,9 @@
       plan.push({ hostname: hostname, source: source, url: url });
     }
 
+    if (circuitOpen(referenceHost)) {
+      referenceHost = media.primaryHost;
+    }
     add(referenceHost, "reference");
     add(profile.pendingHost, "pending");
     add(profile.selectedHost, "selected");
@@ -6006,6 +6350,27 @@
     };
   }
 
+  function responseTtfbMs(response, elapsedMs) {
+    var timing = response && response.timing;
+    var timings = response && response.timings;
+    var values = [
+      response && response.ttfbMs,
+      timing && timing.ttfbMs,
+      timings && timings.ttfbMs,
+      timings && timings.ttfb
+    ];
+    var index;
+    var value;
+    for (index = 0; index < values.length; index += 1) {
+      value = Number(values[index]);
+      if (Number.isFinite(value) && value > 0 && value <= elapsedMs) {
+        return value;
+      }
+    }
+    /* Callback-only runtimes expose 64 KiB completion time as a TTFB upper bound. */
+    return elapsedMs;
+  }
+
   function equivalentToReference(candidate, reference) {
     return Boolean(
       candidate.ok &&
@@ -6027,16 +6392,21 @@
   function runBenchmark(config, services, callback) {
     var completed = false;
     var now;
+    var startedAt;
     var state;
     var profile;
     var sample;
     var lockToken;
     var probeCount = 0;
+    var elapsedBudgetMs = 0;
     var successfulHosts = [];
     var candidatePlan;
     var media;
     var internalRange;
-    var referenceResult;
+    var startupReference;
+    var sustainedReference;
+    var startupRows = [];
+    var shortlist = [];
 
     function finish(result) {
       if (completed) {
@@ -6070,14 +6440,25 @@
       latest.resetToken = state.resetToken;
       cdn.saveHostAutoState(services, latest, now);
       output.probeCount = probeCount;
+      output.elapsedBudgetMs = Math.max(
+        elapsedBudgetMs,
+        Math.max(0, services.now() - startedAt)
+      );
       output.reason = reason;
       output.selectedHost = profile.selectedHost || "";
       finish(output);
     }
 
-    function probe(candidate, range, done) {
+    function budgetAllowsProbe() {
+      var wallElapsed = Math.max(0, services.now() - startedAt);
+      return Math.max(wallElapsed, elapsedBudgetMs) + PROBE_TIMEOUT_MS <=
+        BENCHMARK_BUDGET_MS;
+    }
+
+    function probe(candidate, range, phase, done) {
       var enriched = {
         hostname: candidate.hostname,
+        phase: phase,
         probeRange: range,
         source: candidate.source,
         url: candidate.url
@@ -6085,23 +6466,29 @@
       probeCount += 1;
       try {
         services.probe(enriched, PROBE_TIMEOUT_MS, function (result) {
-          done(normalizedValidation(result, candidate, range));
+          var normalized = normalizedValidation(result, candidate, range);
+          elapsedBudgetMs += normalized.elapsedMs;
+          done(normalized);
         });
       } catch (error) {
-        done(normalizedValidation({ error: true, status: 0 }, candidate, range));
+        var failed = normalizedValidation({ error: true, status: 0 }, candidate, range);
+        elapsedBudgetMs += failed.elapsedMs;
+        done(failed);
       }
     }
 
-    function record(candidate, result, equivalent) {
+    function record(candidate, result, equivalent, phase) {
       var health = cdn.recordHostSample(
         state,
         config.networkProfile,
         candidate.hostname,
         {
           at: now,
+          bucket: media.bucket,
           elapsedMs: result.elapsedMs,
           objectId: media.objectId,
           ok: Boolean(equivalent),
+          phase: phase,
           reason: equivalent ? "validated" : result.ok ? "object-mismatch" : result.reason,
           status: result.status,
           throughputKbps: equivalent ? result.throughputKbps : 0,
@@ -6109,14 +6496,20 @@
         },
         now
       );
-      if (equivalent) {
+      if (equivalent && phase === "sustained") {
         successfulHosts.push(candidate.hostname);
       }
       return health;
     }
 
     function finishCandidates() {
-      var descriptor = { requiredKbps: media.requiredKbps };
+      var descriptor = {
+        bandwidthBitsPerSecond: media.bandwidthBitsPerSecond,
+        codecid: media.codecid,
+        kind: media.kind,
+        quality: media.quality,
+        requiredKbps: media.requiredKbps
+      };
       var winner = cdn.selectStableHost(state, config, descriptor, now);
       var pending = "";
       var index;
@@ -6136,8 +6529,10 @@
           if (
             health &&
             health.openUntil <= now &&
-            health.metrics &&
-            health.metrics.objectCount < 2
+            health.buckets &&
+            health.buckets[media.bucket] &&
+            health.buckets[media.bucket].metrics &&
+            health.buckets[media.bucket].metrics.objectCount < 2
           ) {
             pending = successfulHosts[index];
             break;
@@ -6157,21 +6552,115 @@
       );
     }
 
-    function probeCandidateAt(index) {
+    function startupRank(row) {
+      var result = row && row.result;
+      if (!row || !row.equivalent || !result) {
+        return -1;
+      }
+      return (
+        (1000 / (100 + Math.max(1, result.ttfbMs || 60000))) * 75 +
+        Math.min(5, (result.throughputKbps || 0) / 10000) * 5
+      );
+    }
+
+    function buildSustainedShortlist() {
+      var ranked = startupRows.slice(1).filter(function (row) {
+        return row.equivalent;
+      });
+      ranked.sort(function (left, right) {
+        return startupRank(right) - startupRank(left);
+      });
+      shortlist = startupRows.length > 0 ? [startupRows[0].candidate] : [];
+      ranked.slice(0, SUSTAINED_SHORTLIST_SIZE - 1).forEach(function (row) {
+        shortlist.push(row.candidate);
+      });
+    }
+
+    function probeSustainedAt(index) {
       var candidate;
-      if (index >= candidatePlan.length) {
+      if (index >= shortlist.length) {
         finishCandidates();
         return;
       }
-      candidate = candidatePlan[index];
-      if (index === 0) {
-        record(candidate, referenceResult, true);
-        probeCandidateAt(index + 1);
+      if (!budgetAllowsProbe()) {
+        persistAndFinish(
+          "budget-exhausted",
+          now + RETRY_MS,
+          { candidateCount: candidatePlan.length }
+        );
         return;
       }
-      probe(candidate, internalRange, function (result) {
-        record(candidate, result, equivalentToReference(result, referenceResult));
-        probeCandidateAt(index + 1);
+      candidate = shortlist[index];
+      probe(candidate, internalRange, "sustained", function (result) {
+        var equivalent;
+        if (index === 0) {
+          sustainedReference = result;
+          if (!sustainedReference.ok) {
+            record(candidate, result, false, "sustained");
+            persistAndFinish("reference-range-failed", now + RETRY_MS);
+            return;
+          }
+          equivalent = true;
+        } else {
+          equivalent = equivalentToReference(result, sustainedReference);
+        }
+        record(candidate, result, equivalent, "sustained");
+        probeSustainedAt(index + 1);
+      });
+    }
+
+    function finishStartupPhase() {
+      buildSustainedShortlist();
+      if (shortlist.length === 0 || !startupReference) {
+        persistAndFinish("reference-prefix-failed", now + RETRY_MS);
+        return;
+      }
+      internalRange = internalRangeForTotal(
+        startupReference.totalLength,
+        profile.rangeCursor
+      );
+      if (!internalRange) {
+        persistAndFinish("reference-range-invalid", now + RETRY_MS);
+        return;
+      }
+      probeSustainedAt(0);
+    }
+
+    function probeStartupAt(index) {
+      var candidate;
+      if (index >= candidatePlan.length) {
+        finishStartupPhase();
+        return;
+      }
+      if (!budgetAllowsProbe()) {
+        persistAndFinish(
+          "budget-exhausted",
+          now + RETRY_MS,
+          { candidateCount: candidatePlan.length }
+        );
+        return;
+      }
+      candidate = candidatePlan[index];
+      probe(candidate, { end: PREFIX_END, start: 0 }, "startup", function (result) {
+        var equivalent;
+        if (index === 0) {
+          startupReference = result;
+          equivalent = Boolean(result.ok && result.totalLength > 0);
+          if (!equivalent) {
+            record(candidate, result, false, "startup");
+            persistAndFinish("reference-prefix-failed", now + RETRY_MS);
+            return;
+          }
+        } else {
+          equivalent = equivalentToReference(result, startupReference);
+        }
+        record(candidate, result, equivalent, "startup");
+        startupRows.push({
+          candidate: candidate,
+          equivalent: equivalent,
+          result: result
+        });
+        probeStartupAt(index + 1);
       });
     }
 
@@ -6195,9 +6684,13 @@
       finish({ probeCount: 0, reason: "disabled", selectedHost: "" });
       return;
     }
-    config.networkProfile = cdn.normalizeNetworkProfile(config.networkProfile);
+    config.networkProfile = cdn.resolveRuntimeNetworkProfile(
+      config.networkProfile,
+      services
+    );
     config.intervalHours = boundedNumber(config.intervalHours, 2, 2, 72);
     now = services.now();
+    startedAt = now;
     state = cdn.loadHostAutoState(services);
     if (config.resetToken && state.resetToken !== config.resetToken) {
       state = cdn.createEmptyHostAutoState();
@@ -6235,8 +6728,6 @@
     }
     sample = PUBLIC_SAMPLES[profile.sampleCursor % PUBLIC_SAMPLES.length];
     services.fetchPlayInfo(sample, function (error, value) {
-      var reference;
-      var prefixRange = { end: PREFIX_END, start: 0 };
       if (error) {
         profile.sampleCursor += 1;
         persistAndFinish("sample-fetch-failed", now + RETRY_MS);
@@ -6248,33 +6739,13 @@
         persistAndFinish("sample-invalid", now + RETRY_MS);
         return;
       }
-      candidatePlan = buildCandidatePlan(media, state, config);
+      candidatePlan = buildCandidatePlan(media, state, config, now);
       if (candidatePlan.length === 0) {
         profile.sampleCursor += 1;
         persistAndFinish("no-candidates", now + RETRY_MS);
         return;
       }
-      reference = candidatePlan[0];
-      probe(reference, prefixRange, function (prefixResult) {
-        if (!prefixResult.ok || prefixResult.totalLength <= 0) {
-          profile.sampleCursor += 1;
-          persistAndFinish("reference-prefix-failed", now + RETRY_MS);
-          return;
-        }
-        internalRange = internalRangeForTotal(
-          prefixResult.totalLength,
-          profile.rangeCursor
-        );
-        probe(reference, internalRange, function (result) {
-          referenceResult = result;
-          if (!referenceResult.ok) {
-            profile.sampleCursor += 1;
-            persistAndFinish("reference-range-failed", now + RETRY_MS);
-            return;
-          }
-          probeCandidateAt(0);
-        });
-      });
+      probeStartupAt(0);
     });
   }
 
@@ -6295,7 +6766,7 @@
         headers: {
           "Accept-Encoding": "identity",
           Referer: "https://www.bilibili.com/",
-          "User-Agent": "BiliCDN-Background-Benchmark/8",
+          "User-Agent": "BiliCDN-Background-Benchmark/10",
           "X-BiliCDN-Background": "1"
         },
         timeout: 8,
@@ -6320,6 +6791,31 @@
     }
 
     return {
+      networkInfo: function () {
+        var network = typeof $network !== "undefined" ? $network : null;
+        var wifi;
+        var cellular;
+        if (!network || typeof network !== "object") {
+          return null;
+        }
+        wifi = network.wifi;
+        if (wifi && typeof wifi === "object") {
+          return {
+            identifier: String(wifi.ssid || wifi.bssid || ""),
+            type: "wifi"
+          };
+        }
+        cellular = network.cellular;
+        if (cellular && typeof cellular === "object") {
+          return {
+            identifier: String(
+              cellular.carrier || cellular.radio || cellular.network || ""
+            ),
+            type: "cellular"
+          };
+        }
+        return null;
+      },
       fetchPlayInfo: function (sample, callback) {
         var bvid = encodeURIComponent(sample.bvid);
         requestJson(
@@ -6369,7 +6865,7 @@
               "-" +
               candidate.probeRange.end,
             Referer: "https://www.bilibili.com/",
-            "User-Agent": "BiliCDN-Background-Benchmark/8",
+            "User-Agent": "BiliCDN-Background-Benchmark/10",
             "X-BiliCDN-Background": "1"
           },
           timeout: Math.ceil(timeoutMs / 1000),
@@ -6392,7 +6888,7 @@
             error: Boolean(error),
             headers: response && response.headers || {},
             status: Number(response && (response.statusCode || response.status)) || 0,
-            ttfbMs: elapsed,
+            ttfbMs: responseTtfbMs(response, elapsed),
             url: response && response.url || candidate.url
           });
         }

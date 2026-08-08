@@ -45,7 +45,7 @@ async function defaultFetchJson(url) {
     headers: {
       "Accept-Encoding": "identity",
       Referer: "https://www.bilibili.com/",
-      "User-Agent": "BiliCDN-Desktop-Benchmark/8",
+      "User-Agent": "BiliCDN-Desktop-Benchmark/10",
     },
     redirect: "error",
   });
@@ -91,7 +91,7 @@ export function requestRangeNode(
           Connection: "close",
           Range: `bytes=${range.start}-${range.end}`,
           Referer: "https://www.bilibili.com/",
-          "User-Agent": "BiliCDN-Desktop-Benchmark/8",
+          "User-Agent": "BiliCDN-Desktop-Benchmark/10",
         },
         method: "GET",
       },

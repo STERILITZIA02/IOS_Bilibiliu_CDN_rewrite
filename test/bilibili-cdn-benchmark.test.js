@@ -120,6 +120,7 @@ test("benchmark arguments, anonymous samples, media extraction, and host plannin
     networkProfile: "home_wifi",
     probeMode: "cron",
     resetToken: "",
+    switchThreshold: 20,
   });
   assert.ok(benchmark.PUBLIC_SAMPLES.length >= 3);
   for (const sample of benchmark.PUBLIC_SAMPLES) {
@@ -174,6 +175,48 @@ test("Shadowrocket JSON callbacks accept the status field used by some builds", 
   assert.equal(value.data.dash.video.length, 1);
 });
 
+test("Shadowrocket benchmark uses runtime TTFB when exposed and bounds to startup completion otherwise", async (t) => {
+  const previousClient = global.$httpClient;
+  t.after(() => {
+    if (previousClient === undefined) delete global.$httpClient;
+    else global.$httpClient = previousClient;
+  });
+  global.$httpClient = {
+    get(request, callback) {
+      const length = request.headers.Range === "bytes=0-65535" ? 65536 : 4;
+      setTimeout(() => {
+        callback(
+          null,
+          {
+            headers: {
+              "Content-Length": String(length),
+              "Content-Range": `bytes 0-${length - 1}/${totalLength}`,
+              "Content-Type": "video/mp4",
+            },
+            status: 206,
+            ttfbMs: 12,
+            url: request.url,
+          },
+          Buffer.alloc(length, 1),
+        );
+      }, 20);
+    },
+  };
+  const services = benchmark.createShadowrocketServices();
+  const result = await new Promise((resolve) => {
+    services.probe(
+      {
+        probeRange: { end: 65535, start: 0 },
+        url: mediaUrl(primaryHost),
+      },
+      5_000,
+      resolve,
+    );
+  });
+  assert.equal(result.ttfbMs, 12);
+  assert.ok(result.elapsedMs >= result.ttfbMs);
+});
+
 test("internal ranges rotate through quarter, half, and three-quarter positions", () => {
   const ranges = [0, 1, 2].map((cursor) =>
     benchmark.internalRangeForTotal(totalLength, cursor),
@@ -195,7 +238,7 @@ test("cron benchmark validates serial ranges across two objects and persists onl
   const first = await run(config, environment);
   assert.equal(first.reason, "completed");
   assert.equal(first.selectedHost, "");
-  assert.equal(first.probeCount, 3);
+  assert.equal(first.probeCount, 4);
   assert.ok(environment.probes.every((item) => item.timeoutMs === 5_000));
 
   environment.advance(2 * 60 * 60 * 1000 + 1);
@@ -218,6 +261,61 @@ test("cron benchmark validates serial ranges across two objects and persists onl
     environment.storage[cdn.HOST_AUTO_STATE_KEY],
     /https?:|upgcxcode|deadline=|token=|sample-a|sample-b/,
   );
+});
+
+test("cron benchmark runs 64 KiB startup probes before a three-host 1 MiB shortlist", async () => {
+  const now = 3_000_000;
+  const state = cdn.createEmptyHostAutoState();
+  const profile = {
+    challengerCursor: 0,
+    hosts: {},
+    lastRunAt: 0,
+    nextRunAt: 0,
+    pendingHost: "upos-sz-mirrorhw.bilivideo.com",
+    rangeCursor: 0,
+    sampleCursor: 0,
+    selectedAt: now,
+    selectedHost: primaryHost,
+  };
+  state.profiles.auto = profile;
+  const environment = makeServices({ now, state });
+  const elapsedByHost = {
+    [akamaiHost]: 105,
+    [primaryHost]: 55,
+    [challengerHost]: 45,
+    "upos-sz-mirrorhw.bilivideo.com": 80,
+  };
+  let active = false;
+  environment.services.probe = (candidate, timeoutMs, callback) => {
+    assert.equal(active, false, "probes must remain serial");
+    active = true;
+    environment.probes.push({ candidate, timeoutMs });
+    const elapsedMs = elapsedByHost[candidate.hostname] || 100;
+    const result = rangeResponse(candidate, { elapsedMs });
+    result.ttfbMs = elapsedMs;
+    active = false;
+    callback(result);
+  };
+
+  const result = await run(
+    {
+      ...benchmark.parseArgument(""),
+      candidates: [challengerHost],
+    },
+    environment,
+  );
+  const lengths = environment.probes.map(({ candidate }) =>
+    candidate.probeRange.end - candidate.probeRange.start + 1,
+  );
+  const phases = environment.probes.map(({ candidate }) => candidate.phase);
+
+  assert.equal(result.reason, "completed");
+  assert.equal(result.probeCount, 7);
+  assert.deepEqual(lengths.slice(0, 4), Array(4).fill(64 * 1024));
+  assert.deepEqual(lengths.slice(4), Array(3).fill(1024 * 1024));
+  assert.deepEqual(phases.slice(0, 4), Array(4).fill("startup"));
+  assert.deepEqual(phases.slice(4), Array(3).fill("sustained"));
+  assert.ok(result.elapsedBudgetMs <= 45_000);
 });
 
 test("one failed winner sample is retained while two failures open its circuit", async () => {

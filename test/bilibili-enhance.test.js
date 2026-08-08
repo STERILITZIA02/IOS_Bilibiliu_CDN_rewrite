@@ -12,6 +12,16 @@ const enhance = require("../src/bilibili-enhance.js");
 const appRoot = "https://app.bilibili.com";
 const apiRoot = "https://api.bilibili.com";
 
+function shadowrocketRuntimeSource(filename) {
+  return [
+    fs.readFileSync(
+      path.join(__dirname, "..", "src", "bilibili-endpoints.js"),
+      "utf8",
+    ),
+    fs.readFileSync(path.join(__dirname, "..", "src", filename), "utf8"),
+  ].join("\n");
+}
+
 function bytes(...chunks) {
   return enhance.concatBytes(
     chunks.map((chunk) =>
@@ -187,11 +197,14 @@ test("high-confidence promotion detection preserves ambiguous content", () => {
 
 test("magic reward recommendation badges are removed without matching video titles", () => {
   const ordinary = (id, title) => ({
+    aid: id,
+    bvid: `BV1AA411${String(id).padStart(4, "0")}`,
+    cid: id + 1000,
     card_type: "small_cover_v2",
     card_goto: "av",
     goto: "av",
     param: String(id),
-    uri: `bilibili://video/${id}`,
+    uri: `bilibili://video/BV1AA411${String(id).padStart(4, "0")}`,
     player_args: { aid: id, cid: id + 1000, type: "av" },
     title,
   });
@@ -215,6 +228,65 @@ test("magic reward recommendation badges are removed without matching video titl
     output.data.items.map((item) => item.title),
     ["魔力赏活动复盘", "普通视频"],
   );
+});
+
+test("9.6.1 home fixture removes commercial AVs and Banner but keeps six strict ordinary videos", () => {
+  const fixture = JSON.parse(
+    fs.readFileSync(
+      path.join(
+        __dirname,
+        "fixtures",
+        "bilibili-9.6.1",
+        "home-feed-mixed.json",
+      ),
+      "utf8",
+    ),
+  );
+  const cold = transform(`${appRoot}/x/v2/feed/index?pull=0`, fixture);
+  const resumed = transform(`${appRoot}/x/v2/feed/index?pull=1&resume=1`, fixture);
+  const output = JSON.parse(cold.body);
+  assert.equal(cold.body, resumed.body);
+  assert.equal(output.data.items.length, 6);
+  assert.deepEqual(
+    output.data.items.map((item) => item.title),
+    [
+      "普通视频 1",
+      "闲鱼和广告行业观察",
+      "魔力赏活动复盘",
+      "普通视频 4",
+      "普通视频 5",
+      "普通视频 6",
+    ],
+  );
+  assert.ok(
+    output.data.items.every(
+      (item) =>
+        Number(item.aid) > 0 &&
+        /^BV/.test(item.bvid) &&
+        Number(item.cid) > 0 &&
+        /(?:bilibili:\/\/video\/|bilibili\.com\/video\/)/.test(item.uri),
+    ),
+  );
+});
+
+test("9.6.1 View JSON removes Goofish operation card without title keyword false positives", () => {
+  const fixture = JSON.parse(
+    fs.readFileSync(
+      path.join(
+        __dirname,
+        "fixtures",
+        "bilibili-9.6.1",
+        "view-goofish.json",
+      ),
+      "utf8",
+    ),
+  );
+  const result = transform(`${appRoot}/x/v2/view?aid=101`, fixture);
+  const output = JSON.parse(result.body);
+  assert.equal(output.data.modules.length, 1);
+  assert.equal(output.data.modules[0].title, "普通视频信息");
+  assert.equal(output.data.relates.length, 1);
+  assert.equal(output.data.relates[0].title, "闲鱼广告行业观察");
 });
 
 test("four splash endpoints return endpoint-specific empty success responses", () => {
@@ -339,11 +411,14 @@ test("four splash endpoints return endpoint-specific empty success responses", (
 
 test("homepage refresh keeps exactly the first six verified ordinary AV cards", () => {
   const ordinary = (id, title = `普通视频 ${id}`) => ({
+    aid: id,
+    bvid: `BV1AB411${String(id).padStart(4, "0")}`,
+    cid: id + 1000,
     card_type: "small_cover_v2",
     card_goto: "av",
     goto: "av",
     param: String(id),
-    uri: `bilibili://video/${id}`,
+    uri: `bilibili://video/BV1AB411${String(id).padStart(4, "0")}`,
     player_args: { aid: id, cid: id + 1000, type: "av" },
     title,
   });
@@ -681,10 +756,11 @@ test("Story cart removes only verified commercial payloads and containers", () =
 
 test("web homepage refresh uses the same six-video allowlist", () => {
   const video = (id) => ({
+    aid: id,
     goto: "av",
-    bvid: `BV${id}xx`,
+    bvid: `BV1WE411${String(id).padStart(4, "0")}`,
     cid: id + 100,
-    uri: `https://www.bilibili.com/video/BV${id}xx`,
+    uri: `https://www.bilibili.com/video/BV1WE411${String(id).padStart(4, "0")}`,
     title: `Web 视频 ${id}`,
   });
   const result = transform(
@@ -1801,8 +1877,11 @@ test("handles view, reply, PGC, web feed, and live ads conservatively", () => {
       data: {
         item: [
           {
+            aid: 1,
             goto: "av",
             bvid: "BV1xx411c7mD",
+            cid: 101,
+            player_args: { aid: 1, cid: 101, type: "av" },
             uri: "https://www.bilibili.com/video/BV1xx411c7mD",
             title: "正常视频",
           },
@@ -2365,6 +2444,13 @@ test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field b
         "https://mall.bilibili.com/mall-magic-c/promotion",
       ),
     ),
+    messageField(
+      3,
+      operationCard(
+        1,
+        "https://www.goofish.com/item/123?title=market",
+      ),
+    ),
     stringField(99, "keep-dm-future-field"),
   );
   const reply = bytes(
@@ -2389,7 +2475,7 @@ test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field b
     const filteredDm = fieldPayload(output, dmField);
 
     assert.equal(result.valid, true);
-    assert.equal(result.changed, 6);
+    assert.equal(result.changed, 7);
     assert.equal(result.body[0], 0);
     assert.equal(protoFields(filteredGuide, 1, 2).length, 1);
     assert.equal(protoFields(filteredGuide, 2, 2).length, 1);
@@ -2411,7 +2497,7 @@ test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field b
     );
     assert.doesNotMatch(
       outputText,
-      /activity-material|under_player_ad|reserve-activity-card|jump-link-card|reserve-game-card|mall-magic-c/,
+      /activity-material|under_player_ad|reserve-activity-card|jump-link-card|reserve-game-card|mall-magic-c|goofish/,
     );
   }
 
@@ -2686,7 +2772,7 @@ test("resource Module/List is matched for diagnostics and never blocks module up
   assert.deepEqual(Buffer.from(result.body), Buffer.from(input));
 });
 
-test("Popular fallback feed keeps exactly six explicit ordinary AV cards", () => {
+test("9.6.1 Popular gRPC fallback keeps exactly six explicit ordinary AV cards", () => {
   function popularCard(oneofField, gotoValue, aid, title, ad) {
     const base = bytes(
       stringField(2, gotoValue),
@@ -2857,7 +2943,7 @@ test("mixed multi-frame gRPC filters every frame and unknown compression fails o
     { responseHeaders: { "grpc-encoding": "br" } },
   );
   assert.equal(unsupported.valid, false);
-  assert.equal(unsupported.reason, "gzip-decode-failed");
+  assert.equal(unsupported.reason, "unsupported-grpc-compression");
   assert.deepEqual(Buffer.from(unsupported.body), Buffer.from(second));
 });
 
@@ -3138,16 +3224,16 @@ test("unknown endpoints, malformed JSON, and disabled UI fail open", () => {
 });
 
 test("9.5 feed entrypoint performs one bounded no-cache refill to reach six AVs", () => {
-  const source = fs.readFileSync(
-    path.join(__dirname, "..", "src", "bilibili-enhance.js"),
-    "utf8",
-  );
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
   const ordinary = (id) => ({
+    aid: id,
+    bvid: `BV1AC411${String(id).padStart(4, "0")}`,
+    cid: id + 1000,
     card_type: "small_cover_v2",
     card_goto: "av",
     goto: "av",
     param: String(id),
-    uri: `bilibili://video/${id}`,
+    uri: `bilibili://video/BV1AC411${String(id).padStart(4, "0")}`,
     player_args: { aid: id, cid: id + 1000, type: "av" },
     title: `ordinary-${id}`,
   });
@@ -3242,10 +3328,7 @@ test("9.5 feed entrypoint performs one bounded no-cache refill to reach six AVs"
 });
 
 test("Shadowrocket entrypoint returns a changed body without leaking response data", () => {
-  const source = fs.readFileSync(
-    path.join(__dirname, "..", "src", "bilibili-enhance.js"),
-    "utf8",
-  );
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
   let completion;
   const context = {
     $argument: JSON.stringify({
@@ -3268,11 +3351,15 @@ test("Shadowrocket entrypoint returns a changed body without leaking response da
           items: [
             { card_type: "cm_v2", card_goto: "ad_player" },
             {
+              aid: 1,
+              bvid: "BV1AA411c7m1",
+              cid: 1001,
               card_type: "small_cover_v2",
               card_goto: "av",
               goto: "av",
               param: "1",
-              uri: "bilibili://video/1",
+              uri: "bilibili://video/BV1AA411c7m1",
+              player_args: { aid: 1, cid: 1001, type: "av" },
             },
           ],
         },
@@ -3290,10 +3377,7 @@ test("Shadowrocket entrypoint returns a changed body without leaking response da
 });
 
 test("Shadowrocket binary entrypoint returns a valid rewritten gRPC frame", () => {
-  const source = fs.readFileSync(
-    path.join(__dirname, "..", "src", "bilibili-enhance.js"),
-    "utf8",
-  );
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
   let completion;
   const input = grpcFrame(
     bytes(
@@ -3330,10 +3414,7 @@ test("Shadowrocket binary entrypoint returns a valid rewritten gRPC frame", () =
 });
 
 test("Shadowrocket first binary response reads bodyBytes and decodes gzip before completion", async () => {
-  const source = fs.readFileSync(
-    path.join(__dirname, "..", "src", "bilibili-enhance.js"),
-    "utf8",
-  );
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
   const input = grpcFrame(
     new Uint8Array(
       gzipSync(
@@ -3386,10 +3467,7 @@ test("Shadowrocket first binary response reads bodyBytes and decodes gzip before
 });
 
 test("Shadowrocket JSON entrypoint decodes bodyBytes so resumed Mine responses cannot bypass filtering", () => {
-  const source = fs.readFileSync(
-    path.join(__dirname, "..", "src", "bilibili-enhance.js"),
-    "utf8",
-  );
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
   const input = Buffer.from(JSON.stringify({
     code: 0,
     data: {
@@ -3432,4 +3510,95 @@ test("Shadowrocket JSON entrypoint decodes bodyBytes so resumed Mine responses c
   assert.equal("worst_creative" in data.rework_v1, false);
   assert.equal(data.rework_v1.retained_layout_flag, 7);
   assert.deepEqual(data.account, { mid: 123, vip: { status: 1 } });
+});
+
+test("gRPC response headers are normalized for Bilibili engine variants", () => {
+  const rewritten = grpcFrame(messageField(1, stringField(1, "keep")));
+  const base = {
+    Age: "9",
+    "Content-Length": "99",
+    "Content-Type": "application/grpc+proto",
+    ETag: '"stale"',
+    Expires: "tomorrow",
+    "grpc-encoding": "gzip",
+    "grpc-status": "7",
+    "Last-Modified": "yesterday",
+  };
+  const universal = enhance.normalizeGrpcResponseHeaders(
+    base,
+    rewritten,
+    {
+      "User-Agent": "bili-universal/90600100",
+      "x-bili-moss-engine-type": "1",
+    },
+  );
+  assert.equal(universal["Content-Type"], "application/grpc+proto");
+  assert.equal(universal["grpc-status"], "0");
+  assert.equal(universal["grpc-encoding"], undefined);
+  for (const key of ["Age", "Content-Length", "ETag", "Expires", "Last-Modified"]) {
+    assert.equal(universal[key], undefined);
+  }
+  assert.equal(universal["Cache-Control"], "no-store, no-cache, must-revalidate");
+
+  const inter = enhance.normalizeGrpcResponseHeaders(
+    base,
+    rewritten,
+    { "User-Agent": "bili-inter/90600100" },
+  );
+  assert.equal(inter["grpc-status"], undefined);
+  const blue = enhance.normalizeGrpcResponseHeaders(
+    base,
+    rewritten,
+    { "User-Agent": "bili-blue/90600100" },
+  );
+  assert.equal(blue["grpc-status"], "0");
+});
+
+test("unknown framed gRPC method is diagnosed and cache-normalized without body leakage", () => {
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
+  const input = grpcFrame(bytes(varintField(1, 7), stringField(7, "shape")));
+  const completions = [];
+  const logs = [];
+  const context = {
+    $argument: JSON.stringify({ ads: true, debug: true }),
+    $done(value) {
+      completions.push(value);
+    },
+    $request: {
+      headers: {
+        "User-Agent": "bili-universal/90600100 os/ios model/iPhone",
+        "x-bili-build": "90600100",
+        "x-bili-version": "9.6.1",
+        "x-bili-moss-engine-type": "1",
+      },
+      url: "https://grpc.biliapi.net/bilibili.app.viewunite.v2.View/NewCommercialCard?access_key=secret",
+    },
+    $response: {
+      body: input,
+      headers: {
+        "Content-Type": "application/grpc+proto",
+        ETag: '"resume"',
+        "grpc-encoding": "identity",
+        "grpc-status": "0",
+      },
+    },
+    ArrayBuffer,
+    console: { log(message) { logs.push(message); } },
+    Uint8Array,
+  };
+  vm.runInNewContext(source, context, { filename: "bilibili-enhance.js" });
+  assert.equal(completions.length, 1);
+  assert.equal("body" in completions[0], false);
+  assert.equal(completions[0].headers.ETag, undefined);
+  assert.equal(
+    completions[0].headers["Cache-Control"],
+    "no-store, no-cache, must-revalidate",
+  );
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /host=grpc\.biliapi\.net/);
+  assert.match(logs[0], /path=\/bilibili\.app\.viewunite\.v2\.View\/NewCommercialCard/);
+  assert.match(logs[0], /transport=grpc/);
+  assert.match(logs[0], /topFields=1:1\|7:1/);
+  assert.match(logs[0], /reason=endpoint-unmatched/);
+  assert.doesNotMatch(logs[0], /secret|access_key|shape/);
 });

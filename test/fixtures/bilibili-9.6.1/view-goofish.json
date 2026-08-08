@@ -1,0 +1,34 @@
+{
+  "code": 0,
+  "data": {
+    "aid": 101,
+    "modules": [
+      {
+        "module_type": 55,
+        "operation_card": {
+          "biz_type": 3,
+          "content": {
+            "title": "闲鱼集市",
+            "button": { "text": "立即打开", "uri": "https://www.goofish.com/item/123" }
+          }
+        }
+      },
+      {
+        "module_type": 1,
+        "title": "普通视频信息",
+        "uri": "bilibili://video/BV1AA411c7m1"
+      }
+    ],
+    "relates": [
+      {
+        "goto": "av",
+        "card_goto": "av",
+        "aid": 102,
+        "bvid": "BV1AB411c7m2",
+        "cid": 1002,
+        "uri": "bilibili://video/BV1AB411c7m2",
+        "title": "闲鱼广告行业观察"
+      }
+    ]
+  }
+}

@@ -211,6 +211,43 @@
     );
   }
 
+  function resolveRuntimeNetworkProfile(configuredProfile, services) {
+    var configured = normalizeNetworkProfile(configuredProfile);
+    var info;
+    var type;
+    var identifier;
+    var hash;
+    if (configured !== "auto") {
+      return configured;
+    }
+    try {
+      info = services && typeof services.networkInfo === "function"
+        ? services.networkInfo()
+        : null;
+    } catch (error) {
+      info = null;
+    }
+    if (!isObject(info) || Array.isArray(info)) {
+      return "auto";
+    }
+    type = String(info.type || "").trim().toLowerCase();
+    if (/^(?:wifi|wi-fi|wlan)$/.test(type)) {
+      type = "wifi";
+    } else if (/^(?:cell|cellular|mobile|wwan|4g|5g|lte)$/.test(type)) {
+      type = "cellular";
+    } else {
+      return "auto";
+    }
+    identifier = typeof info.identifier === "string"
+      ? info.identifier.trim()
+      : "";
+    if (!identifier) {
+      return type;
+    }
+    hash = stableHash("n", type + "\u0000" + identifier);
+    return type + "_" + hash.slice(-16);
+  }
+
   function decodeMediaQueryValue(value) {
     try {
       return decodeURIComponent(String(value || "").replace(/\+/g, "%20"));
@@ -422,6 +459,10 @@
     ) {
       return unchangedResult(requestUrl, "state-unavailable");
     }
+    config.networkProfile = resolveRuntimeNetworkProfile(
+      config.networkProfile,
+      services
+    );
     binding = mediaRouteKeyForUrl(requestUrl, config.networkProfile);
     if (!binding) {
       return unchangedResult(requestUrl, "binding-unavailable");
@@ -487,6 +528,31 @@
       $persistentStore &&
       typeof $persistentStore.read === "function";
     return {
+      networkInfo: function () {
+        var network = typeof $network !== "undefined" ? $network : null;
+        var wifi;
+        var cellular;
+        if (!network || typeof network !== "object") {
+          return null;
+        }
+        wifi = network.wifi;
+        if (wifi && typeof wifi === "object") {
+          return {
+            identifier: String(wifi.ssid || wifi.bssid || ""),
+            type: "wifi"
+          };
+        }
+        cellular = network.cellular;
+        if (cellular && typeof cellular === "object") {
+          return {
+            identifier: String(
+              cellular.carrier || cellular.radio || cellular.network || ""
+            ),
+            type: "cellular"
+          };
+        }
+        return null;
+      },
       now: function () {
         return Date.now();
       },
@@ -567,6 +633,7 @@
     mediaRouteKeyForUrl: mediaRouteKeyForUrl,
     normalizeNetworkProfile: normalizeNetworkProfile,
     parseRuntimeArgument: parseRuntimeArgument,
+    resolveRuntimeNetworkProfile: resolveRuntimeNetworkProfile,
     runShadowrocket: runShadowrocket,
     selectMediaRequest: selectMediaRequest,
     stableHash: stableHash

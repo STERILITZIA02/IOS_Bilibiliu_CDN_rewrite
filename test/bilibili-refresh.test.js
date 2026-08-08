@@ -8,6 +8,16 @@ const vm = require("node:vm");
 
 const refresh = require("../src/bilibili-refresh.js");
 
+function shadowrocketRuntimeSource(filename) {
+  return [
+    fs.readFileSync(
+      path.join(__dirname, "..", "src", "bilibili-endpoints.js"),
+      "utf8",
+    ),
+    fs.readFileSync(path.join(__dirname, "..", "src", filename), "utf8"),
+  ].join("\n");
+}
+
 test("cache guard is exact to reviewed volatile Bilibili metadata", () => {
   for (const url of [
     "https://app.bilibili.com/x/v2/feed/index?device=phone",
@@ -24,11 +34,13 @@ test("cache guard is exact to reviewed volatile Bilibili metadata", () => {
     "https://app.bilibili.com/x/v2/account/myinfo",
     "https://api.bilibili.com/x/vip/ads/materials",
     "https://api.biliapi.net/x/vip/ads/material/report",
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
+    "https://grpc.bilibili.com/bilibili.app.story.v1.Story/BottomDiversionEntrance",
   ]) {
     assert.equal(refresh.isVolatileMetadataUrl(url), true);
   }
   for (const url of [
-    "https://api.bilibili.com/x/v2/feed/index",
     "https://app.bilibili.com/x/v2/view/extra",
     "https://app.bilibili.com/x/v2/account/myinfo/extra",
     "https://api.bilibili.com/x/vip/ads/material",
@@ -80,7 +92,7 @@ test("cache guard diagnostics identify endpoints without retaining queries", () 
     refresh.classifyVolatileEndpoint(
       "https://app.bilibili.com/x/v2/feed/index/relate/story?access_key=secret",
     ),
-    "feed-relate-story",
+    "story-relate",
   );
   assert.equal(
     refresh.classifyVolatileEndpoint(
@@ -93,10 +105,7 @@ test("cache guard diagnostics identify endpoints without retaining queries", () 
 });
 
 test("Shadowrocket request entrypoint returns guarded headers only", () => {
-  const source = fs.readFileSync(
-    path.join(__dirname, "..", "src", "bilibili-refresh.js"),
-    "utf8",
-  );
+  const source = shadowrocketRuntimeSource("bilibili-refresh.js");
   let completion;
   const logs = [];
   const context = {
@@ -130,6 +139,25 @@ test("Shadowrocket request entrypoint returns guarded headers only", () => {
   assert.equal("url" in completion, false);
   assert.equal("body" in completion, false);
   assert.deepEqual(logs, [
-    "[BiliRefresh] endpoint=feed-index changed=1 validatorsRemoved=1 reason=fresh-response-requested",
+    "[BiliRefresh] endpoint=feed handler=feed transport=json changed=1 validatorsRemoved=1 reason=fresh-response-requested",
   ]);
+});
+
+test("gRPC request guard constrains compression without touching Range or body metadata", () => {
+  const original = {
+    Range: "bytes=0-65535",
+    "grpc-accept-encoding": "br,gzip",
+    "If-None-Match": '"stale"',
+    Authorization: "Bearer keep",
+  };
+  const result = refresh.guardRequest(
+    "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/ViewProgress",
+    original,
+  );
+  assert.equal(result.transport, "grpc");
+  assert.equal(result.removedValidators, 1);
+  assert.equal(result.headers["grpc-accept-encoding"], "gzip,identity");
+  assert.equal(result.headers.Range, "bytes=0-65535");
+  assert.equal(result.headers.Authorization, "Bearer keep");
+  assert.equal(original["grpc-accept-encoding"], "br,gzip");
 });

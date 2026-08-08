@@ -220,6 +220,85 @@ function descriptorStateEntry(descriptor, candidateId, now, expiresAt) {
   };
 }
 
+function recordHostProfileSamples(
+  state,
+  profile,
+  hostname,
+  {
+    bucket = "normal-video",
+    failures = 0,
+    startupKbps = 24_000,
+    startupTtfbMs = 40,
+    sustainedKbps = 30_000,
+    ttfbSeries,
+  } = {},
+  now = Date.UTC(2026, 7, 2, 12, 0, 0),
+) {
+  const objects = ["object-a", "object-b"];
+  objects.forEach((object, objectIndex) => {
+    const objectId = cdn.stableHash("o", `${profile}-${hostname}-${object}`);
+    [0, 1].forEach((sampleIndex) => {
+      const offset = objectIndex * 2 + sampleIndex;
+      cdn.recordHostSample(
+        state,
+        profile,
+        hostname,
+        {
+          at: now - (8 - offset) * 1_000,
+          bucket,
+          elapsedMs: startupTtfbMs + 25,
+          objectId,
+          ok: true,
+          phase: "startup",
+          status: 206,
+          throughputKbps: startupKbps,
+          ttfbMs: Array.isArray(ttfbSeries)
+            ? ttfbSeries[offset % ttfbSeries.length]
+            : startupTtfbMs,
+        },
+        now,
+      );
+      cdn.recordHostSample(
+        state,
+        profile,
+        hostname,
+        {
+          at: now - (4 - offset) * 1_000,
+          bucket,
+          elapsedMs: 350,
+          objectId,
+          ok: true,
+          phase: "sustained",
+          status: 206,
+          throughputKbps: sustainedKbps,
+          ttfbMs: startupTtfbMs,
+        },
+        now,
+      );
+    });
+  });
+  for (let index = 0; index < failures; index += 1) {
+    cdn.recordHostSample(
+      state,
+      profile,
+      hostname,
+      {
+        at: now - index,
+        bucket,
+        elapsedMs: 5_000,
+        objectId: cdn.stableHash("o", `${profile}-${hostname}-failure-${index}`),
+        ok: false,
+        phase: "startup",
+        reason: "timeout",
+        status: 0,
+        throughputKbps: 0,
+        ttfbMs: 5_000,
+      },
+      now,
+    );
+  }
+}
+
 test("normalizes arguments, defaults to safe auto, and isolates network profiles", () => {
   assert.equal(cdn.normalizeCdnHost(targetHost.toUpperCase()), targetHost);
   assert.equal(cdn.normalizeCdnHost(`https://${targetHost}/`), targetHost);
@@ -281,10 +360,10 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
   assert.equal(cdn.isAllowedFixedCdnHost("edge.ksyungslb.com"), false);
 });
 
-test("v8 host state is bounded, profile-isolated, and never migrates v7 selections", () => {
+test("v10 host state is bounded, profile-isolated, and never migrates v8 selections", () => {
   const now = Date.UTC(2026, 7, 2, 12, 0, 0);
   const oversized = {
-    version: 8,
+    version: 10,
     resetToken: "reset_1",
     profiles: {},
     lock: { createdAt: now, expiresAt: now + 60_000, token: "lock_1" },
@@ -321,7 +400,7 @@ test("v8 host state is bounded, profile-isolated, and never migrates v7 selectio
   }
 
   const sanitized = cdn.sanitizeHostAutoState(oversized, now);
-  assert.equal(sanitized.version, 8);
+  assert.equal(sanitized.version, 10);
   assert.equal(Object.keys(sanitized.profiles).length, 4);
   for (const profile of Object.values(sanitized.profiles)) {
     assert.equal(Object.keys(profile.hosts).length, 16);
@@ -405,6 +484,168 @@ test("stable host selection uses p25 throughput, two objects, freshness, and cir
     "",
   );
   assert.doesNotMatch(JSON.stringify(state), /upgcxcode|deadline=|token=/);
+});
+
+test("hostAuto v10 prefers lower startup TTFB after bandwidth eligibility", () => {
+  const now = Date.UTC(2026, 7, 2, 12, 0, 0);
+  const state = cdn.createEmptyHostAutoState();
+  const descriptor = cdn.buildMediaDescriptor(
+    "json",
+    "video",
+    originalUrl,
+    [backupUrl],
+    "id=80&codecid=7&bandwidth=1800000",
+    1_800_000,
+  );
+  recordHostProfileSamples(state, "wifi_lab", originalHost, {
+    startupTtfbMs: 140,
+    startupKbps: 35_000,
+    sustainedKbps: 55_000,
+  }, now);
+  recordHostProfileSamples(state, "wifi_lab", targetHost, {
+    startupTtfbMs: 22,
+    startupKbps: 30_000,
+    sustainedKbps: 45_000,
+  }, now);
+  state.profiles.wifi_lab.selectedHost = originalHost;
+  state.profiles.wifi_lab.lastRunAt = now;
+
+  assert.equal(
+    cdn.selectStableHost(
+      state,
+      { networkProfile: "wifi_lab", switchThreshold: 10 },
+      descriptor,
+      now,
+    ),
+    targetHost,
+  );
+  const metrics = state.profiles.wifi_lab.hosts[targetHost].buckets["normal-video"].metrics;
+  assert.equal(metrics.medianStartupTtfbMs, 22);
+  assert.equal(metrics.p25SustainedThroughputKbps, 45_000);
+});
+
+test("hostAuto v10 rejects fast hosts with excessive failures or jitter", () => {
+  const now = Date.UTC(2026, 7, 2, 12, 0, 0);
+  const state = cdn.createEmptyHostAutoState();
+  const descriptor = cdn.buildMediaDescriptor(
+    "json",
+    "video",
+    originalUrl,
+    [backupUrl],
+    "id=80",
+    1_800_000,
+  );
+  recordHostProfileSamples(state, "wifi_lab", originalHost, {
+    startupTtfbMs: 55,
+    sustainedKbps: 30_000,
+  }, now);
+  recordHostProfileSamples(state, "wifi_lab", targetHost, {
+    failures: 3,
+    startupTtfbMs: 8,
+    sustainedKbps: 90_000,
+  }, now);
+  recordHostProfileSamples(state, "wifi_lab", secondBackupHost, {
+    startupTtfbMs: 20,
+    sustainedKbps: 80_000,
+    ttfbSeries: [5, 250, 5, 250],
+  }, now);
+  state.profiles.wifi_lab.lastRunAt = now;
+
+  assert.equal(
+    cdn.selectStableHost(
+      state,
+      { networkProfile: "wifi_lab", switchThreshold: 10 },
+      descriptor,
+      now,
+    ),
+    originalHost,
+  );
+});
+
+test("switchThreshold prevents flapping but unhealthy selected hosts switch immediately", () => {
+  const now = Date.UTC(2026, 7, 2, 12, 0, 0);
+  const state = cdn.createEmptyHostAutoState();
+  const descriptor = cdn.buildMediaDescriptor(
+    "json",
+    "video",
+    originalUrl,
+    [backupUrl],
+    "id=80",
+    1_800_000,
+  );
+  recordHostProfileSamples(state, "wifi_lab", originalHost, {
+    startupTtfbMs: 42,
+    sustainedKbps: 35_000,
+  }, now);
+  recordHostProfileSamples(state, "wifi_lab", targetHost, {
+    startupTtfbMs: 36,
+    sustainedKbps: 36_000,
+  }, now);
+  state.profiles.wifi_lab.selectedHost = originalHost;
+  state.profiles.wifi_lab.lastRunAt = now;
+
+  assert.equal(
+    cdn.selectStableHost(
+      state,
+      { networkProfile: "wifi_lab", switchThreshold: 20 },
+      descriptor,
+      now,
+    ),
+    originalHost,
+  );
+  state.profiles.wifi_lab.hosts[originalHost].openUntil = now + 60_000;
+  assert.equal(
+    cdn.selectStableHost(
+      state,
+      { networkProfile: "wifi_lab", switchThreshold: 20 },
+      descriptor,
+      now,
+    ),
+    targetHost,
+  );
+});
+
+test("runtime network profiles hash stable identifiers and isolate Wi-Fi from cellular", () => {
+  const wifi = cdn.resolveRuntimeNetworkProfile("auto", {
+    networkInfo() {
+      return { identifier: "Young Home WiFi", type: "wifi" };
+    },
+  });
+  const cellular = cdn.resolveRuntimeNetworkProfile("auto", {
+    networkInfo() {
+      return { identifier: "Spark NZ", type: "cellular" };
+    },
+  });
+  assert.match(wifi, /^wifi_[0-9a-f]{16}$/);
+  assert.match(cellular, /^cellular_[0-9a-f]{16}$/);
+  assert.doesNotMatch(wifi, /young|home/i);
+  assert.notEqual(wifi, cellular);
+  assert.equal(cdn.resolveRuntimeNetworkProfile("manual_profile", {}), "manual_profile");
+});
+
+test("audio, normal video, and high bitrate video select only their own performance bucket", () => {
+  const now = Date.UTC(2026, 7, 2, 12, 0, 0);
+  const state = cdn.createEmptyHostAutoState();
+  recordHostProfileSamples(state, "wifi_lab", targetHost, { bucket: "audio" }, now);
+  recordHostProfileSamples(state, "wifi_lab", secondBackupHost, {
+    bucket: "normal-video",
+  }, now);
+  recordHostProfileSamples(state, "wifi_lab", originalHost, {
+    bucket: "high-bitrate-video",
+    sustainedKbps: 55_000,
+  }, now);
+  state.profiles.wifi_lab.lastRunAt = now;
+  const config = { networkProfile: "wifi_lab", switchThreshold: 10 };
+  const audio = { kind: "audio", requiredKbps: 256 };
+  const normal = { kind: "video", requiredKbps: 3_000 };
+  const high = { kind: "video", requiredKbps: 12_000 };
+
+  assert.equal(cdn.mediaBucketForDescriptor(audio), "audio");
+  assert.equal(cdn.mediaBucketForDescriptor(normal), "normal-video");
+  assert.equal(cdn.mediaBucketForDescriptor(high), "high-bitrate-video");
+  assert.equal(cdn.selectStableHost(state, config, audio, now), targetHost);
+  assert.equal(cdn.selectStableHost(state, config, normal, now), secondBackupHost);
+  assert.equal(cdn.selectStableHost(state, config, high, now), originalHost);
 });
 
 test("default hot path performs zero probes and cold-promotes only a complete Akamai URL", async () => {
@@ -1569,7 +1810,7 @@ test("probe mode falls back to the server URL when a selection is stale", () => 
   );
 });
 
-test("corrupted state fails open and a changed reset token clears v8 learning exactly once", async () => {
+test("corrupted state fails open and a changed reset token clears v10 learning exactly once", async () => {
   const input = JSON.stringify(videoFixture());
   const environment = makeEnvironment();
   environment.storage[cdn.AUTO_STATE_KEY] = "{corrupted";

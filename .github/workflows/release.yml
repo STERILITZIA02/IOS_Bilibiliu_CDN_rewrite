@@ -59,4 +59,5 @@ jobs:
           dist/bilibili-story.js
           dist/bilibili-story-cdn.js
           dist/module-options.json
+          dist/modules.list
           dist/SHA256SUMS.txt

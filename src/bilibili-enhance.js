@@ -2,15 +2,10 @@
 
 (function (root) {
   var hasOwn = Object.prototype.hasOwnProperty;
-
-  var APP_HOSTS = [
-    "app.bilibili.com",
-    "app.biliapi.net"
-  ];
-  var API_HOSTS = [
-    "api.bilibili.com",
-    "api.biliapi.net"
-  ];
+  var endpointRegistry =
+    typeof module !== "undefined" && module.exports
+      ? require("./bilibili-endpoints.js")
+      : root.BiliEndpointRegistry;
   var FEED_AD_CARD_TYPES = {
     cm_v1: ["ad_web_s", "ad_av", "ad_web_gif"],
     cm_v2: [
@@ -284,7 +279,12 @@
     "navigation"
   ];
   var VIEW_JSON_CONTAINER_KEYS = {
+    action: true,
+    actions: true,
+    buttons: true,
     cards: true,
+    commercial_modules: true,
+    commercialModules: true,
     introduction: true,
     introduction_modules: true,
     introductionModules: true,
@@ -293,6 +293,10 @@
     module_list: true,
     moduleList: true,
     modules: true,
+    operation_card: true,
+    operation_cards: true,
+    operationCard: true,
+    operationCards: true,
     relates: true,
     relates_feed: true,
     relatesFeed: true,
@@ -312,6 +316,12 @@
     cms: true,
     commercial_info: true,
     commercialInfo: true,
+    commercial_module: true,
+    commercialModule: true,
+    marketing_banner: true,
+    marketingBanner: true,
+    operation_card: true,
+    operationCard: true,
     player_ad: true,
     playerAd: true,
     under_player_ad: true,
@@ -450,215 +460,31 @@
     return config;
   }
 
-  function parseRequestUrl(requestUrl) {
-    var match = /^https?:\/\/([^/?#]+)(\/[^?#]*)?/i.exec(
-      String(requestUrl || "")
-    );
-    if (!match) {
-      return null;
-    }
-    return {
-      host: String(match[1]).toLowerCase(),
-      path: match[2] || "/"
-    };
-  }
-
   function classifyEndpoint(requestUrl) {
-    var parsed = parseRequestUrl(requestUrl);
-    var path;
-    if (!parsed) {
-      return "";
-    }
-    path = parsed.path;
-
-    if (
-      (
-        includes(APP_HOSTS, parsed.host) ||
-        includes(API_HOSTS, parsed.host)
-      ) &&
-      (
-        path === "/x/vip/ads/materials" ||
-        path === "/x/vip/ads/material/report"
-      )
-    ) {
-      return path === "/x/vip/ads/materials"
-        ? "vip-materials"
-        : "vip-material-report";
-    }
-    if (
-      (
-        includes(APP_HOSTS, parsed.host) ||
-        includes(API_HOSTS, parsed.host)
-      ) &&
-      /^\/x\/resource\/(?:top\/activity|patch\/tab(?:\/v2)?)$/.test(
-        path
-      )
-    ) {
-      return "resource-promotion";
-    }
-
-    if (includes(APP_HOSTS, parsed.host)) {
-      if (path === "/x/v2/splash/list") {
-        return "splash-list";
-      }
-      if (path === "/x/v2/splash/show") {
-        return "splash-show";
-      }
-      if (path === "/x/v2/splash/event/list2") {
-        return "splash-event-list2";
-      }
-      if (path === "/x/v2/splash/brand/list") {
-        return "splash-brand-list";
-      }
-      if (path === "/x/v2/feed/index") {
-        return "feed";
-      }
-      if (path === "/x/v2/feed/index/story") {
-        return "story";
-      }
-      if (path === "/x/v2/feed/index/story/cart") {
-        return "story-cart";
-      }
-      if (path === "/x/v2/feed/index/relate/story") {
-        return "story";
-      }
-      if (path === "/x/v2/search/square") {
-        return "search-square";
-      }
-      if (/^\/x\/v2\/search(?:\/type)?$/.test(path)) {
-        return "search-results";
-      }
-      if (path === "/x/resource/show/tab/v2") {
-        return "navigation";
-      }
-      if (/^\/x\/v2\/account\/mine(?:\/ipad)?$/.test(path)) {
-        return "mine";
-      }
-      if (path === "/x/v2/account/myinfo") {
-        return "myinfo-diagnostic";
-      }
-      if (path === "/x/v2/view") {
-        return "view";
-      }
-    }
-
-    if (includes(API_HOSTS, parsed.host)) {
-      if (
-        path === "/pgc/page/bangumi" ||
-        path === "/pgc/page/cinema/tab"
-      ) {
-        return "pgc";
-      }
-      if (
-        /^\/x\/web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd$/.test(
-          path
-        )
-      ) {
-        return "web-feed";
-      }
-      if (path === "/x/v2/reply/main") {
-        return "reply";
-      }
-      if (path === "/x/vip/web/vip_center/combine") {
-        return "vip-center";
-      }
-      if (path === "/pgc/activity/deliver/material/receive") {
-        return "pgc-activity-material";
-      }
-    }
-
-    if (
-      parsed.host === "api.live.bilibili.com" &&
-      path === "/xlive/app-room/v1/index/getInfoByRoom"
-    ) {
-      return "live";
-    }
-    if (
-      parsed.host === "api.live.bilibili.com" &&
-      path ===
-        "/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info"
-    ) {
-      return "live-shopping-material";
-    }
-    if (
-      parsed.host === "line3-h5-mobile-api.biligame.com" &&
-      path === "/game/live/large_card_material"
-    ) {
-      return "game-live-material";
-    }
-    if (
-      parsed.host === "api.vc.bilibili.com" &&
-      /^\/search_svr\/v\d+\/Search\/recommend_words$/.test(path)
-    ) {
-      return "search-recommend-words";
-    }
-    if (
-      parsed.host === "manga.bilibili.com" &&
-      /^\/twirp\/comic\.v\d+\.Comic\/(?:Flash|ListFlash)$/.test(path)
-    ) {
-      return "manga-flash";
-    }
-    return "";
+    var matched = endpointRegistry && endpointRegistry.classify
+      ? endpointRegistry.classify(requestUrl, {
+          runtime: "enhance",
+          transport: "json"
+        }) || endpointRegistry.classify(requestUrl, {
+          runtime: "story",
+          transport: "json"
+        })
+      : null;
+    return matched && matched.handler !== "grpc-diagnostic"
+      ? matched.handler
+      : "";
   }
 
   function classifyGrpcEndpoint(requestUrl) {
-    var parsed = parseRequestUrl(requestUrl);
-    var allowedHost;
-    if (!parsed) {
-      return "";
-    }
-    allowedHost = includes(
-      [
-        "app.bilibili.com",
-        "app.biliapi.net",
-        "grpc.bilibili.com",
-        "grpc.biliapi.net"
-      ],
-      parsed.host
-    );
-    if (!allowedHost) {
-      return "";
-    }
-    switch (parsed.path) {
-      case "/bilibili.app.view.v1.View/View":
-        return "grpc-view-v1";
-      case "/bilibili.app.view.v1.View/ViewProgress":
-        return "grpc-view-v1-progress";
-      case "/bilibili.app.view.v1.View/RelatesFeed":
-        return "grpc-view-v1-relates";
-      case "/bilibili.app.view.v1.View/TFInfo":
-        return "grpc-view-v1-tfinfo";
-      case "/bilibili.app.viewunite.v1.View/View":
-        return "grpc-view-unite";
-      case "/bilibili.app.viewunite.v1.View/ViewProgress":
-        return "grpc-view-unite-progress";
-      case "/bilibili.app.viewunite.v1.View/PlayPause":
-        return "grpc-view-unite-play-pause";
-      case "/bilibili.app.viewunite.v1.View/ViewEndPage":
-        return "grpc-view-unite-end-page";
-      case "/bilibili.app.viewunite.v1.View/RelatesFeed":
-        return "grpc-view-unite-relates";
-      case "/bilibili.app.mine.v1.Mine/PubModule":
-        return "grpc-mine-pub-module";
-      case "/bilibili.app.mine.v1.Mine/DeviceFeature":
-        return "grpc-mine-device-feature";
-      case "/bilibili.app.resource.v1.Module/List":
-        return "grpc-resource-module-list";
-      case "/bilibili.app.show.v1.Popular/Index":
-        return "grpc-popular";
-      case "/bilibili.app.dynamic.v2.Dynamic/DynAll":
-        return "grpc-dynamic";
-      case "/bilibili.polymer.app.search.v1.Search/SearchAll":
-        return "grpc-search-all";
-      case "/bilibili.polymer.app.search.v1.Search/SearchByType":
-        return "grpc-search-by-type";
-      case "/bilibili.app.interface.v1.Search/DefaultWords":
-        return "grpc-search-default-words";
-      case "/bilibili.main.community.reply.v1.Reply/MainList":
-        return "grpc-reply";
-      default:
-        return "";
-    }
+    var matched = endpointRegistry && endpointRegistry.classify
+      ? endpointRegistry.classify(requestUrl, {
+          runtime: "enhance",
+          transport: "grpc"
+        })
+      : null;
+    return matched && matched.handler !== "grpc-diagnostic"
+      ? matched.handler
+      : "";
   }
 
   function isPauseAdEndpoint(endpoint) {
@@ -805,11 +631,18 @@
   function explicitCommercialLabel(item) {
     var keys = [
       "ad_tag",
+      "ad_badge",
+      "ad_tag_style",
       "ad_label",
       "badge",
       "badge_info",
       "badge_text",
       "corner_mark",
+      "commercial_label",
+      "business_badge",
+      "bottom_rcmd_reason_style",
+      "cover_left_text",
+      "cover_right_text",
       "rcmd_reason",
       "rcmd_reason_style",
       "reason",
@@ -862,7 +695,15 @@
       "commercial_button",
       "commercialButton",
       "business_info",
-      "businessInfo"
+      "businessInfo",
+      "ad_badge",
+      "adBadge",
+      "ad_tag_style",
+      "adTagStyle",
+      "business_badge",
+      "businessBadge",
+      "commercial_label",
+      "commercialLabel"
     ];
     var index;
     if (!isPlainObject(item)) {
@@ -962,11 +803,24 @@
       "commercialButton",
       "commercial_info",
       "commercialInfo",
+      "ad_badge",
+      "adBadge",
+      "ad_tag_style",
+      "adTagStyle",
+      "business",
+      "business_badge",
+      "businessBadge",
+      "click",
+      "click_info",
+      "clickInfo",
       "card_business_badge",
       "cardBusinessBadge",
       "creative",
       "creative_info",
       "creativeInfo",
+      "exposure",
+      "exposure_info",
+      "exposureInfo",
       "tracking",
       "tracking_info",
       "trackingInfo"
@@ -1056,7 +910,7 @@
       : "";
     link = objectLink(item);
     return (
-      /^(?:下载|立即下载|购买|立即购买|领取|立即领取|打开|去看看)$/.test(
+      /^(?:下载|立即下载|购买|立即购买|领取|立即领取|打开|立即打开|去看看|闲鱼集市)$/.test(
         text
       ) ||
       isCommercialUri(link)
@@ -2611,13 +2465,59 @@
     );
   }
 
+  function strictHomeVideoIdentity(item) {
+    var nodes;
+    var index;
+    var node;
+    var aid = 0;
+    var cid = 0;
+    var bvid = "";
+    var uri;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    nodes = [
+      item,
+      item.player_args,
+      item.playerArgs,
+      item.archive,
+      item.video
+    ];
+    for (index = 0; index < nodes.length; index += 1) {
+      node = nodes[index];
+      if (!isPlainObject(node)) {
+        continue;
+      }
+      if (!aid) {
+        aid = Number(node.aid || node.avid || 0);
+      }
+      if (!cid) {
+        cid = Number(node.cid || 0);
+      }
+      if (!bvid && /^BV[0-9A-Za-z]{10}$/.test(String(node.bvid || ""))) {
+        bvid = String(node.bvid);
+      }
+    }
+    uri = objectLink(item);
+    return Boolean(
+      Number.isSafeInteger(aid) &&
+      aid > 0 &&
+      Number.isSafeInteger(cid) &&
+      cid > 0 &&
+      bvid &&
+      /^(?:bilibili:\/\/video\/(?:av\d+|BV[0-9A-Za-z]{10})|https?:\/\/(?:www\.)?bilibili\.com\/video\/(?:av\d+|BV[0-9A-Za-z]{10}))(?:[/?#]|$)/i.test(
+        uri
+      )
+    );
+  }
+
   function isPlainHomeFeedVideo(item, requireKnownCardType) {
     var cardType;
     var cardGoto;
     var gotoValue;
     if (
       !isPlainVideoRecommendation(item) ||
-      !hasOrdinaryVideoIdentity(item)
+      !strictHomeVideoIdentity(item)
     ) {
       return false;
     }
@@ -2696,7 +2596,10 @@
     }
     if (
       config.ads !== false &&
-      isHighConfidencePromotion(item)
+      (
+        isHighConfidencePromotion(item) ||
+        hasReviewedCommercialAction(item, 0)
+      )
     ) {
       return true;
     }
@@ -2712,6 +2615,54 @@
       ) ||
       (config.vipPromotions !== false && moduleType === 29)
     );
+  }
+
+  function hasReviewedCommercialAction(item, depth) {
+    var keys = [
+      "action",
+      "actions",
+      "button",
+      "buttons",
+      "commercial_action",
+      "commercialAction",
+      "content",
+      "jump",
+      "marketing_action",
+      "marketingAction",
+      "operation_card",
+      "operationCard"
+    ];
+    var index;
+    var value;
+    var nestedIndex;
+    if (!isPlainObject(item) || depth > 5) {
+      return false;
+    }
+    if (isCommercialUri(objectLink(item))) {
+      return true;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      if (!hasOwn.call(item, keys[index])) {
+        continue;
+      }
+      value = item[keys[index]];
+      if (Array.isArray(value)) {
+        for (nestedIndex = 0; nestedIndex < value.length; nestedIndex += 1) {
+          if (hasReviewedCommercialAction(value[nestedIndex], depth + 1)) {
+            return true;
+          }
+        }
+      } else if (isPlainObject(value)) {
+        if (
+          isCommercialUri(objectLink(value)) ||
+          /(?:闲鱼集市|立即打开)/.test(knownLabelText(value, 0)) ||
+          hasReviewedCommercialAction(value, depth + 1)
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   function filterKnownViewJsonContainers(node, config, depth) {
@@ -2793,7 +2744,7 @@
   }
 
   function isCommercialUri(value) {
-    return /(?:bilibili:\/\/(?:game_center|mall)\/|mall\.bilibili\.com\/|b23\.tv\/(?:cm|mall)(?:[/?#]|$))/i.test(
+    return /(?:bilibili:\/\/(?:game_center|mall)\/|(?:taobao|fleamarket):\/\/|(?:^|\/\/)(?:www\.)?goofish\.com(?:[/:?#]|$)|(?:^|\/\/)2\.taobao\.com(?:[/:?#]|$)|(?:^|\/\/)market\.m\.taobao\.com(?:[/:?#]|$)|mall\.bilibili\.com\/|b23\.tv\/(?:cm|mall)(?:[/?#]|$))/i.test(
       String(value || "")
     );
   }
@@ -3478,7 +3429,7 @@
     for (index = 0; index < bytes.length; index += 1) {
       text += String.fromCharCode(bytes[index]);
     }
-    return /https?:\/\/b23\.tv\/(?:cm|mall)(?:[/?#]|$)/i.test(
+    return /(?:https?:\/\/(?:b23\.tv\/(?:cm|mall)(?:[/?#]|$)|(?:www\.)?goofish\.com(?:[/?#]|$)|2\.taobao\.com(?:[/?#]|$)|market\.m\.taobao\.com(?:[/?#]|$))|(?:taobao|fleamarket):\/\/)/i.test(
       text
     );
   }
@@ -3775,6 +3726,7 @@
   function bytesContainCommercialEvidence(input) {
     var bytes = toUint8Array(input);
     var text = "";
+    var utf8;
     var index;
     if (!bytes || bytes.length === 0 || bytes.length > 262144) {
       return false;
@@ -3784,7 +3736,11 @@
         ? String.fromCharCode(bytes[index])
         : " ";
     }
-    return /(?:https?:\/\/(?:[^/\s]+\.)?(?:cm|ad)\.bili(?:bili)?\.(?:com|net)|(?:https?:\/\/|bilibili:\/\/)[^\s]{0,160}(?:taobao|tmall|jd\.com|pinduoduo|sponsor|commercial|creative|advert|mall-magic-c)|(?:^|[^a-z0-9])(?:ad_info|ad_report|adver_id|creative_id|commercial_id|pause[-_]?(?:ad|commerce)|under[-_]?player[-_]?ad|flash[-_]?sale|mall[-_/]ad)(?:[^a-z0-9]|$))/i.test(
+    utf8 = decodeUtf8Strict(bytes);
+    if (utf8) {
+      text += " " + utf8;
+    }
+    return /(?:https?:\/\/(?:[^/\s]+\.)?(?:cm|ad)\.bili(?:bili)?\.(?:com|net)|(?:https?:\/\/|bilibili:\/\/|taobao:\/\/|fleamarket:\/\/)[^\s]{0,160}(?:goofish\.com|2\.taobao\.com|market\.m\.taobao\.com|taobao|tmall|jd\.com|pinduoduo|sponsor|commercial|creative|advert|mall-magic-c)|闲鱼集市|立即打开|(?:^|[^a-z0-9])(?:ad_info|ad_report|adver_id|creative_id|commercial_id|pause[-_]?(?:ad|commerce)|under[-_]?player[-_]?ad|flash[-_]?sale|mall[-_/]ad)(?:[^a-z0-9]|$))/i.test(
       text
     );
   }
@@ -4406,6 +4362,8 @@
         return transformSearch(input, 6);
       case "grpc-search-default-words":
         return transformEmptyKnownGrpcReply(input);
+      case "grpc-story-bottom-diversion":
+        return transformEmptyKnownGrpcReply(input);
       case "grpc-reply":
         return transformReply(input);
       default:
@@ -4813,13 +4771,16 @@
           valid: true
         };
       },
-      function () {
+      function (error) {
         return {
           body: original,
           changed: 0,
           endpoint: endpoint,
           frames: frames.length,
-          reason: "gzip-decode-failed",
+          reason:
+            error && /unsupported/i.test(String(error.message || error))
+              ? "unsupported-grpc-compression"
+              : "gzip-decode-failed",
           valid: false
         };
       }
@@ -4861,25 +4822,92 @@
       .join("|");
   }
 
-  function logDiagnostic(result, transport, body, responseHeaders) {
+  function grpcTopFieldSummaryForLog(body) {
+    var parsed = parseGrpcFrames(body);
+    var counts = {};
+    var index;
+    var fields;
+    var fieldIndex;
+    if (!parsed.valid) {
+      return "invalid";
+    }
+    for (index = 0; index < parsed.frames.length; index += 1) {
+      if (parsed.frames[index].flag !== 0) {
+        continue;
+      }
+      fields = parseProtoFields(
+        parsed.body.slice(
+          parsed.frames[index].payloadStart,
+          parsed.frames[index].end
+        )
+      );
+      if (!fields) {
+        continue;
+      }
+      for (fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
+        counts[fields[fieldIndex].fieldNumber] =
+          (counts[fields[fieldIndex].fieldNumber] || 0) + 1;
+      }
+    }
+    return Object.keys(counts)
+      .sort(function (left, right) { return Number(left) - Number(right); })
+      .slice(0, 24)
+      .map(function (fieldNumber) {
+        return fieldNumber + ":" + counts[fieldNumber];
+      })
+      .join("|") || "none";
+  }
+
+  function appVersionForLog(headers) {
+    var userAgent = headerValue(headers, "user-agent");
+    var version = headerValue(headers, "x-bili-version");
+    var build = headerValue(headers, "x-bili-build");
+    var match;
+    if (!version) {
+      match = /(?:bili(?:bili)?|bili-universal)[^\d]{0,8}(\d{3,9})/i.exec(userAgent);
+      version = match ? match[1] : "unknown";
+    }
+    return "version=" + String(version || "unknown").slice(0, 32) +
+      " build=" + String(build || "unknown").slice(0, 32);
+  }
+
+  function logDiagnostic(
+    result,
+    transport,
+    body,
+    responseHeaders,
+    requestUrl,
+    requestHeaders
+  ) {
     var contentType = headerValue(responseHeaders, "content-type")
       .split(";")[0]
       .trim()
       .toLowerCase();
+    var parsedUrl = endpointRegistry && endpointRegistry.parseRequestUrl
+      ? endpointRegistry.parseRequestUrl(requestUrl)
+      : null;
     safeLog(
-      "endpoint=" +
+      "host=" + (parsedUrl ? parsedUrl.host : "unknown") +
+        " path=" + (parsedUrl ? parsedUrl.path : "unknown") +
+        " " + appVersionForLog(requestHeaders) +
+        " handler=" +
         (result.endpoint || "unmatched") +
         " transport=" +
         transport +
         " contentType=" +
         (contentType || "unknown") +
+        " grpcEncoding=" +
+        (headerValue(responseHeaders, "grpc-encoding") || "identity") +
+        " grpcStatus=" +
+        (headerValue(responseHeaders, "grpc-status") || "none") +
         " bodyBytes=" +
         bodyLengthForLog(body) +
         " frames=" +
         (result.frames || 0) +
         (
           transport === "grpc"
-            ? " frameFlags=" + grpcFrameSummaryForLog(body)
+            ? " frameFlags=" + grpcFrameSummaryForLog(body) +
+              " topFields=" + grpcTopFieldSummaryForLog(body)
             : ""
         ) +
         " changed=" +
@@ -4905,30 +4933,51 @@
   }
 
   function isVolatileJsonEndpoint(endpoint) {
-    return includes(
-      [
-        "feed",
-        "mine",
-        "manga-flash",
-        "search-recommend-words",
-        "splash-list",
-        "splash-show",
-        "splash-event-list2",
-        "splash-brand-list",
-        "story",
-        "story-cart",
-        "view",
-        "vip-materials",
-        "vip-material-report"
-      ],
-      endpoint
-    );
+    var index;
+    var value;
+    if (!endpointRegistry || !Array.isArray(endpointRegistry.REGISTRY)) {
+      return false;
+    }
+    for (index = 0; index < endpointRegistry.REGISTRY.length; index += 1) {
+      value = endpointRegistry.REGISTRY[index];
+      if (
+        value.transport === "json" &&
+        value.handler === endpoint &&
+        value.volatile
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function isVolatileGrpcEndpoint(endpoint) {
-    return Boolean(
-      endpoint && endpoint !== "grpc-resource-module-list"
-    );
+    var index;
+    var value;
+    if (!endpointRegistry || !Array.isArray(endpointRegistry.REGISTRY)) {
+      return false;
+    }
+    for (index = 0; index < endpointRegistry.REGISTRY.length; index += 1) {
+      value = endpointRegistry.REGISTRY[index];
+      if (
+        value.transport === "grpc" &&
+        value.handler === endpoint &&
+        value.volatile
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isVolatileResponseUrl(requestUrl, transport) {
+    var matched = endpointRegistry && endpointRegistry.classify
+      ? endpointRegistry.classify(requestUrl, {
+          responseFilter: true,
+          transport: transport
+        })
+      : null;
+    return Boolean(matched && matched.volatile);
   }
 
   function noStoreResponseHeaders(headers) {
@@ -4952,6 +5001,62 @@
     return output;
   }
 
+  function deleteHeaderFrom(headers, name) {
+    var keys = Object.keys(headers || {});
+    var index;
+    for (index = 0; index < keys.length; index += 1) {
+      if (keys[index].toLowerCase() === String(name).toLowerCase()) {
+        delete headers[keys[index]];
+      }
+    }
+  }
+
+  function setHeaderOn(headers, name, value) {
+    deleteHeaderFrom(headers, name);
+    headers[name] = value;
+  }
+
+  function normalizeGrpcResponseHeaders(headers, body, requestHeaders) {
+    var output = {};
+    var keys = isPlainObject(headers) ? Object.keys(headers) : [];
+    var index;
+    var key;
+    var contentType = headerValue(headers, "content-type");
+    var userAgent = headerValue(requestHeaders, "user-agent").toLowerCase();
+    var mossEngine = headerValue(
+      requestHeaders,
+      "x-bili-moss-engine-type"
+    );
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (!/^(?:age|cache-control|content-length|etag|expires|last-modified|pragma)$/i.test(key)) {
+        output[key] = headers[key];
+      }
+    }
+    setHeaderOn(
+      output,
+      "Content-Type",
+      /^application\/grpc(?:\+proto)?(?:;|$)/i.test(contentType)
+        ? contentType
+        : "application/grpc"
+    );
+    setHeaderOn(output, "Cache-Control", "no-store, no-cache, must-revalidate");
+    setHeaderOn(output, "Pragma", "no-cache");
+    if (!hasCompressedGrpcFrame(body)) {
+      deleteHeaderFrom(output, "grpc-encoding");
+    }
+    deleteHeaderFrom(output, "grpc-status");
+    if (
+      /bili-universal/i.test(userAgent) &&
+      mossEngine === "1"
+    ) {
+      setHeaderOn(output, "grpc-status", "0");
+    } else if (/bili-blue/i.test(userAgent)) {
+      setHeaderOn(output, "grpc-status", "0");
+    }
+    return output;
+  }
+
   function completionForResult(result, responseHeaders, noStore) {
     var completion = {};
     if (result && result.valid && result.changed > 0) {
@@ -4961,6 +5066,33 @@
       completion.headers = noStoreResponseHeaders(responseHeaders);
     }
     return completion;
+  }
+
+  function completionForGrpcResult(result, responseHeaders, requestHeaders, body) {
+    var completion = {};
+    var outputBody =
+      result && result.valid && result.changed > 0
+        ? result.body
+        : body;
+    if (result && result.valid && result.changed > 0) {
+      completion.body = result.body;
+    }
+    completion.headers = normalizeGrpcResponseHeaders(
+      responseHeaders,
+      outputBody,
+      requestHeaders
+    );
+    return completion;
+  }
+
+  function rawResponseBody(response) {
+    if (!response) {
+      return null;
+    }
+    if (response.bodyBytes !== undefined && response.bodyBytes !== null) {
+      return response.bodyBytes;
+    }
+    return response.body;
   }
 
   function responseBodyForEndpoint(response, grpcEndpoint) {
@@ -5086,6 +5218,9 @@
     var grpcEndpoint;
     var context;
     var preventCaching;
+    var rawBody;
+    var response;
+    var transport;
     try {
       config = parseArgument(
         typeof $argument === "string" ? $argument : ""
@@ -5111,14 +5246,32 @@
             ? $response.headers
             : null
       };
+      response = typeof $response !== "undefined" ? $response : null;
+      rawBody = rawResponseBody(response);
+      transport = endpointRegistry && endpointRegistry.detectTransport
+        ? endpointRegistry.detectTransport({
+            body: rawBody,
+            contentType: headerValue(
+              context.responseHeaders,
+              "content-type"
+            )
+          })
+        : (grpcEndpoint ? "grpc" : typeof rawBody === "string" ? "json" : "binary");
+      if (
+        grpcEndpoint &&
+        (transport === "binary" || transport === "unknown")
+      ) {
+        transport = "grpc";
+      }
       preventCaching =
+        isVolatileResponseUrl(requestUrl, transport) ||
         isVolatileGrpcEndpoint(grpcEndpoint) ||
         isVolatileJsonEndpoint(endpoint);
       body = responseBodyForEndpoint(
-        typeof $response !== "undefined" ? $response : null,
-        grpcEndpoint
+        response,
+        transport === "grpc"
       );
-      if (isByteView(body) || grpcEndpoint) {
+      if (transport === "grpc") {
         if (hasCompressedGrpcFrame(body)) {
           transformGrpcBodyAsync(
             body,
@@ -5131,7 +5284,9 @@
                 asyncResult,
                 "grpc",
                 body,
-                context.responseHeaders
+                context.responseHeaders,
+                requestUrl,
+                context.requestHeaders
               );
             }
             if (
@@ -5139,19 +5294,21 @@
               asyncResult.changed > 0
             ) {
               $done(
-                completionForResult(
+                completionForGrpcResult(
                   asyncResult,
                   context.responseHeaders,
-                  preventCaching
+                  context.requestHeaders,
+                  body
                 )
               );
               return;
             }
             $done(
-              completionForResult(
+              completionForGrpcResult(
                 asyncResult,
                 context.responseHeaders,
-                preventCaching
+                context.requestHeaders,
+                body
               )
             );
           }, function (error) {
@@ -5164,10 +5321,11 @@
                 )
             );
             $done(
-              completionForResult(
+              completionForGrpcResult(
                 null,
                 context.responseHeaders,
-                preventCaching
+                context.requestHeaders,
+                body
               )
             );
           });
@@ -5179,31 +5337,49 @@
             result,
             "grpc",
             body,
-            context.responseHeaders
+            context.responseHeaders,
+            requestUrl,
+            context.requestHeaders
           );
         }
         if (result.valid && result.changed > 0) {
           $done(
-            completionForResult(
+            completionForGrpcResult(
               result,
               context.responseHeaders,
-              preventCaching
+              context.requestHeaders,
+              body
             )
           );
           return;
         }
         $done(
-          completionForResult(
+          completionForGrpcResult(
             result,
             context.responseHeaders,
-            preventCaching
+            context.requestHeaders,
+            body
           )
         );
         return;
       }
       if (typeof body !== "string") {
         if (config.debug) {
-          safeLog("non-text response left unchanged");
+          logDiagnostic(
+            {
+              changed: 0,
+              endpoint: "",
+              reason: transport === "binary"
+                ? "unknown-binary"
+                : "body-unavailable",
+              valid: true
+            },
+            transport,
+            body,
+            context.responseHeaders,
+            requestUrl,
+            context.requestHeaders
+          );
         }
         $done(
           completionForResult(
@@ -5242,7 +5418,9 @@
                 merged,
                 "json",
                 body,
-                context.responseHeaders
+                context.responseHeaders,
+                requestUrl,
+                context.requestHeaders
               );
             }
             $done(
@@ -5261,7 +5439,9 @@
           result,
           "json",
           body,
-          context.responseHeaders
+          context.responseHeaders,
+          requestUrl,
+          context.requestHeaders
         );
       }
       if (result.valid && result.changed > 0) {
@@ -5291,7 +5471,17 @@
           )
       );
       $done(
-        preventCaching &&
+        transport === "grpc" && typeof $response !== "undefined" && $response
+          ? {
+              headers: normalizeGrpcResponseHeaders(
+                $response.headers,
+                rawBody,
+                typeof $request !== "undefined" && $request
+                  ? $request.headers
+                  : null
+              )
+            }
+          : preventCaching &&
         typeof $response !== "undefined" &&
         $response
           ? {
@@ -5312,6 +5502,7 @@
     feedItemIdentity: feedItemIdentity,
     feedItemIdentities: feedItemIdentities,
     grpcFrameSummaryForLog: grpcFrameSummaryForLog,
+    grpcTopFieldSummaryForLog: grpcTopFieldSummaryForLog,
     handleFeed: handleFeed,
     handleMine: handleMine,
     handleNavigation: handleNavigation,
@@ -5329,6 +5520,7 @@
     matchesNavigationItem: matchesNavigationItem,
     mergeFilteredFeedResults: mergeFilteredFeedResults,
     noStoreResponseHeaders: noStoreResponseHeaders,
+    normalizeGrpcResponseHeaders: normalizeGrpcResponseHeaders,
     parseArgument: parseArgument,
     parseProtoFields: parseProtoFields,
     readVarint: readVarint,

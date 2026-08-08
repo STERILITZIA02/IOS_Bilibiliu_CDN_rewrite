@@ -2,6 +2,40 @@
 
 All notable changes to this project are documented here.
 
+## [3.9.0] - 2026-08-08
+
+- Centralize reviewed JSON and gRPC metadata endpoints in one registry used by
+  request guards, response classification, generated Shadowrocket matchers and
+  MITM host generation, eliminating the previous matcher/classifier drift.
+- Detect gRPC independently from endpoint recognition, add bounded unknown-RPC
+  frame diagnostics, preserve multi-frame ordering, normalize changed gRPC
+  headers and `grpc-status` for Bilibili engine variants, and negotiate only
+  `gzip,identity` on volatile metadata requests.
+- Harden the Bilibili iOS 9.6.1 home allowlist to require complete AV identity,
+  remove commercial AV disguises and large banners through reviewed metadata,
+  and filter Goofish/Taobao under-player operations only inside confirmed
+  commercial/action containers. Ordinary titles containing advertising words
+  remain untouched.
+- Apply the same no-store request/response treatment to volatile Home, View,
+  ViewProgress, RelatesFeed, ViewUnite, PlayPause, ViewEndPage and related Story
+  methods so cached/304 responses cannot re-inject unfiltered UI after resume.
+- Replace `BiliCDN.hostAuto.v8` with isolated `BiliCDN.hostAuto.v10` state. The
+  selector now gates on representation bandwidth, then scores 64 KiB startup
+  TTFB/throughput, 1 MiB sustained p25 throughput, failures and jitter; the
+  configured switch threshold prevents flapping without pinning a merely
+  acceptable current host forever.
+- Add automatic hashed Wi-Fi/cellular profiles when Shadowrocket exposes network
+  information, plus separate audio, normal-video and high-bitrate-video health
+  buckets. Playback hot paths still perform zero probes and mediaRoutes v9 still
+  applies only complete target-owned signed URLs.
+- Rework the cron benchmark into a serial 45-second two-stage budget: all
+  maintained candidates receive a 64 KiB exact-content startup check, then only
+  the reference and two best challengers receive rotating 1 MiB sustained
+  validation. Hosts with open circuits are skipped.
+- Add Bilibili 9.6.1 JSON/gRPC, resume, Goofish action, compression, response
+  header, diagnostic, scoring, threshold, network-profile and media-bucket
+  regressions; regenerate all modules, runtimes, `modules.list` and checksums.
+
 ## [3.8.2] - 2026-08-04
 
 - Remove Magic Reward recommendations that keep an ordinary `av` card type but

@@ -4,15 +4,283 @@ this.__BILIFLOW_COMBINED__ = true;
 
 (function (root) {
   var hasOwn = Object.prototype.hasOwnProperty;
-
-  var APP_HOSTS = [
+  var APP_HOSTS = ["app.bilibili.com", "app.biliapi.net"];
+  var API_HOSTS = ["api.bilibili.com", "api.biliapi.net"];
+  var GRPC_HOSTS = [
     "app.bilibili.com",
-    "app.biliapi.net"
+    "app.biliapi.net",
+    "grpc.bilibili.com",
+    "grpc.biliapi.net"
   ];
-  var API_HOSTS = [
-    "api.bilibili.com",
-    "api.biliapi.net"
+
+  function row(
+    id,
+    hosts,
+    path,
+    transport,
+    handler,
+    runtimes,
+    volatile,
+    requestGuard,
+    responseFilter,
+    pattern
+  ) {
+    var value = {
+      handler: handler,
+      hosts: hosts,
+      id: id,
+      requestGuard: Boolean(requestGuard),
+      responseFilter: Boolean(responseFilter),
+      runtimes: runtimes,
+      transport: transport,
+      volatile: Boolean(volatile)
+    };
+    if (pattern) {
+      value.pathPattern = path;
+    } else {
+      value.path = path;
+    }
+    return value;
+  }
+
+  var REGISTRY = [
+    row("cdn-json-playurl", ["api.bilibili.com", "api.biliapi.net", "app.bilibili.com", "app.biliapi.net", "interface.bilibili.com"], "\\/(?:x\\/(?:player\\/(?:wbi\\/)?playurl(?:v2)?|v2\\/playurl)|pgc\\/player\\/(?:api\\/playurl(?:proj)?|web\\/(?:v2\\/)?playurl(?:\\/html5)?)|pugv\\/player\\/(?:api|web)\\/playurl|v2\\/playurl)", "json", "cdn", ["cdn"], false, false, true, true),
+    row("cdn-grpc-playurl", GRPC_HOSTS, "\\/(?:bilibili\\.app\\.playerunite\\.v1\\.Player\\/PlayViewUnite|bilibili\\.app\\.playurl\\.v1\\.PlayURL\\/PlayView|bilibili\\.(?:pgc\\.gateway\\.player\\.(?:v1|v2)|cheese\\.gateway\\.player\\.v1)\\.PlayURL\\/PlayView)", "grpc", "cdn", ["cdn"], false, false, true, true),
+
+    row("vip-materials", APP_HOSTS.concat(API_HOSTS), "/x/vip/ads/materials", "json", "vip-materials", ["enhance"], true, true, true),
+    row("vip-material-report", APP_HOSTS.concat(API_HOSTS), "/x/vip/ads/material/report", "json", "vip-material-report", ["enhance"], true, true, true),
+    row("resource-promotion", APP_HOSTS.concat(API_HOSTS), "\\/x\\/resource\\/(?:top\\/activity|patch\\/tab(?:\\/v2)?)", "json", "resource-promotion", ["enhance"], true, true, true, true),
+    row("splash-list", APP_HOSTS, "/x/v2/splash/list", "json", "splash-list", ["enhance"], true, true, true),
+    row("splash-show", APP_HOSTS, "/x/v2/splash/show", "json", "splash-show", ["enhance"], true, true, true),
+    row("splash-event-list2", APP_HOSTS, "/x/v2/splash/event/list2", "json", "splash-event-list2", ["enhance"], true, true, true),
+    row("splash-brand-list", APP_HOSTS, "/x/v2/splash/brand/list", "json", "splash-brand-list", ["enhance"], true, true, true),
+    row("feed", APP_HOSTS, "/x/v2/feed/index", "json", "feed", ["enhance"], true, true, true),
+    row("story", APP_HOSTS, "/x/v2/feed/index/story", "json", "story", ["story"], true, true, true),
+    row("story-cart", APP_HOSTS, "/x/v2/feed/index/story/cart", "json", "story-cart", ["story"], true, true, true),
+    row("story-relate", APP_HOSTS, "/x/v2/feed/index/relate/story", "json", "story", ["story"], true, true, true),
+    row("search-square", APP_HOSTS, "/x/v2/search/square", "json", "search-square", ["enhance"], true, true, true),
+    row("search-results", APP_HOSTS, "\\/x\\/v2\\/search(?:\\/type)?", "json", "search-results", ["enhance"], true, true, true, true),
+    row("navigation", APP_HOSTS, "/x/resource/show/tab/v2", "json", "navigation", ["enhance"], true, true, true),
+    row("mine", APP_HOSTS, "\\/x\\/v2\\/account\\/mine(?:\\/ipad)?", "json", "mine", ["enhance"], true, true, true, true),
+    row("myinfo-diagnostic", APP_HOSTS, "/x/v2/account/myinfo", "json", "myinfo-diagnostic", ["enhance"], true, true, true),
+    row("view", APP_HOSTS, "/x/v2/view", "json", "view", ["enhance"], true, true, true),
+    row("pgc", API_HOSTS, "\\/pgc\\/page\\/(?:bangumi|cinema\\/tab)", "json", "pgc", ["enhance"], true, true, true, true),
+    row("web-feed", API_HOSTS, "\\/x\\/web-interface\\/(?:wbi\\/)?index\\/top\\/feed\\/rcmd", "json", "web-feed", ["enhance"], true, true, true, true),
+    row("reply", API_HOSTS, "/x/v2/reply/main", "json", "reply", ["enhance"], true, true, true),
+    row("vip-center", API_HOSTS, "/x/vip/web/vip_center/combine", "json", "vip-center", ["enhance"], true, true, true),
+    row("pgc-activity-material", API_HOSTS, "/pgc/activity/deliver/material/receive", "json", "pgc-activity-material", ["enhance"], true, true, true),
+    row("live", ["api.live.bilibili.com"], "/xlive/app-room/v1/index/getInfoByRoom", "json", "live", ["enhance"], true, true, true),
+    row("live-shopping-material", ["api.live.bilibili.com"], "/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info", "json", "live-shopping-material", ["enhance"], true, true, true),
+    row("game-live-material", ["line3-h5-mobile-api.biligame.com"], "/game/live/large_card_material", "json", "game-live-material", ["enhance"], true, true, true),
+    row("search-recommend-words", ["api.vc.bilibili.com"], "\\/search_svr\\/v\\d+\\/Search\\/recommend_words", "json", "search-recommend-words", ["enhance"], true, true, true, true),
+    row("manga-flash", ["manga.bilibili.com"], "\\/twirp\\/comic\\.v\\d+\\.Comic\\/(?:Flash|ListFlash)", "json", "manga-flash", ["enhance"], true, true, true, true),
+
+    row("grpc-view-v1", GRPC_HOSTS, "/bilibili.app.view.v1.View/View", "grpc", "grpc-view-v1", ["enhance"], true, true, true),
+    row("grpc-view-v1-progress", GRPC_HOSTS, "/bilibili.app.view.v1.View/ViewProgress", "grpc", "grpc-view-v1-progress", ["enhance"], true, true, true),
+    row("grpc-view-v1-relates", GRPC_HOSTS, "/bilibili.app.view.v1.View/RelatesFeed", "grpc", "grpc-view-v1-relates", ["enhance"], true, true, true),
+    row("grpc-view-v1-tfinfo", GRPC_HOSTS, "/bilibili.app.view.v1.View/TFInfo", "grpc", "grpc-view-v1-tfinfo", ["enhance"], true, true, true),
+    row("grpc-view-unite", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/View", "grpc", "grpc-view-unite", ["enhance"], true, true, true),
+    row("grpc-view-unite-progress", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/ViewProgress", "grpc", "grpc-view-unite-progress", ["enhance"], true, true, true),
+    row("grpc-view-unite-play-pause", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/PlayPause", "grpc", "grpc-view-unite-play-pause", ["enhance"], true, true, true),
+    row("grpc-view-unite-end-page", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/ViewEndPage", "grpc", "grpc-view-unite-end-page", ["enhance"], true, true, true),
+    row("grpc-view-unite-relates", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/RelatesFeed", "grpc", "grpc-view-unite-relates", ["enhance"], true, true, true),
+    row("grpc-mine-pub-module", GRPC_HOSTS, "/bilibili.app.mine.v1.Mine/PubModule", "grpc", "grpc-mine-pub-module", ["enhance"], true, true, true),
+    row("grpc-mine-device-feature", GRPC_HOSTS, "/bilibili.app.mine.v1.Mine/DeviceFeature", "grpc", "grpc-mine-device-feature", ["enhance"], true, true, true),
+    row("grpc-resource-module-list", GRPC_HOSTS, "/bilibili.app.resource.v1.Module/List", "grpc", "grpc-resource-module-list", ["enhance"], true, true, true),
+    row("grpc-popular", GRPC_HOSTS, "/bilibili.app.show.v1.Popular/Index", "grpc", "grpc-popular", ["enhance"], true, true, true),
+    row("grpc-dynamic", GRPC_HOSTS, "/bilibili.app.dynamic.v2.Dynamic/DynAll", "grpc", "grpc-dynamic", ["enhance"], true, true, true),
+    row("grpc-search-all", GRPC_HOSTS, "/bilibili.polymer.app.search.v1.Search/SearchAll", "grpc", "grpc-search-all", ["enhance"], true, true, true),
+    row("grpc-search-by-type", GRPC_HOSTS, "/bilibili.polymer.app.search.v1.Search/SearchByType", "grpc", "grpc-search-by-type", ["enhance"], true, true, true),
+    row("grpc-search-default-words", GRPC_HOSTS, "/bilibili.app.interface.v1.Search/DefaultWords", "grpc", "grpc-search-default-words", ["enhance"], true, true, true),
+    row("grpc-reply", GRPC_HOSTS, "/bilibili.main.community.reply.v1.Reply/MainList", "grpc", "grpc-reply", ["enhance"], true, true, true),
+    row("grpc-story-bottom-diversion", GRPC_HOSTS, "/bilibili.app.story.v1.Story/BottomDiversionEntrance", "grpc", "grpc-story-bottom-diversion", ["enhance"], true, true, true),
+    row("grpc-metadata-diagnostic", GRPC_HOSTS, "\\/bilibili\\.app\\.(?:view|viewunite|show|story|home|card|feed)\\.[A-Za-z0-9_.]+\\/[A-Za-z0-9_]+", "grpc", "grpc-diagnostic", ["enhance"], true, true, true, true)
   ];
+
+  function parseRequestUrl(requestUrl) {
+    var match = /^https?:\/\/([^/?#]+)(\/[^?#]*)?/i.exec(String(requestUrl || ""));
+    if (!match) {
+      return null;
+    }
+    return {
+      host: String(match[1]).replace(/:\d+$/, "").toLowerCase(),
+      path: match[2] || "/"
+    };
+  }
+
+  function matchesRow(value, parsed) {
+    if (!parsed || value.hosts.indexOf(parsed.host) === -1) {
+      return false;
+    }
+    if (value.path) {
+      return parsed.path === value.path;
+    }
+    try {
+      return new RegExp("^(?:" + value.pathPattern + ")$").test(parsed.path);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function classify(requestUrl, options) {
+    var parsed = parseRequestUrl(requestUrl);
+    var index;
+    var value;
+    options = options || {};
+    for (index = 0; index < REGISTRY.length; index += 1) {
+      value = REGISTRY[index];
+      if (options.transport && value.transport !== options.transport) {
+        continue;
+      }
+      if (options.runtime && value.runtimes.indexOf(options.runtime) === -1) {
+        continue;
+      }
+      if (options.requestGuard === true && value.requestGuard !== true) {
+        continue;
+      }
+      if (options.responseFilter === true && value.responseFilter !== true) {
+        continue;
+      }
+      if (matchesRow(value, parsed)) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  function escapeRegex(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "\\/");
+  }
+
+  function rowPattern(value) {
+    var hosts = value.hosts.map(escapeRegex).join("|");
+    var path = value.path ? escapeRegex(value.path) : value.pathPattern;
+    return "(?:(?:" + hosts + ")(?::\\d+)?" + path + ")";
+  }
+
+  function optionMatches(value, options) {
+    if (options.transport && value.transport !== options.transport) {
+      return false;
+    }
+    if (options.runtime && value.runtimes.indexOf(options.runtime) === -1) {
+      return false;
+    }
+    if (options.requestGuard === true && value.requestGuard !== true) {
+      return false;
+    }
+    if (options.responseFilter === true && value.responseFilter !== true) {
+      return false;
+    }
+    if (options.handler && value.handler !== options.handler) {
+      return false;
+    }
+    return true;
+  }
+
+  function matcherPattern(options) {
+    var rows = REGISTRY.filter(function (value) {
+      return optionMatches(value, options || {});
+    });
+    if (rows.length === 0) {
+      return "(?!)";
+    }
+    return "^https?:\\/\\/(?:" + rows.map(rowPattern).join("|") + ")(?:\\?|$)";
+  }
+
+  function toBytes(value) {
+    if (typeof Uint8Array !== "undefined" && value instanceof Uint8Array) {
+      return value;
+    }
+    if (typeof ArrayBuffer !== "undefined" && value instanceof ArrayBuffer) {
+      return new Uint8Array(value);
+    }
+    if (value && value.buffer && typeof value.byteOffset === "number" && typeof value.byteLength === "number") {
+      try {
+        return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+      } catch (error) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  function isGrpcFramedBody(body) {
+    var bytes = toBytes(body);
+    var offset = 0;
+    var length;
+    if (!bytes || bytes.length < 5) {
+      return false;
+    }
+    while (offset < bytes.length) {
+      if (offset + 5 > bytes.length || (bytes[offset] !== 0 && bytes[offset] !== 1)) {
+        return false;
+      }
+      length = bytes[offset + 1] * 0x1000000 + bytes[offset + 2] * 0x10000 + bytes[offset + 3] * 0x100 + bytes[offset + 4];
+      offset += 5 + length;
+      if (offset > bytes.length) {
+        return false;
+      }
+    }
+    return offset === bytes.length;
+  }
+
+  function detectTransport(context) {
+    var contentType = String(context && context.contentType || "").split(";")[0].trim().toLowerCase();
+    var body = context && context.body;
+    if (/^application\/grpc(?:\+proto)?$/.test(contentType)) {
+      return "grpc";
+    }
+    if (isGrpcFramedBody(body)) {
+      return "grpc";
+    }
+    if (typeof body === "string") {
+      return "json";
+    }
+    if (toBytes(body)) {
+      return "binary";
+    }
+    return "unknown";
+  }
+
+  function validateRegistry() {
+    var seen = {};
+    var index;
+    var value;
+    for (index = 0; index < REGISTRY.length; index += 1) {
+      value = REGISTRY[index];
+      if (!value || seen[value.id] || !/^[a-z0-9-]+$/.test(value.id) || !Array.isArray(value.hosts) || value.hosts.length === 0 || (!value.path && !value.pathPattern) || (value.transport !== "json" && value.transport !== "grpc") || typeof value.handler !== "string" || typeof value.volatile !== "boolean" || typeof value.requestGuard !== "boolean" || typeof value.responseFilter !== "boolean") {
+        return false;
+      }
+      seen[value.id] = true;
+    }
+    return true;
+  }
+
+  var api = {
+    REGISTRY: REGISTRY,
+    classify: classify,
+    detectTransport: detectTransport,
+    isGrpcFramedBody: isGrpcFramedBody,
+    matcherPattern: matcherPattern,
+    parseRequestUrl: parseRequestUrl,
+    validateRegistry: validateRegistry
+  };
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = api;
+  } else {
+    root.BiliEndpointRegistry = api;
+  }
+})(this);
+
+"use strict";
+
+(function (root) {
+  var hasOwn = Object.prototype.hasOwnProperty;
+  var endpointRegistry =
+    typeof module !== "undefined" && module.exports
+      ? require("./bilibili-endpoints.js")
+      : root.BiliEndpointRegistry;
   var FEED_AD_CARD_TYPES = {
     cm_v1: ["ad_web_s", "ad_av", "ad_web_gif"],
     cm_v2: [
@@ -286,7 +554,12 @@ this.__BILIFLOW_COMBINED__ = true;
     "navigation"
   ];
   var VIEW_JSON_CONTAINER_KEYS = {
+    action: true,
+    actions: true,
+    buttons: true,
     cards: true,
+    commercial_modules: true,
+    commercialModules: true,
     introduction: true,
     introduction_modules: true,
     introductionModules: true,
@@ -295,6 +568,10 @@ this.__BILIFLOW_COMBINED__ = true;
     module_list: true,
     moduleList: true,
     modules: true,
+    operation_card: true,
+    operation_cards: true,
+    operationCard: true,
+    operationCards: true,
     relates: true,
     relates_feed: true,
     relatesFeed: true,
@@ -314,6 +591,12 @@ this.__BILIFLOW_COMBINED__ = true;
     cms: true,
     commercial_info: true,
     commercialInfo: true,
+    commercial_module: true,
+    commercialModule: true,
+    marketing_banner: true,
+    marketingBanner: true,
+    operation_card: true,
+    operationCard: true,
     player_ad: true,
     playerAd: true,
     under_player_ad: true,
@@ -452,215 +735,31 @@ this.__BILIFLOW_COMBINED__ = true;
     return config;
   }
 
-  function parseRequestUrl(requestUrl) {
-    var match = /^https?:\/\/([^/?#]+)(\/[^?#]*)?/i.exec(
-      String(requestUrl || "")
-    );
-    if (!match) {
-      return null;
-    }
-    return {
-      host: String(match[1]).toLowerCase(),
-      path: match[2] || "/"
-    };
-  }
-
   function classifyEndpoint(requestUrl) {
-    var parsed = parseRequestUrl(requestUrl);
-    var path;
-    if (!parsed) {
-      return "";
-    }
-    path = parsed.path;
-
-    if (
-      (
-        includes(APP_HOSTS, parsed.host) ||
-        includes(API_HOSTS, parsed.host)
-      ) &&
-      (
-        path === "/x/vip/ads/materials" ||
-        path === "/x/vip/ads/material/report"
-      )
-    ) {
-      return path === "/x/vip/ads/materials"
-        ? "vip-materials"
-        : "vip-material-report";
-    }
-    if (
-      (
-        includes(APP_HOSTS, parsed.host) ||
-        includes(API_HOSTS, parsed.host)
-      ) &&
-      /^\/x\/resource\/(?:top\/activity|patch\/tab(?:\/v2)?)$/.test(
-        path
-      )
-    ) {
-      return "resource-promotion";
-    }
-
-    if (includes(APP_HOSTS, parsed.host)) {
-      if (path === "/x/v2/splash/list") {
-        return "splash-list";
-      }
-      if (path === "/x/v2/splash/show") {
-        return "splash-show";
-      }
-      if (path === "/x/v2/splash/event/list2") {
-        return "splash-event-list2";
-      }
-      if (path === "/x/v2/splash/brand/list") {
-        return "splash-brand-list";
-      }
-      if (path === "/x/v2/feed/index") {
-        return "feed";
-      }
-      if (path === "/x/v2/feed/index/story") {
-        return "story";
-      }
-      if (path === "/x/v2/feed/index/story/cart") {
-        return "story-cart";
-      }
-      if (path === "/x/v2/feed/index/relate/story") {
-        return "story";
-      }
-      if (path === "/x/v2/search/square") {
-        return "search-square";
-      }
-      if (/^\/x\/v2\/search(?:\/type)?$/.test(path)) {
-        return "search-results";
-      }
-      if (path === "/x/resource/show/tab/v2") {
-        return "navigation";
-      }
-      if (/^\/x\/v2\/account\/mine(?:\/ipad)?$/.test(path)) {
-        return "mine";
-      }
-      if (path === "/x/v2/account/myinfo") {
-        return "myinfo-diagnostic";
-      }
-      if (path === "/x/v2/view") {
-        return "view";
-      }
-    }
-
-    if (includes(API_HOSTS, parsed.host)) {
-      if (
-        path === "/pgc/page/bangumi" ||
-        path === "/pgc/page/cinema/tab"
-      ) {
-        return "pgc";
-      }
-      if (
-        /^\/x\/web-interface\/(?:wbi\/)?index\/top\/feed\/rcmd$/.test(
-          path
-        )
-      ) {
-        return "web-feed";
-      }
-      if (path === "/x/v2/reply/main") {
-        return "reply";
-      }
-      if (path === "/x/vip/web/vip_center/combine") {
-        return "vip-center";
-      }
-      if (path === "/pgc/activity/deliver/material/receive") {
-        return "pgc-activity-material";
-      }
-    }
-
-    if (
-      parsed.host === "api.live.bilibili.com" &&
-      path === "/xlive/app-room/v1/index/getInfoByRoom"
-    ) {
-      return "live";
-    }
-    if (
-      parsed.host === "api.live.bilibili.com" &&
-      path ===
-        "/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info"
-    ) {
-      return "live-shopping-material";
-    }
-    if (
-      parsed.host === "line3-h5-mobile-api.biligame.com" &&
-      path === "/game/live/large_card_material"
-    ) {
-      return "game-live-material";
-    }
-    if (
-      parsed.host === "api.vc.bilibili.com" &&
-      /^\/search_svr\/v\d+\/Search\/recommend_words$/.test(path)
-    ) {
-      return "search-recommend-words";
-    }
-    if (
-      parsed.host === "manga.bilibili.com" &&
-      /^\/twirp\/comic\.v\d+\.Comic\/(?:Flash|ListFlash)$/.test(path)
-    ) {
-      return "manga-flash";
-    }
-    return "";
+    var matched = endpointRegistry && endpointRegistry.classify
+      ? endpointRegistry.classify(requestUrl, {
+          runtime: "enhance",
+          transport: "json"
+        }) || endpointRegistry.classify(requestUrl, {
+          runtime: "story",
+          transport: "json"
+        })
+      : null;
+    return matched && matched.handler !== "grpc-diagnostic"
+      ? matched.handler
+      : "";
   }
 
   function classifyGrpcEndpoint(requestUrl) {
-    var parsed = parseRequestUrl(requestUrl);
-    var allowedHost;
-    if (!parsed) {
-      return "";
-    }
-    allowedHost = includes(
-      [
-        "app.bilibili.com",
-        "app.biliapi.net",
-        "grpc.bilibili.com",
-        "grpc.biliapi.net"
-      ],
-      parsed.host
-    );
-    if (!allowedHost) {
-      return "";
-    }
-    switch (parsed.path) {
-      case "/bilibili.app.view.v1.View/View":
-        return "grpc-view-v1";
-      case "/bilibili.app.view.v1.View/ViewProgress":
-        return "grpc-view-v1-progress";
-      case "/bilibili.app.view.v1.View/RelatesFeed":
-        return "grpc-view-v1-relates";
-      case "/bilibili.app.view.v1.View/TFInfo":
-        return "grpc-view-v1-tfinfo";
-      case "/bilibili.app.viewunite.v1.View/View":
-        return "grpc-view-unite";
-      case "/bilibili.app.viewunite.v1.View/ViewProgress":
-        return "grpc-view-unite-progress";
-      case "/bilibili.app.viewunite.v1.View/PlayPause":
-        return "grpc-view-unite-play-pause";
-      case "/bilibili.app.viewunite.v1.View/ViewEndPage":
-        return "grpc-view-unite-end-page";
-      case "/bilibili.app.viewunite.v1.View/RelatesFeed":
-        return "grpc-view-unite-relates";
-      case "/bilibili.app.mine.v1.Mine/PubModule":
-        return "grpc-mine-pub-module";
-      case "/bilibili.app.mine.v1.Mine/DeviceFeature":
-        return "grpc-mine-device-feature";
-      case "/bilibili.app.resource.v1.Module/List":
-        return "grpc-resource-module-list";
-      case "/bilibili.app.show.v1.Popular/Index":
-        return "grpc-popular";
-      case "/bilibili.app.dynamic.v2.Dynamic/DynAll":
-        return "grpc-dynamic";
-      case "/bilibili.polymer.app.search.v1.Search/SearchAll":
-        return "grpc-search-all";
-      case "/bilibili.polymer.app.search.v1.Search/SearchByType":
-        return "grpc-search-by-type";
-      case "/bilibili.app.interface.v1.Search/DefaultWords":
-        return "grpc-search-default-words";
-      case "/bilibili.main.community.reply.v1.Reply/MainList":
-        return "grpc-reply";
-      default:
-        return "";
-    }
+    var matched = endpointRegistry && endpointRegistry.classify
+      ? endpointRegistry.classify(requestUrl, {
+          runtime: "enhance",
+          transport: "grpc"
+        })
+      : null;
+    return matched && matched.handler !== "grpc-diagnostic"
+      ? matched.handler
+      : "";
   }
 
   function isPauseAdEndpoint(endpoint) {
@@ -807,11 +906,18 @@ this.__BILIFLOW_COMBINED__ = true;
   function explicitCommercialLabel(item) {
     var keys = [
       "ad_tag",
+      "ad_badge",
+      "ad_tag_style",
       "ad_label",
       "badge",
       "badge_info",
       "badge_text",
       "corner_mark",
+      "commercial_label",
+      "business_badge",
+      "bottom_rcmd_reason_style",
+      "cover_left_text",
+      "cover_right_text",
       "rcmd_reason",
       "rcmd_reason_style",
       "reason",
@@ -864,7 +970,15 @@ this.__BILIFLOW_COMBINED__ = true;
       "commercial_button",
       "commercialButton",
       "business_info",
-      "businessInfo"
+      "businessInfo",
+      "ad_badge",
+      "adBadge",
+      "ad_tag_style",
+      "adTagStyle",
+      "business_badge",
+      "businessBadge",
+      "commercial_label",
+      "commercialLabel"
     ];
     var index;
     if (!isPlainObject(item)) {
@@ -964,11 +1078,24 @@ this.__BILIFLOW_COMBINED__ = true;
       "commercialButton",
       "commercial_info",
       "commercialInfo",
+      "ad_badge",
+      "adBadge",
+      "ad_tag_style",
+      "adTagStyle",
+      "business",
+      "business_badge",
+      "businessBadge",
+      "click",
+      "click_info",
+      "clickInfo",
       "card_business_badge",
       "cardBusinessBadge",
       "creative",
       "creative_info",
       "creativeInfo",
+      "exposure",
+      "exposure_info",
+      "exposureInfo",
       "tracking",
       "tracking_info",
       "trackingInfo"
@@ -1058,7 +1185,7 @@ this.__BILIFLOW_COMBINED__ = true;
       : "";
     link = objectLink(item);
     return (
-      /^(?:下载|立即下载|购买|立即购买|领取|立即领取|打开|去看看)$/.test(
+      /^(?:下载|立即下载|购买|立即购买|领取|立即领取|打开|立即打开|去看看|闲鱼集市)$/.test(
         text
       ) ||
       isCommercialUri(link)
@@ -2613,13 +2740,59 @@ this.__BILIFLOW_COMBINED__ = true;
     );
   }
 
+  function strictHomeVideoIdentity(item) {
+    var nodes;
+    var index;
+    var node;
+    var aid = 0;
+    var cid = 0;
+    var bvid = "";
+    var uri;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    nodes = [
+      item,
+      item.player_args,
+      item.playerArgs,
+      item.archive,
+      item.video
+    ];
+    for (index = 0; index < nodes.length; index += 1) {
+      node = nodes[index];
+      if (!isPlainObject(node)) {
+        continue;
+      }
+      if (!aid) {
+        aid = Number(node.aid || node.avid || 0);
+      }
+      if (!cid) {
+        cid = Number(node.cid || 0);
+      }
+      if (!bvid && /^BV[0-9A-Za-z]{10}$/.test(String(node.bvid || ""))) {
+        bvid = String(node.bvid);
+      }
+    }
+    uri = objectLink(item);
+    return Boolean(
+      Number.isSafeInteger(aid) &&
+      aid > 0 &&
+      Number.isSafeInteger(cid) &&
+      cid > 0 &&
+      bvid &&
+      /^(?:bilibili:\/\/video\/(?:av\d+|BV[0-9A-Za-z]{10})|https?:\/\/(?:www\.)?bilibili\.com\/video\/(?:av\d+|BV[0-9A-Za-z]{10}))(?:[/?#]|$)/i.test(
+        uri
+      )
+    );
+  }
+
   function isPlainHomeFeedVideo(item, requireKnownCardType) {
     var cardType;
     var cardGoto;
     var gotoValue;
     if (
       !isPlainVideoRecommendation(item) ||
-      !hasOrdinaryVideoIdentity(item)
+      !strictHomeVideoIdentity(item)
     ) {
       return false;
     }
@@ -2698,7 +2871,10 @@ this.__BILIFLOW_COMBINED__ = true;
     }
     if (
       config.ads !== false &&
-      isHighConfidencePromotion(item)
+      (
+        isHighConfidencePromotion(item) ||
+        hasReviewedCommercialAction(item, 0)
+      )
     ) {
       return true;
     }
@@ -2714,6 +2890,54 @@ this.__BILIFLOW_COMBINED__ = true;
       ) ||
       (config.vipPromotions !== false && moduleType === 29)
     );
+  }
+
+  function hasReviewedCommercialAction(item, depth) {
+    var keys = [
+      "action",
+      "actions",
+      "button",
+      "buttons",
+      "commercial_action",
+      "commercialAction",
+      "content",
+      "jump",
+      "marketing_action",
+      "marketingAction",
+      "operation_card",
+      "operationCard"
+    ];
+    var index;
+    var value;
+    var nestedIndex;
+    if (!isPlainObject(item) || depth > 5) {
+      return false;
+    }
+    if (isCommercialUri(objectLink(item))) {
+      return true;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      if (!hasOwn.call(item, keys[index])) {
+        continue;
+      }
+      value = item[keys[index]];
+      if (Array.isArray(value)) {
+        for (nestedIndex = 0; nestedIndex < value.length; nestedIndex += 1) {
+          if (hasReviewedCommercialAction(value[nestedIndex], depth + 1)) {
+            return true;
+          }
+        }
+      } else if (isPlainObject(value)) {
+        if (
+          isCommercialUri(objectLink(value)) ||
+          /(?:闲鱼集市|立即打开)/.test(knownLabelText(value, 0)) ||
+          hasReviewedCommercialAction(value, depth + 1)
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   function filterKnownViewJsonContainers(node, config, depth) {
@@ -2795,7 +3019,7 @@ this.__BILIFLOW_COMBINED__ = true;
   }
 
   function isCommercialUri(value) {
-    return /(?:bilibili:\/\/(?:game_center|mall)\/|mall\.bilibili\.com\/|b23\.tv\/(?:cm|mall)(?:[/?#]|$))/i.test(
+    return /(?:bilibili:\/\/(?:game_center|mall)\/|(?:taobao|fleamarket):\/\/|(?:^|\/\/)(?:www\.)?goofish\.com(?:[/:?#]|$)|(?:^|\/\/)2\.taobao\.com(?:[/:?#]|$)|(?:^|\/\/)market\.m\.taobao\.com(?:[/:?#]|$)|mall\.bilibili\.com\/|b23\.tv\/(?:cm|mall)(?:[/?#]|$))/i.test(
       String(value || "")
     );
   }
@@ -3480,7 +3704,7 @@ this.__BILIFLOW_COMBINED__ = true;
     for (index = 0; index < bytes.length; index += 1) {
       text += String.fromCharCode(bytes[index]);
     }
-    return /https?:\/\/b23\.tv\/(?:cm|mall)(?:[/?#]|$)/i.test(
+    return /(?:https?:\/\/(?:b23\.tv\/(?:cm|mall)(?:[/?#]|$)|(?:www\.)?goofish\.com(?:[/?#]|$)|2\.taobao\.com(?:[/?#]|$)|market\.m\.taobao\.com(?:[/?#]|$))|(?:taobao|fleamarket):\/\/)/i.test(
       text
     );
   }
@@ -3777,6 +4001,7 @@ this.__BILIFLOW_COMBINED__ = true;
   function bytesContainCommercialEvidence(input) {
     var bytes = toUint8Array(input);
     var text = "";
+    var utf8;
     var index;
     if (!bytes || bytes.length === 0 || bytes.length > 262144) {
       return false;
@@ -3786,7 +4011,11 @@ this.__BILIFLOW_COMBINED__ = true;
         ? String.fromCharCode(bytes[index])
         : " ";
     }
-    return /(?:https?:\/\/(?:[^/\s]+\.)?(?:cm|ad)\.bili(?:bili)?\.(?:com|net)|(?:https?:\/\/|bilibili:\/\/)[^\s]{0,160}(?:taobao|tmall|jd\.com|pinduoduo|sponsor|commercial|creative|advert|mall-magic-c)|(?:^|[^a-z0-9])(?:ad_info|ad_report|adver_id|creative_id|commercial_id|pause[-_]?(?:ad|commerce)|under[-_]?player[-_]?ad|flash[-_]?sale|mall[-_/]ad)(?:[^a-z0-9]|$))/i.test(
+    utf8 = decodeUtf8Strict(bytes);
+    if (utf8) {
+      text += " " + utf8;
+    }
+    return /(?:https?:\/\/(?:[^/\s]+\.)?(?:cm|ad)\.bili(?:bili)?\.(?:com|net)|(?:https?:\/\/|bilibili:\/\/|taobao:\/\/|fleamarket:\/\/)[^\s]{0,160}(?:goofish\.com|2\.taobao\.com|market\.m\.taobao\.com|taobao|tmall|jd\.com|pinduoduo|sponsor|commercial|creative|advert|mall-magic-c)|闲鱼集市|立即打开|(?:^|[^a-z0-9])(?:ad_info|ad_report|adver_id|creative_id|commercial_id|pause[-_]?(?:ad|commerce)|under[-_]?player[-_]?ad|flash[-_]?sale|mall[-_/]ad)(?:[^a-z0-9]|$))/i.test(
       text
     );
   }
@@ -4408,6 +4637,8 @@ this.__BILIFLOW_COMBINED__ = true;
         return transformSearch(input, 6);
       case "grpc-search-default-words":
         return transformEmptyKnownGrpcReply(input);
+      case "grpc-story-bottom-diversion":
+        return transformEmptyKnownGrpcReply(input);
       case "grpc-reply":
         return transformReply(input);
       default:
@@ -4815,13 +5046,16 @@ this.__BILIFLOW_COMBINED__ = true;
           valid: true
         };
       },
-      function () {
+      function (error) {
         return {
           body: original,
           changed: 0,
           endpoint: endpoint,
           frames: frames.length,
-          reason: "gzip-decode-failed",
+          reason:
+            error && /unsupported/i.test(String(error.message || error))
+              ? "unsupported-grpc-compression"
+              : "gzip-decode-failed",
           valid: false
         };
       }
@@ -4863,25 +5097,92 @@ this.__BILIFLOW_COMBINED__ = true;
       .join("|");
   }
 
-  function logDiagnostic(result, transport, body, responseHeaders) {
+  function grpcTopFieldSummaryForLog(body) {
+    var parsed = parseGrpcFrames(body);
+    var counts = {};
+    var index;
+    var fields;
+    var fieldIndex;
+    if (!parsed.valid) {
+      return "invalid";
+    }
+    for (index = 0; index < parsed.frames.length; index += 1) {
+      if (parsed.frames[index].flag !== 0) {
+        continue;
+      }
+      fields = parseProtoFields(
+        parsed.body.slice(
+          parsed.frames[index].payloadStart,
+          parsed.frames[index].end
+        )
+      );
+      if (!fields) {
+        continue;
+      }
+      for (fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
+        counts[fields[fieldIndex].fieldNumber] =
+          (counts[fields[fieldIndex].fieldNumber] || 0) + 1;
+      }
+    }
+    return Object.keys(counts)
+      .sort(function (left, right) { return Number(left) - Number(right); })
+      .slice(0, 24)
+      .map(function (fieldNumber) {
+        return fieldNumber + ":" + counts[fieldNumber];
+      })
+      .join("|") || "none";
+  }
+
+  function appVersionForLog(headers) {
+    var userAgent = headerValue(headers, "user-agent");
+    var version = headerValue(headers, "x-bili-version");
+    var build = headerValue(headers, "x-bili-build");
+    var match;
+    if (!version) {
+      match = /(?:bili(?:bili)?|bili-universal)[^\d]{0,8}(\d{3,9})/i.exec(userAgent);
+      version = match ? match[1] : "unknown";
+    }
+    return "version=" + String(version || "unknown").slice(0, 32) +
+      " build=" + String(build || "unknown").slice(0, 32);
+  }
+
+  function logDiagnostic(
+    result,
+    transport,
+    body,
+    responseHeaders,
+    requestUrl,
+    requestHeaders
+  ) {
     var contentType = headerValue(responseHeaders, "content-type")
       .split(";")[0]
       .trim()
       .toLowerCase();
+    var parsedUrl = endpointRegistry && endpointRegistry.parseRequestUrl
+      ? endpointRegistry.parseRequestUrl(requestUrl)
+      : null;
     safeLog(
-      "endpoint=" +
+      "host=" + (parsedUrl ? parsedUrl.host : "unknown") +
+        " path=" + (parsedUrl ? parsedUrl.path : "unknown") +
+        " " + appVersionForLog(requestHeaders) +
+        " handler=" +
         (result.endpoint || "unmatched") +
         " transport=" +
         transport +
         " contentType=" +
         (contentType || "unknown") +
+        " grpcEncoding=" +
+        (headerValue(responseHeaders, "grpc-encoding") || "identity") +
+        " grpcStatus=" +
+        (headerValue(responseHeaders, "grpc-status") || "none") +
         " bodyBytes=" +
         bodyLengthForLog(body) +
         " frames=" +
         (result.frames || 0) +
         (
           transport === "grpc"
-            ? " frameFlags=" + grpcFrameSummaryForLog(body)
+            ? " frameFlags=" + grpcFrameSummaryForLog(body) +
+              " topFields=" + grpcTopFieldSummaryForLog(body)
             : ""
         ) +
         " changed=" +
@@ -4907,30 +5208,51 @@ this.__BILIFLOW_COMBINED__ = true;
   }
 
   function isVolatileJsonEndpoint(endpoint) {
-    return includes(
-      [
-        "feed",
-        "mine",
-        "manga-flash",
-        "search-recommend-words",
-        "splash-list",
-        "splash-show",
-        "splash-event-list2",
-        "splash-brand-list",
-        "story",
-        "story-cart",
-        "view",
-        "vip-materials",
-        "vip-material-report"
-      ],
-      endpoint
-    );
+    var index;
+    var value;
+    if (!endpointRegistry || !Array.isArray(endpointRegistry.REGISTRY)) {
+      return false;
+    }
+    for (index = 0; index < endpointRegistry.REGISTRY.length; index += 1) {
+      value = endpointRegistry.REGISTRY[index];
+      if (
+        value.transport === "json" &&
+        value.handler === endpoint &&
+        value.volatile
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function isVolatileGrpcEndpoint(endpoint) {
-    return Boolean(
-      endpoint && endpoint !== "grpc-resource-module-list"
-    );
+    var index;
+    var value;
+    if (!endpointRegistry || !Array.isArray(endpointRegistry.REGISTRY)) {
+      return false;
+    }
+    for (index = 0; index < endpointRegistry.REGISTRY.length; index += 1) {
+      value = endpointRegistry.REGISTRY[index];
+      if (
+        value.transport === "grpc" &&
+        value.handler === endpoint &&
+        value.volatile
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isVolatileResponseUrl(requestUrl, transport) {
+    var matched = endpointRegistry && endpointRegistry.classify
+      ? endpointRegistry.classify(requestUrl, {
+          responseFilter: true,
+          transport: transport
+        })
+      : null;
+    return Boolean(matched && matched.volatile);
   }
 
   function noStoreResponseHeaders(headers) {
@@ -4954,6 +5276,62 @@ this.__BILIFLOW_COMBINED__ = true;
     return output;
   }
 
+  function deleteHeaderFrom(headers, name) {
+    var keys = Object.keys(headers || {});
+    var index;
+    for (index = 0; index < keys.length; index += 1) {
+      if (keys[index].toLowerCase() === String(name).toLowerCase()) {
+        delete headers[keys[index]];
+      }
+    }
+  }
+
+  function setHeaderOn(headers, name, value) {
+    deleteHeaderFrom(headers, name);
+    headers[name] = value;
+  }
+
+  function normalizeGrpcResponseHeaders(headers, body, requestHeaders) {
+    var output = {};
+    var keys = isPlainObject(headers) ? Object.keys(headers) : [];
+    var index;
+    var key;
+    var contentType = headerValue(headers, "content-type");
+    var userAgent = headerValue(requestHeaders, "user-agent").toLowerCase();
+    var mossEngine = headerValue(
+      requestHeaders,
+      "x-bili-moss-engine-type"
+    );
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (!/^(?:age|cache-control|content-length|etag|expires|last-modified|pragma)$/i.test(key)) {
+        output[key] = headers[key];
+      }
+    }
+    setHeaderOn(
+      output,
+      "Content-Type",
+      /^application\/grpc(?:\+proto)?(?:;|$)/i.test(contentType)
+        ? contentType
+        : "application/grpc"
+    );
+    setHeaderOn(output, "Cache-Control", "no-store, no-cache, must-revalidate");
+    setHeaderOn(output, "Pragma", "no-cache");
+    if (!hasCompressedGrpcFrame(body)) {
+      deleteHeaderFrom(output, "grpc-encoding");
+    }
+    deleteHeaderFrom(output, "grpc-status");
+    if (
+      /bili-universal/i.test(userAgent) &&
+      mossEngine === "1"
+    ) {
+      setHeaderOn(output, "grpc-status", "0");
+    } else if (/bili-blue/i.test(userAgent)) {
+      setHeaderOn(output, "grpc-status", "0");
+    }
+    return output;
+  }
+
   function completionForResult(result, responseHeaders, noStore) {
     var completion = {};
     if (result && result.valid && result.changed > 0) {
@@ -4963,6 +5341,33 @@ this.__BILIFLOW_COMBINED__ = true;
       completion.headers = noStoreResponseHeaders(responseHeaders);
     }
     return completion;
+  }
+
+  function completionForGrpcResult(result, responseHeaders, requestHeaders, body) {
+    var completion = {};
+    var outputBody =
+      result && result.valid && result.changed > 0
+        ? result.body
+        : body;
+    if (result && result.valid && result.changed > 0) {
+      completion.body = result.body;
+    }
+    completion.headers = normalizeGrpcResponseHeaders(
+      responseHeaders,
+      outputBody,
+      requestHeaders
+    );
+    return completion;
+  }
+
+  function rawResponseBody(response) {
+    if (!response) {
+      return null;
+    }
+    if (response.bodyBytes !== undefined && response.bodyBytes !== null) {
+      return response.bodyBytes;
+    }
+    return response.body;
   }
 
   function responseBodyForEndpoint(response, grpcEndpoint) {
@@ -5088,6 +5493,9 @@ this.__BILIFLOW_COMBINED__ = true;
     var grpcEndpoint;
     var context;
     var preventCaching;
+    var rawBody;
+    var response;
+    var transport;
     try {
       config = parseArgument(
         typeof $argument === "string" ? $argument : ""
@@ -5113,14 +5521,32 @@ this.__BILIFLOW_COMBINED__ = true;
             ? $response.headers
             : null
       };
+      response = typeof $response !== "undefined" ? $response : null;
+      rawBody = rawResponseBody(response);
+      transport = endpointRegistry && endpointRegistry.detectTransport
+        ? endpointRegistry.detectTransport({
+            body: rawBody,
+            contentType: headerValue(
+              context.responseHeaders,
+              "content-type"
+            )
+          })
+        : (grpcEndpoint ? "grpc" : typeof rawBody === "string" ? "json" : "binary");
+      if (
+        grpcEndpoint &&
+        (transport === "binary" || transport === "unknown")
+      ) {
+        transport = "grpc";
+      }
       preventCaching =
+        isVolatileResponseUrl(requestUrl, transport) ||
         isVolatileGrpcEndpoint(grpcEndpoint) ||
         isVolatileJsonEndpoint(endpoint);
       body = responseBodyForEndpoint(
-        typeof $response !== "undefined" ? $response : null,
-        grpcEndpoint
+        response,
+        transport === "grpc"
       );
-      if (isByteView(body) || grpcEndpoint) {
+      if (transport === "grpc") {
         if (hasCompressedGrpcFrame(body)) {
           transformGrpcBodyAsync(
             body,
@@ -5133,7 +5559,9 @@ this.__BILIFLOW_COMBINED__ = true;
                 asyncResult,
                 "grpc",
                 body,
-                context.responseHeaders
+                context.responseHeaders,
+                requestUrl,
+                context.requestHeaders
               );
             }
             if (
@@ -5141,19 +5569,21 @@ this.__BILIFLOW_COMBINED__ = true;
               asyncResult.changed > 0
             ) {
               $done(
-                completionForResult(
+                completionForGrpcResult(
                   asyncResult,
                   context.responseHeaders,
-                  preventCaching
+                  context.requestHeaders,
+                  body
                 )
               );
               return;
             }
             $done(
-              completionForResult(
+              completionForGrpcResult(
                 asyncResult,
                 context.responseHeaders,
-                preventCaching
+                context.requestHeaders,
+                body
               )
             );
           }, function (error) {
@@ -5166,10 +5596,11 @@ this.__BILIFLOW_COMBINED__ = true;
                 )
             );
             $done(
-              completionForResult(
+              completionForGrpcResult(
                 null,
                 context.responseHeaders,
-                preventCaching
+                context.requestHeaders,
+                body
               )
             );
           });
@@ -5181,31 +5612,49 @@ this.__BILIFLOW_COMBINED__ = true;
             result,
             "grpc",
             body,
-            context.responseHeaders
+            context.responseHeaders,
+            requestUrl,
+            context.requestHeaders
           );
         }
         if (result.valid && result.changed > 0) {
           $done(
-            completionForResult(
+            completionForGrpcResult(
               result,
               context.responseHeaders,
-              preventCaching
+              context.requestHeaders,
+              body
             )
           );
           return;
         }
         $done(
-          completionForResult(
+          completionForGrpcResult(
             result,
             context.responseHeaders,
-            preventCaching
+            context.requestHeaders,
+            body
           )
         );
         return;
       }
       if (typeof body !== "string") {
         if (config.debug) {
-          safeLog("non-text response left unchanged");
+          logDiagnostic(
+            {
+              changed: 0,
+              endpoint: "",
+              reason: transport === "binary"
+                ? "unknown-binary"
+                : "body-unavailable",
+              valid: true
+            },
+            transport,
+            body,
+            context.responseHeaders,
+            requestUrl,
+            context.requestHeaders
+          );
         }
         $done(
           completionForResult(
@@ -5244,7 +5693,9 @@ this.__BILIFLOW_COMBINED__ = true;
                 merged,
                 "json",
                 body,
-                context.responseHeaders
+                context.responseHeaders,
+                requestUrl,
+                context.requestHeaders
               );
             }
             $done(
@@ -5263,7 +5714,9 @@ this.__BILIFLOW_COMBINED__ = true;
           result,
           "json",
           body,
-          context.responseHeaders
+          context.responseHeaders,
+          requestUrl,
+          context.requestHeaders
         );
       }
       if (result.valid && result.changed > 0) {
@@ -5293,7 +5746,17 @@ this.__BILIFLOW_COMBINED__ = true;
           )
       );
       $done(
-        preventCaching &&
+        transport === "grpc" && typeof $response !== "undefined" && $response
+          ? {
+              headers: normalizeGrpcResponseHeaders(
+                $response.headers,
+                rawBody,
+                typeof $request !== "undefined" && $request
+                  ? $request.headers
+                  : null
+              )
+            }
+          : preventCaching &&
         typeof $response !== "undefined" &&
         $response
           ? {
@@ -5314,6 +5777,7 @@ this.__BILIFLOW_COMBINED__ = true;
     feedItemIdentity: feedItemIdentity,
     feedItemIdentities: feedItemIdentities,
     grpcFrameSummaryForLog: grpcFrameSummaryForLog,
+    grpcTopFieldSummaryForLog: grpcTopFieldSummaryForLog,
     handleFeed: handleFeed,
     handleMine: handleMine,
     handleNavigation: handleNavigation,
@@ -5331,6 +5795,7 @@ this.__BILIFLOW_COMBINED__ = true;
     matchesNavigationItem: matchesNavigationItem,
     mergeFilteredFeedResults: mergeFilteredFeedResults,
     noStoreResponseHeaders: noStoreResponseHeaders,
+    normalizeGrpcResponseHeaders: normalizeGrpcResponseHeaders,
     parseArgument: parseArgument,
     parseProtoFields: parseProtoFields,
     readVarint: readVarint,
@@ -5362,7 +5827,7 @@ this.__BILIFLOW_COMBINED__ = true;
 })(this);
 
 /*
- * Bilibili CDN Switcher v8 for Shadowrocket
+ * Bilibili CDN Switcher v10 for Shadowrocket
  *
  * Default auto mode performs no network probes on playback responses. It reads
  * bounded host-level state produced by the background cron benchmark and falls
@@ -5378,7 +5843,8 @@ this.__BILIFLOW_COMBINED__ = true;
   var NAME = "BiliCDN";
   var DEFAULT_CDN = "upos-sz-mirrorali.bilivideo.com";
   var AUTO_STATE_KEY = "BiliCDN.safeAuto.v7";
-  var HOST_AUTO_STATE_KEY = "BiliCDN.hostAuto.v8";
+  var HOST_AUTO_STATE_KEY = "BiliCDN.hostAuto.v10";
+  var HOST_AUTO_STATE_VERSION = 10;
   var MEDIA_ROUTE_STATE_KEY = "BiliCDN.mediaRoutes.v9";
   var MEDIA_ROUTE_STATE_VERSION = 9;
   var AKAMAI_COLD_HOST = "upos-hz-mirrorakam.akamaized.net";
@@ -5434,8 +5900,11 @@ this.__BILIFLOW_COMBINED__ = true;
   var HOST_CIRCUIT_OPEN_MS = 2 * 60 * 60 * 1000;
   var HOST_MIN_OBJECTS = 2;
   var HOST_MAX_FAILURE_RATE = 0.25;
+  var HOST_MAX_JITTER_RATIO = 0.65;
   var HOST_MIN_THROUGHPUT_KBPS = 10000;
   var HOST_REPRESENTATION_HEADROOM = 1.8;
+  var HOST_MEDIA_BUCKETS = ["audio", "normal-video", "high-bitrate-video"];
+  var HIGH_BITRATE_REQUIRED_KBPS = 8000;
 
   /*
    * This list is documentation and fixed-mode input guidance only. Safe auto
@@ -5738,6 +6207,50 @@ this.__BILIFLOW_COMBINED__ = true;
     return /^[a-z0-9][a-z0-9_-]{0,31}$/.test(profile)
       ? profile
       : "auto";
+  }
+
+  function normalizedNetworkType(value) {
+    var type = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (/^(?:wifi|wi-fi|wlan)$/.test(type)) {
+      return "wifi";
+    }
+    if (/^(?:cell|cellular|mobile|wwan|4g|5g|lte)$/.test(type)) {
+      return "cellular";
+    }
+    return "";
+  }
+
+  function resolveRuntimeNetworkProfile(configuredProfile, services) {
+    var configured = normalizeNetworkProfile(configuredProfile);
+    var info;
+    var type;
+    var identifier;
+    var hash;
+    if (configured !== "auto") {
+      return configured;
+    }
+    try {
+      info = services && typeof services.networkInfo === "function"
+        ? services.networkInfo()
+        : null;
+    } catch (error) {
+      info = null;
+    }
+    if (!isObject(info) || Array.isArray(info)) {
+      return "auto";
+    }
+    type = normalizedNetworkType(info.type);
+    if (!type) {
+      return "auto";
+    }
+    identifier = typeof info.identifier === "string"
+      ? info.identifier.trim()
+      : "";
+    if (!identifier) {
+      return type;
+    }
+    hash = stableHash("n", type + "\u0000" + identifier);
+    return type + "_" + hash.slice(-16);
   }
 
   function normalizeProbeMode(value) {
@@ -7521,6 +8034,52 @@ this.__BILIFLOW_COMBINED__ = true;
     return Math.max(AUTO_MIN_VIDEO_THROUGHPUT_KBPS, representationFloor);
   }
 
+  function mediaBucketForDescriptor(descriptor) {
+    var kind = String(descriptor && descriptor.kind || "").toLowerCase();
+    var required = boundedNumber(
+      descriptor && descriptor.requiredKbps,
+      0,
+      0,
+      100000000
+    );
+    var bandwidth = boundedNumber(
+      descriptor && descriptor.bandwidthBitsPerSecond,
+      0,
+      0,
+      1000000000
+    );
+    var quality = boundedNumber(descriptor && descriptor.quality, 0, 0, 1000);
+    var codecid = boundedNumber(descriptor && descriptor.codecid, 0, 0, 1000);
+    if (kind === "audio") {
+      return "audio";
+    }
+    return (
+      required >= HIGH_BITRATE_REQUIRED_KBPS ||
+      bandwidth >= 5500000 ||
+      quality >= 112 ||
+      (
+        quality >= 80 &&
+        (codecid === 12 || codecid === 13) &&
+        bandwidth >= 4000000
+      )
+    )
+      ? "high-bitrate-video"
+      : "normal-video";
+  }
+
+  function metadataNumber(metadata, keys) {
+    var text = typeof metadata === "string" ? metadata : "";
+    var index;
+    var match;
+    for (index = 0; index < keys.length; index += 1) {
+      match = new RegExp("(?:^|&)" + keys[index] + "=([0-9]+)(?:&|$)").exec(text);
+      if (match) {
+        return boundedNumber(match[1], 0, 0, 1000000000);
+      }
+    }
+    return 0;
+  }
+
   function buildMediaDescriptor(
     format,
     kind,
@@ -7590,12 +8149,21 @@ this.__BILIFLOW_COMBINED__ = true;
       candidateIds: candidateIds,
       candidates: candidates,
       candidateSetHash: candidateSetHash,
+      codecid: metadataNumber(metadata, ["codecid"]),
       family: primaryFamily,
       format: format,
       keyMaterial: resourceMaterial,
       kind: kind || "unknown",
+      bandwidthBitsPerSecond: boundedNumber(
+        bandwidthBitsPerSecond,
+        0,
+        0,
+        1000000000
+      ),
+      metadata: metadata || "",
       primaryId: candidates[0].id,
       primaryUrl: primaryUrl,
+      quality: metadataNumber(metadata, ["quality", "id"]),
       requiredKbps: requiredThroughputKbps(
         kind || "unknown",
         bandwidthBitsPerSecond
@@ -7700,7 +8268,7 @@ this.__BILIFLOW_COMBINED__ = true;
     if (
       config &&
       config.hostAutoState &&
-      config.hostAutoState.version === 8
+      config.hostAutoState.version === HOST_AUTO_STATE_VERSION
     ) {
       return selectHostUrlForDescriptor(descriptor, config, now);
     }
@@ -8021,7 +8589,7 @@ this.__BILIFLOW_COMBINED__ = true;
       lock: null,
       profiles: {},
       resetToken: "",
-      version: 8
+      version: HOST_AUTO_STATE_VERSION
     };
   }
 
@@ -8031,15 +8599,25 @@ this.__BILIFLOW_COMBINED__ = true;
 
   function sanitizeHostBenchmarkSample(value) {
     var objectId;
+    var phase;
+    var bucket;
     if (!isObject(value) || Array.isArray(value)) {
       return null;
     }
     objectId = sanitizeHostObjectId(value.objectId);
+    phase = /^(?:startup|sustained)$/.test(String(value.phase || ""))
+      ? String(value.phase)
+      : "combined";
+    bucket = HOST_MEDIA_BUCKETS.indexOf(String(value.bucket || "")) !== -1
+      ? String(value.bucket)
+      : "normal-video";
     return {
       at: boundedNumber(value.at, 0, 0, 9e15),
+      bucket: bucket,
       elapsedMs: boundedNumber(value.elapsedMs, 0, 0, 60000),
       objectId: objectId,
       ok: Boolean(value.ok),
+      phase: phase,
       reason:
         typeof value.reason === "string"
           ? value.reason.slice(0, 48)
@@ -8059,55 +8637,78 @@ this.__BILIFLOW_COMBINED__ = true;
     var successful = samples.filter(function (sample) {
       return sample.ok;
     });
-    var elapsed = successful.map(function (sample) {
-      return sample.elapsedMs;
+    var startup = successful.filter(function (sample) {
+      return sample.phase === "startup" || sample.phase === "combined";
     });
-    var throughput = successful.map(function (sample) {
+    var sustained = successful.filter(function (sample) {
+      return sample.phase === "sustained" || sample.phase === "combined";
+    });
+    var startupThroughput = startup.map(function (sample) {
       return sample.throughputKbps;
     });
-    var ttfb = successful.map(function (sample) {
+    var sustainedThroughput = sustained.map(function (sample) {
+      return sample.throughputKbps;
+    });
+    var ttfb = startup.map(function (sample) {
       return sample.ttfbMs;
     });
-    var medianMs = median(elapsed);
-    var deviations = elapsed.map(function (value) {
-      return Math.abs(value - medianMs);
+    var medianTtfbMs = median(ttfb);
+    var ttfbDeviations = ttfb.map(function (value) {
+      return Math.abs(value - medianTtfbMs);
     });
+    var medianSustained = median(sustainedThroughput);
+    var throughputDeviations = sustainedThroughput.map(function (value) {
+      return Math.abs(value - medianSustained);
+    });
+    var ttfbJitter = medianTtfbMs > 0
+      ? median(ttfbDeviations) / medianTtfbMs
+      : 0;
+    var throughputJitter = medianSustained > 0
+      ? median(throughputDeviations) / medianSustained
+      : 0;
+    var p25Sustained = percentile25(sustainedThroughput);
     return {
       failureRate:
         samples.length === 0
           ? 0
           : (samples.length - successful.length) / samples.length,
-      jitterRatio:
-        medianMs > 0 ? median(deviations) / medianMs : 0,
-      medianThroughputKbps: median(throughput),
-      medianTtfbMs: median(ttfb),
+      jitterRatio: Math.max(ttfbJitter, throughputJitter),
+      lastSuccessAt: successful.reduce(function (latest, sample) {
+        return Math.max(latest, sample.at || 0);
+      }, 0),
+      medianStartupThroughputKbps: median(startupThroughput),
+      medianStartupTtfbMs: medianTtfbMs,
+      medianSustainedThroughputKbps: medianSustained,
+      medianThroughputKbps: medianSustained,
+      medianTtfbMs: medianTtfbMs,
       objectCount: Array.isArray(objects) ? objects.length : 0,
-      p25ThroughputKbps: percentile25(throughput),
+      p25StartupThroughputKbps: percentile25(startupThroughput),
+      p25SustainedThroughputKbps: p25Sustained,
+      p25ThroughputKbps: p25Sustained,
       sampleCount: samples.length,
-      successCount: successful.length
+      startupSuccessCount: startup.length,
+      successCount: successful.length,
+      sustainedSuccessCount: sustained.length
     };
   }
 
-  function sanitizeHostAutoHealth(value) {
-    var health = {
-      failureStreak: 0,
-      lastFailureAt: 0,
+  function createEmptyHostBucket() {
+    return {
       lastSuccessAt: 0,
-      lastUsedAt: 0,
       metrics: summarizeHostSamples([], []),
       objects: [],
-      openUntil: 0,
       samples: []
     };
-    var objects = [];
-    var samples = [];
+  }
+
+  function sanitizeHostBucket(value, bucketName) {
+    var bucket = createEmptyHostBucket();
     var seenObjects = {};
     var index;
     var objectId;
     var sample;
-
     if (!isObject(value) || Array.isArray(value)) {
-      return health;
+      return bucket;
     }
     if (Array.isArray(value.objects)) {
       for (
@@ -8118,7 +8719,7 @@ this.__BILIFLOW_COMBINED__ = true;
         objectId = sanitizeHostObjectId(value.objects[index]);
         if (objectId && !seenObjects[objectId]) {
           seenObjects[objectId] = true;
-          objects.push(objectId);
+          bucket.objects.push(objectId);
         }
       }
     }
@@ -8129,17 +8730,82 @@ this.__BILIFLOW_COMBINED__ = true;
         index += 1
       ) {
         sample = sanitizeHostBenchmarkSample(value.samples[index]);
-        if (sample) {
-          samples.push(sample);
-          if (sample.ok && sample.objectId && !seenObjects[sample.objectId]) {
-            seenObjects[sample.objectId] = true;
-            objects.push(sample.objectId);
-            if (objects.length > HOST_OBJECT_CAPACITY) {
-              delete seenObjects[objects.shift()];
-            }
+        if (!sample || sample.bucket !== bucketName) {
+          continue;
+        }
+        bucket.samples.push(sample);
+        if (
+          sample.ok &&
+          sample.objectId &&
+          (sample.phase === "sustained" || sample.phase === "combined") &&
+          !seenObjects[sample.objectId]
+        ) {
+          seenObjects[sample.objectId] = true;
+          bucket.objects.push(sample.objectId);
+          if (bucket.objects.length > HOST_OBJECT_CAPACITY) {
+            delete seenObjects[bucket.objects.shift()];
           }
         }
       }
+    }
+    bucket.lastSuccessAt = Math.max(
+      boundedNumber(value.lastSuccessAt, 0, 0, 9e15),
+      bucket.samples.reduce(function (latest, row) {
+        return row.ok ? Math.max(latest, row.at || 0) : latest;
+      }, 0)
+    );
+    bucket.objects = bucket.objects.slice(-HOST_OBJECT_CAPACITY);
+    bucket.metrics = summarizeHostSamples(bucket.samples, bucket.objects);
+    return bucket;
+  }
+
+  function sanitizeHostAutoHealth(value) {
+    var health = {
+      buckets: {},
+      failureStreak: 0,
+      lastFailureAt: 0,
+      lastSuccessAt: 0,
+      lastUsedAt: 0,
+      metrics: summarizeHostSamples([], []),
+      objects: [],
+      openUntil: 0,
+      samples: []
+    };
+    var index;
+    var sample;
+    var bucketName;
+    var bucketInput;
+    var directBuckets = {};
+
+    if (!isObject(value) || Array.isArray(value)) {
+      for (index = 0; index < HOST_MEDIA_BUCKETS.length; index += 1) {
+        health.buckets[HOST_MEDIA_BUCKETS[index]] = createEmptyHostBucket();
+      }
+      return health;
+    }
+    if (Array.isArray(value.samples)) {
+      for (index = 0; index < value.samples.length; index += 1) {
+        sample = sanitizeHostBenchmarkSample(value.samples[index]);
+        if (sample) {
+          if (!directBuckets[sample.bucket]) {
+            directBuckets[sample.bucket] = { objects: [], samples: [] };
+          }
+          directBuckets[sample.bucket].samples.push(sample);
+        }
+      }
+      if (Array.isArray(value.objects)) {
+        if (!directBuckets["normal-video"]) {
+          directBuckets["normal-video"] = { objects: [], samples: [] };
+        }
+        directBuckets["normal-video"].objects = value.objects;
+      }
+    }
+    for (index = 0; index < HOST_MEDIA_BUCKETS.length; index += 1) {
+      bucketName = HOST_MEDIA_BUCKETS[index];
+      bucketInput = value.buckets && value.buckets[bucketName]
+        ? value.buckets[bucketName]
+        : directBuckets[bucketName];
+      health.buckets[bucketName] = sanitizeHostBucket(bucketInput, bucketName);
     }
     health.failureStreak = boundedInteger(
       value.failureStreak,
@@ -8150,10 +8816,16 @@ this.__BILIFLOW_COMBINED__ = true;
     health.lastFailureAt = boundedNumber(value.lastFailureAt, 0, 0, 9e15);
     health.lastSuccessAt = boundedNumber(value.lastSuccessAt, 0, 0, 9e15);
     health.lastUsedAt = boundedNumber(value.lastUsedAt, 0, 0, 9e15);
-    health.objects = objects.slice(-HOST_OBJECT_CAPACITY);
     health.openUntil = boundedNumber(value.openUntil, 0, 0, 9e15);
-    health.samples = samples;
-    health.metrics = summarizeHostSamples(samples, health.objects);
+    for (index = 0; index < HOST_MEDIA_BUCKETS.length; index += 1) {
+      health.lastSuccessAt = Math.max(
+        health.lastSuccessAt,
+        health.buckets[HOST_MEDIA_BUCKETS[index]].lastSuccessAt
+      );
+    }
+    health.samples = health.buckets["normal-video"].samples;
+    health.objects = health.buckets["normal-video"].objects;
+    health.metrics = health.buckets["normal-video"].metrics;
     return health;
   }
 
@@ -8230,7 +8902,11 @@ this.__BILIFLOW_COMBINED__ = true;
     var profile;
     var lock;
 
-    if (!isObject(value) || Array.isArray(value) || value.version !== 8) {
+    if (
+      !isObject(value) ||
+      Array.isArray(value) ||
+      value.version !== HOST_AUTO_STATE_VERSION
+    ) {
       return state;
     }
     state.resetToken = normalizeResetToken(value.resetToken);
@@ -8349,7 +9025,7 @@ this.__BILIFLOW_COMBINED__ = true;
     hostname = String(hostname || "").toLowerCase();
     if (
       !isObject(state) ||
-      state.version !== 8 ||
+      state.version !== HOST_AUTO_STATE_VERSION ||
       !isValidHostname(hostname) ||
       !isBilibiliMediaHost(hostname)
     ) {
@@ -8364,19 +9040,25 @@ this.__BILIFLOW_COMBINED__ = true;
     }
     profile = ensureHostProfile(state, networkProfile);
     health = sanitizeHostAutoHealth(profile.hosts[hostname]);
-    health.samples.push(sample);
-    if (health.samples.length > HOST_SAMPLE_CAPACITY) {
-      health.samples = health.samples.slice(-HOST_SAMPLE_CAPACITY);
+    var bucket = health.buckets[sample.bucket];
+    bucket.samples.push(sample);
+    if (bucket.samples.length > HOST_SAMPLE_CAPACITY) {
+      bucket.samples = bucket.samples.slice(-HOST_SAMPLE_CAPACITY);
     }
     health.lastUsedAt = sample.at;
     if (sample.ok) {
       health.failureStreak = 0;
       health.lastSuccessAt = sample.at;
+      bucket.lastSuccessAt = sample.at;
       health.openUntil = 0;
-      if (sample.objectId && health.objects.indexOf(sample.objectId) === -1) {
-        health.objects.push(sample.objectId);
-        if (health.objects.length > HOST_OBJECT_CAPACITY) {
-          health.objects = health.objects.slice(-HOST_OBJECT_CAPACITY);
+      if (
+        sample.objectId &&
+        (sample.phase === "sustained" || sample.phase === "combined") &&
+        bucket.objects.indexOf(sample.objectId) === -1
+      ) {
+        bucket.objects.push(sample.objectId);
+        if (bucket.objects.length > HOST_OBJECT_CAPACITY) {
+          bucket.objects = bucket.objects.slice(-HOST_OBJECT_CAPACITY);
         }
       }
     } else {
@@ -8386,11 +9068,11 @@ this.__BILIFLOW_COMBINED__ = true;
       );
       health.lastFailureAt = sample.at;
       for (
-        index = Math.max(0, health.samples.length - 4);
-        index < health.samples.length;
+        index = Math.max(0, bucket.samples.length - 4);
+        index < bucket.samples.length;
         index += 1
       ) {
-        if (!health.samples[index].ok) {
+        if (!bucket.samples[index].ok) {
           recentFailures += 1;
         }
       }
@@ -8401,41 +9083,82 @@ this.__BILIFLOW_COMBINED__ = true;
         );
       }
     }
-    health.metrics = summarizeHostSamples(health.samples, health.objects);
+    bucket.metrics = summarizeHostSamples(bucket.samples, bucket.objects);
+    health.buckets[sample.bucket] = bucket;
+    health.samples = health.buckets["normal-video"].samples;
+    health.objects = health.buckets["normal-video"].objects;
+    health.metrics = health.buckets["normal-video"].metrics;
     profile.hosts[hostname] = health;
     return health;
   }
 
-  function stableHostScore(health) {
-    var metrics = health && health.metrics;
+  function hostBucketHealth(health, descriptor) {
+    var bucket = mediaBucketForDescriptor(descriptor);
+    return health && health.buckets ? health.buckets[bucket] : null;
+  }
+
+  function requiredHostThroughputKbps(descriptor) {
+    var bucket = mediaBucketForDescriptor(descriptor);
+    var representation = Math.ceil(
+      Math.max(0, descriptor && descriptor.requiredKbps || 0) *
+        HOST_REPRESENTATION_HEADROOM
+    );
+    if (bucket === "audio") {
+      return Math.max(512, representation);
+    }
+    if (bucket === "high-bitrate-video") {
+      return Math.max(HOST_MIN_THROUGHPUT_KBPS, representation);
+    }
+    return Math.max(3000, representation);
+  }
+
+  function stableHostScore(health, descriptor) {
+    var bucket = hostBucketHealth(health, descriptor);
+    var metrics = bucket && bucket.metrics;
+    var required = requiredHostThroughputKbps(descriptor);
+    var startupMargin;
+    var sustainedMargin;
+    var latencyScore;
+    var rawScore;
     if (!metrics) {
       return -1;
     }
-    return (
-      (metrics.p25ThroughputKbps || 0) *
-      Math.max(0, 1 - (metrics.failureRate || 0)) /
-      Math.max(1, 1 + (metrics.jitterRatio || 0))
+    startupMargin = Math.min(
+      3,
+      (metrics.p25StartupThroughputKbps || 0) / Math.max(1, required)
     );
+    sustainedMargin = Math.min(
+      3,
+      (metrics.p25SustainedThroughputKbps || 0) / Math.max(1, required)
+    );
+    latencyScore = 1000 / (100 + Math.max(1, metrics.medianStartupTtfbMs || 60000));
+    rawScore =
+      latencyScore * 5.5 +
+      (startupMargin / 3) * 20 +
+      (sustainedMargin / 3) * 25;
+    return rawScore *
+      Math.max(0, 1 - (metrics.failureRate || 0)) /
+      Math.max(1, 1 + (metrics.jitterRatio || 0));
   }
 
   function hostEligibleForDescriptor(health, descriptor, now) {
-    var metrics = health && health.metrics;
-    var required = Math.max(
-      HOST_MIN_THROUGHPUT_KBPS,
-      Math.ceil(
-        Math.max(0, descriptor && descriptor.requiredKbps || 0) *
-          HOST_REPRESENTATION_HEADROOM
-      )
-    );
+    var bucket = hostBucketHealth(health, descriptor);
+    var metrics = bucket && bucket.metrics;
+    var required = requiredHostThroughputKbps(descriptor);
     return Boolean(
       health &&
+      bucket &&
       metrics &&
       health.openUntil <= now &&
-      health.lastSuccessAt > 0 &&
-      health.lastSuccessAt + HOST_ALIAS_FRESH_MS >= now &&
+      bucket.lastSuccessAt > 0 &&
+      bucket.lastSuccessAt + HOST_ALIAS_FRESH_MS >= now &&
       metrics.objectCount >= HOST_MIN_OBJECTS &&
+      metrics.startupSuccessCount >= HOST_MIN_OBJECTS &&
+      metrics.sustainedSuccessCount >= HOST_MIN_OBJECTS &&
       metrics.failureRate <= HOST_MAX_FAILURE_RATE &&
-      metrics.p25ThroughputKbps >= required
+      metrics.jitterRatio <= HOST_MAX_JITTER_RATIO &&
+      metrics.p25StartupThroughputKbps >= required &&
+      metrics.p25SustainedThroughputKbps >= required
     );
   }
 
@@ -8444,7 +9167,7 @@ this.__BILIFLOW_COMBINED__ = true;
       config && config.networkProfile
     );
     var profile =
-      state && state.version === 8 && state.profiles
+      state && state.version === HOST_AUTO_STATE_VERSION && state.profiles
         ? state.profiles[profileName]
         : null;
     var selected;
@@ -8454,6 +9177,9 @@ this.__BILIFLOW_COMBINED__ = true;
     var score;
     var bestHost = "";
     var bestScore = -1;
+    var selectedScore = -1;
+    var selectedEligible = false;
+    var threshold;
     if (!profile) {
       return "";
     }
@@ -8464,11 +9190,12 @@ this.__BILIFLOW_COMBINED__ = true;
       return "";
     }
     selected = String(profile.selectedHost || "").toLowerCase();
-    if (
+    selectedEligible = Boolean(
       FIXED_CDN_CANDIDATES.indexOf(selected) !== -1 &&
       hostEligibleForDescriptor(profile.hosts[selected], descriptor, now)
-    ) {
-      return selected;
+    );
+    if (selectedEligible) {
+      selectedScore = stableHostScore(profile.hosts[selected], descriptor);
     }
     keys = Object.keys(profile.hosts || {});
     for (index = 0; index < keys.length; index += 1) {
@@ -8479,13 +9206,28 @@ this.__BILIFLOW_COMBINED__ = true;
       ) {
         continue;
       }
-      score = stableHostScore(profile.hosts[hostname]);
+      score = stableHostScore(profile.hosts[hostname], descriptor);
       if (score > bestScore) {
         bestScore = score;
         bestHost = hostname;
       }
     }
-    return bestHost;
+    if (!selectedEligible) {
+      return bestHost;
+    }
+    if (!bestHost || bestHost === selected) {
+      return selected;
+    }
+    threshold = boundedNumber(
+      config && config.switchThreshold,
+      DEFAULT_SWITCH_THRESHOLD,
+      RUNTIME_OPTION_LIMITS.switchThreshold.minimum,
+      RUNTIME_OPTION_LIMITS.switchThreshold.maximum
+    );
+    if (bestScore >= selectedScore * (1 + threshold / 100)) {
+      return bestHost;
+    }
+    return selected;
   }
 
   function sanitizeProbeSample(value) {
@@ -10071,6 +10813,10 @@ this.__BILIFLOW_COMBINED__ = true;
       hotConfig[keys[index]] = config[keys[index]];
     }
     hotConfig.hostAutoState = state;
+    hotConfig.networkProfile = resolveRuntimeNetworkProfile(
+      config.networkProfile,
+      services
+    );
     prepared = binary
       ? prepareSafeGrpc(input, hotConfig, createEmptyAutoState(), now)
       : prepareSafeJson(
@@ -10679,6 +11425,31 @@ this.__BILIFLOW_COMBINED__ = true;
       typeof $persistentStore.write === "function";
 
     return {
+      networkInfo: function () {
+        var network = typeof $network !== "undefined" ? $network : null;
+        var wifi;
+        var cellular;
+        if (!network || typeof network !== "object") {
+          return null;
+        }
+        wifi = network.wifi;
+        if (wifi && typeof wifi === "object") {
+          return {
+            identifier: String(wifi.ssid || wifi.bssid || ""),
+            type: "wifi"
+          };
+        }
+        cellular = network.cellular;
+        if (cellular && typeof cellular === "object") {
+          return {
+            identifier: String(
+              cellular.carrier || cellular.radio || cellular.network || ""
+            ),
+            type: "cellular"
+          };
+        }
+        return null;
+      },
       now: function () {
         return Date.now();
       },
@@ -10997,6 +11768,7 @@ this.__BILIFLOW_COMBINED__ = true;
     AUTO_STATE_KEY: AUTO_STATE_KEY,
     HOST_ALIAS_FRESH_MS: HOST_ALIAS_FRESH_MS,
     HOST_AUTO_STATE_KEY: HOST_AUTO_STATE_KEY,
+    HOST_AUTO_STATE_VERSION: HOST_AUTO_STATE_VERSION,
     HOST_STATE_STALE_MS: HOST_STATE_STALE_MS,
     MEDIA_ROUTE_CAPACITY: MEDIA_ROUTE_CAPACITY,
     MEDIA_ROUTE_EXPIRY_SAFETY_MS: MEDIA_ROUTE_EXPIRY_SAFETY_MS,
@@ -11027,6 +11799,7 @@ this.__BILIFLOW_COMBINED__ = true;
     loadAutoState: loadAutoState,
     loadHostAutoState: loadHostAutoState,
     loadMediaRouteState: loadMediaRouteState,
+    mediaBucketForDescriptor: mediaBucketForDescriptor,
     mediaRouteKeyForUrl: mediaRouteKeyForUrl,
     normalizeCdnHost: normalizeCdnHost,
     normalizeNetworkProfile: normalizeNetworkProfile,
@@ -11041,6 +11814,7 @@ this.__BILIFLOW_COMBINED__ = true;
     queryFreeCandidateFingerprint: queryFreeCandidateFingerprint,
     readVarint: readVarint,
     requiredThroughputKbps: requiredThroughputKbps,
+    resolveRuntimeNetworkProfile: resolveRuntimeNetworkProfile,
     rewriteVodUrl: rewriteVodUrl,
     replaceVodHostname: replaceVodHostname,
     runShadowrocket: runShadowrocket,

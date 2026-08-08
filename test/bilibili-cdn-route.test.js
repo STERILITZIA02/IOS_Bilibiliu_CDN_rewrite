@@ -145,6 +145,47 @@ test("response and request runtimes derive the same object-and-binding route key
   assert.match(responsePrimary.key, /^m2_[0-9a-f]{32}$/);
 });
 
+test("automatic network profile hashing remains identical across response and request runtimes", async () => {
+  const environment = makeEnvironment();
+  environment.services.networkInfo = () => ({
+    identifier: "Young Home WiFi",
+    type: "wifi",
+  });
+  await process(JSON.stringify(playurlFixture()), environment);
+  const expectedProfile = cdn.resolveRuntimeNetworkProfile("auto", environment.services);
+  const persisted = JSON.parse(environment.storage[cdn.MEDIA_ROUTE_STATE_KEY]);
+  const entry = Object.values(persisted.entries)[0];
+
+  assert.equal(entry.networkProfile, expectedProfile);
+  assert.equal(
+    route.resolveRuntimeNetworkProfile("auto", environment.services),
+    expectedProfile,
+  );
+  assert.equal(
+    route.selectMediaRequest(
+      primaryUrl,
+      "GET",
+      { Range: "bytes=0-65535" },
+      "cdn=auto&profile=auto",
+      environment.services,
+    ).changed,
+    true,
+  );
+  assert.equal(
+    route.selectMediaRequest(
+      primaryUrl,
+      "GET",
+      { Range: "bytes=0-65535" },
+      "cdn=auto&profile=auto",
+      {
+        ...environment.services,
+        networkInfo: () => ({ identifier: "Spark NZ", type: "cellular" }),
+      },
+    ).changed,
+    false,
+  );
+});
+
 test("request routing fails open outside the exact signed object binding", async () => {
   const environment = makeEnvironment();
   await process(JSON.stringify(playurlFixture()), environment);

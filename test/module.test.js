@@ -237,13 +237,18 @@ test("fresh UI request guard covers every reviewed cache-sensitive metadata API"
     "https://api.biliapi.net/x/vip/ads/material/report",
     "https://api.vc.bilibili.com/search_svr/v3/Search/recommend_words",
     "https://manga.bilibili.com/twirp/comic.v1.Comic/ListFlash",
+    "https://app.bilibili.com/x/v2/search/square",
+    "https://app.bilibili.com/x/resource/show/tab/v2",
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
+    "https://grpc.bilibili.com/bilibili.app.story.v1.Story/BottomDiversionEntrance",
   ]) {
     assert.match(url, pattern);
   }
   for (const url of [
     "https://api.bilibili.com/x/v2/feed/index",
-    "https://app.bilibili.com/x/v2/search/square",
-    "https://app.bilibili.com/x/resource/show/tab/v2",
+    "https://app.bilibili.com/x/v2/view/extra",
+    "https://grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmView",
   ]) {
     assert.doesNotMatch(url, pattern);
   }
@@ -651,12 +656,13 @@ test("generated artifacts are local, non-empty, and checksummed", () => {
     "bilibili-story.js",
     "bilibili-story-cdn.js",
     "module-options.json",
+    "modules.list",
   ]) {
     const content = fs.readFileSync(
       path.join(root, "dist", filename),
       "utf8",
     );
-    assert.ok(content.length > 1000);
+    assert.ok(content.length > (filename === "modules.list" ? 300 : 1000));
     const expected = createHash("sha256").update(content).digest("hex");
     assert.match(
       checksums,
@@ -711,6 +717,7 @@ test("release metadata and workflow publish every runtime artifact", () => {
     "bilibili-story.js",
     "bilibili-story-cdn.js",
     "module-options.json",
+    "modules.list",
     "SHA256SUMS.txt",
   ]) {
     assert.match(

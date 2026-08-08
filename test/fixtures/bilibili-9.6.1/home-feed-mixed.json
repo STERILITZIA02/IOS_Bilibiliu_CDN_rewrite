@@ -1,0 +1,19 @@
+{
+  "code": 0,
+  "data": {
+    "items": [
+      { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 101, "bvid": "BV1AA411c7m1", "cid": 1001, "uri": "bilibili://video/BV1AA411c7m1", "player_args": { "aid": 101, "cid": 1001, "type": "av" }, "title": "普通视频 1" },
+      { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 777, "param": "777", "uri": "bilibili://video/777", "player_args": { "aid": 777, "type": "av" }, "title": "身份字段不完整的伪 AV" },
+      { "card_type": "banner_v8", "card_goto": "banner", "banner_item": [{ "type": "activity", "title": "大型活动 Banner" }] },
+      { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 901, "bvid": "BV1AD411c7m1", "cid": 9001, "uri": "bilibili://video/BV1AD411c7m1", "player_args": { "aid": 901, "cid": 9001, "type": "av" }, "title": "ROG NUC 抽奖", "ad_badge": { "text": "广告" }, "creative": { "creative_id": 88 }, "exposure": { "url": "https://cm.bilibili.com/show" } },
+      { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 102, "bvid": "BV1AB411c7m2", "cid": 1002, "uri": "bilibili://video/BV1AB411c7m2", "player_args": { "aid": 102, "cid": 1002, "type": "av" }, "title": "闲鱼和广告行业观察" },
+      { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 902, "bvid": "BV1AE411c7m2", "cid": 9002, "uri": "bilibili://video/BV1AE411c7m2", "player_args": { "aid": 902, "cid": 9002, "type": "av" }, "title": "显卡抽奖", "bottom_rcmd_reason_style": { "text": "商业推广" }, "business_badge": { "text": "广告" } },
+      { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 103, "bvid": "BV1AC411c7m3", "cid": 1003, "uri": "bilibili://video/BV1AC411c7m3", "player_args": { "aid": 103, "cid": 1003, "type": "av" }, "title": "魔力赏活动复盘" },
+      { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 104, "bvid": "BV1AF411c7m4", "cid": 1004, "uri": "https://www.bilibili.com/video/BV1AF411c7m4", "player_args": { "aid": 104, "cid": 1004, "type": "av" }, "title": "普通视频 4" },
+      { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 105, "bvid": "BV1AG411c7m5", "cid": 1005, "uri": "bilibili://video/BV1AG411c7m5", "player_args": { "aid": 105, "cid": 1005, "type": "av" }, "title": "普通视频 5" },
+      { "card_type": "small_cover_v2", "card_goto": "av", "goto": "av", "aid": 106, "bvid": "BV1AH411c7m6", "cid": 1006, "uri": "bilibili://video/BV1AH411c7m6", "player_args": { "aid": 106, "cid": 1006, "type": "av" }, "title": "普通视频 6" },
+      { "card_type": "small_cover_v2", "card_goto": "live", "goto": "live", "room_id": 7, "uri": "bilibili://live/7", "title": "直播" },
+      { "card_type": "future_module", "title": "未知卡片" }
+    ]
+  }
+}
