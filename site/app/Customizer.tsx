@@ -517,7 +517,7 @@ export function Customizer({
                 </strong>
                 <small>
                   {variant === "enhanced"
-                    ? "CDN、9.5.0 Story/搜索广告、六条 AV 与界面过滤"
+                    ? "CDN、9.6.1 首页/播放页广告、六条 AV 与界面过滤"
                     : "仅 CDN 与流量分流"}
                 </small>
               </div>
