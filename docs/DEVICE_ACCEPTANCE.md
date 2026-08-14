@@ -13,7 +13,7 @@
 | iPhone / iPad 型号 |  |
 | iOS 版本与构建号 |  |
 | Shadowrocket 版本 |  |
-| Bilibili App 版本 | 9.6.1 |
+| Bilibili App 版本 | 9.7.0 |
 | Bilibili App 请求构建号 / 构建 ID |  /  |
 | 账号状态 | 未登录 / 普通账号 / 大会员 / 已购内容账号 |
 | 网络 | 中国大陆 Wi-Fi / 中国大陆蜂窝 / 海外直连 / 海外回国线路 |
@@ -32,8 +32,8 @@
 - [ ] 历史 `Bilibili.CDN.sgmodule` 与 Enhanced 内容和版本一致。
 - [ ] 模块信息页显示正确名称和版本。
 - [ ] “编辑参数”显示全部参数，中文说明可读。
-- [ ] 更新到 3.9.1 后可见 `首页推荐6个普通视频`、`测速方式` 与 `CDN 学习状态`，
-      模块脚本 URL 含 `?v=3.9.1`，并包含 `Bilibili Enhance Fresh UI`、
+- [ ] 更新到 3.9.2 后可见 `首页推荐6个普通视频`、`测速方式` 与 `CDN 学习状态`，
+      模块脚本 URL 含 `?v=3.9.2`，并包含 `Bilibili Enhance Fresh UI`、
       `Bilibili Story Safe Pipeline` 与唯一一条 `Bilibili CDN Background Benchmark`
       cron（含 `wake-system=1`），以及唯一一条 `Bilibili CDN Cached Media Route`
       请求脚本。
@@ -118,6 +118,17 @@
 - [ ] JSON 搜索全部/分类结果及 gRPC `SearchAll`/`SearchByType` 中，CM、游戏、
       购买、商业横幅、top-game 和带 `CardBusinessBadge` 的伪装 AV 不出现；
       普通视频和无商业证据的未知搜索卡仍存在。
+- [ ] Bilibili 9.7.0 搜索“千问3.8max”时，带“创作推广”的主体及其绑定的推荐、
+      下载 CTA 同时消失；普通搜索视频和标题含“推广”“下载”的普通视频仍保留。
+- [ ] Bilibili 9.7.0 首页 RTX 5090D“广告”卡被删除，原顺序中最多六条普通视频
+      保留；字段不完整时不出现空流或“页面加载失败，请重试”。
+- [ ] Bilibili 9.7.0 普通视频页“闲鱼集市—立即打开”整块横幅及空占位消失；
+      相关推荐中的会员购商品、价格、定金、满减卡消失，普通 UP 主视频保持顺序。
+- [ ] 对以上三处页面分别冷启动、刷新、后台 30 秒和后台 5 分钟恢复；若恢复后有
+      网络请求，调试日志显示 registry 命中、请求 validator 清除和
+      `resume-fresh-response`，广告不重新出现。
+- [ ] 若恢复时抓包确认完全没有网络请求，只记录为 App 内存/本地状态恢复，不把它
+      误报为脚本已拦截；按 `BILIBILI_9_7_CAPTURE.md` 补交恢复前后证据。
 - [ ] gRPC `Search/DefaultWords` 与旧版 `Search/recommend_words` 不显示运营搜索
       词；关闭 `搜索推广` 后可恢复，普通搜索结果开关不受影响。
 - [ ] 漫画 `Comic/Flash`/`ListFlash` 闪屏不出现；漫画阅读、书架、购买和账号

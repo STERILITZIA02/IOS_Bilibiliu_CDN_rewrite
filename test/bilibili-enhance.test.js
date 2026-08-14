@@ -109,6 +109,20 @@ function transform(url, fixture, argument) {
   );
 }
 
+function ios970Fixture(filename) {
+  return JSON.parse(
+    fs.readFileSync(
+      path.join(
+        __dirname,
+        "fixtures",
+        "bilibili-9.7.0",
+        filename,
+      ),
+      "utf8",
+    ),
+  );
+}
+
 test("parses independent enhancement switches and rejects malformed arguments", () => {
   assert.deepEqual(enhance.parseArgument(""), {
     ads: true,
@@ -193,6 +207,133 @@ test("high-confidence promotion detection preserves ambiguous content", () => {
     }),
     false,
   );
+});
+
+test("9.7.0 nested Search creator promotion removes its bound CTA without title false positives", () => {
+  const fixture = ios970Fixture("ios970-search-creator-promotion.json");
+  const result = transform(
+    `${appRoot}/x/v2/search?keyword=STABLE_FIXTURE`,
+    fixture,
+  );
+  const output = JSON.parse(result.body);
+  const cards = output.data.pages[0].sections[0].cards;
+
+  assert.deepEqual(cards.map((item) => item.title), [
+    "广告与闲鱼商品推广下载体验",
+  ]);
+  assert.equal(result.reason, "ios970-search-commercial-removed");
+  assert.ok(result.matchedPaths.includes("data.pages[].sections[].cards"));
+  assert.doesNotMatch(result.body, /创作推广|点击立刻下载|赶紧看看/);
+  assert.match(result.body, /普通旧容器视频/);
+});
+
+test("9.7.0 home native ad never re-enters fallback and six ordinary videos stay ordered", () => {
+  const fixture = ios970Fixture("ios970-feed-native-ad.json");
+  const urls = [
+    `${appRoot}/x/v2/feed/index?pull=0`,
+    `${appRoot}/x/v2/feed/index?pull=1&resume=30`,
+    `${appRoot}/x/v2/feed/index?pull=1&resume=300`,
+  ];
+  const outputs = urls.map((url) => transform(url, fixture));
+  const expected = [
+    "普通视频 1",
+    "普通视频 2",
+    "普通视频 3",
+    "广告行业观察",
+    "闲鱼商品体验",
+    "普通视频 6",
+  ];
+
+  for (const result of outputs) {
+    assert.deepEqual(
+      JSON.parse(result.body).data.items.map((item) => item.title),
+      expected,
+    );
+    assert.equal(result.reason, "ios970-feed-ad-removed");
+    assert.ok(result.matchedPaths.includes("data.items"));
+    assert.doesNotMatch(result.body, /RTX 5090D|CREATIVE_FIXTURE/);
+  }
+  assert.equal(outputs[0].body, outputs[1].body);
+  assert.equal(outputs[1].body, outputs[2].body);
+});
+
+test("9.7.0 View removes the complete Xianyu banner module and its layout placeholder", () => {
+  const fixture = ios970Fixture("ios970-view-xianyu-banner.json");
+  const result = transform(`${appRoot}/x/v2/view?aid=97201`, fixture);
+  const modules = JSON.parse(result.body).data.view_modules;
+
+  assert.deepEqual(modules.map((item) => item.module_type), [
+    "ordinary_introduction",
+  ]);
+  assert.equal(result.reason, "ios970-view-xianyu-removed");
+  assert.ok(result.matchedPaths.includes("data.view_modules"));
+  assert.doesNotMatch(result.body, /闲鱼集市|立即打开|goofish|"height":64/);
+  assert.match(result.body, /普通视频简介|保留正常简介/);
+});
+
+test("9.7.0 View does not treat a generic open button as marketplace evidence", () => {
+  const fixture = {
+    code: 0,
+    data: {
+      view_modules: [
+        {
+          module_type: "ordinary_resource",
+          operation_area: {
+            content: { title: "普通创作工具" },
+            actions: [
+              {
+                text: "立即打开",
+                jump_url: "bilibili://video/97400",
+              },
+            ],
+          },
+        },
+        {
+          module_type: "ordinary_resource_single_action",
+          action: {
+            text: "立即打开",
+            jump_url: "bilibili://video/97401",
+          },
+        },
+      ],
+    },
+  };
+  const result = transform(`${appRoot}/x/v2/view?aid=97400`, fixture);
+
+  assert.equal(result.changed, 0);
+  assert.deepEqual(JSON.parse(result.body), fixture);
+});
+
+test("9.7.0 View relates removes explicit member-mall product payloads but not price words", () => {
+  const fixture = ios970Fixture("ios970-view-relate-product.json");
+  const strict = transform(`${appRoot}/x/v2/view?aid=97300`, fixture);
+  const relaxed = transform(
+    `${appRoot}/x/v2/view?aid=97300`,
+    fixture,
+    '{"videoOnlyRecommendations":false}',
+  );
+  const disabled = transform(
+    `${appRoot}/x/v2/view?aid=97300`,
+    fixture,
+    '{"ads":false,"videoOnlyRecommendations":false}',
+  );
+  const expected = [
+    "普通 UP 主视频：商品价格与广告行业",
+    "普通推荐视频 2",
+  ];
+
+  for (const result of [strict, relaxed]) {
+    assert.deepEqual(
+      JSON.parse(result.body).data.relates.map((item) => item.title),
+      expected,
+    );
+    assert.equal(result.reason, "ios970-relate-product-removed");
+    assert.ok(result.matchedPaths.includes("data.relates"));
+    assert.doesNotMatch(result.body, /会员购商品卡|member_mall|1234 人加购/);
+    assert.match(result.body, /99 元、定金和推广/);
+  }
+  assert.equal(disabled.changed, 0);
+  assert.deepEqual(JSON.parse(disabled.body), fixture);
 });
 
 test("magic reward recommendation badges are removed without matching video titles", () => {
@@ -2579,6 +2720,45 @@ test("gRPC RelatesFeed endpoints use the same ordinary-video allowlist", () => {
   assert.doesNotMatch(uniteText, /unite-bangumi/);
 });
 
+test("9.7.0 structure-equivalent ViewUnite membership product uses only the confirmed CM oneof", async () => {
+  const ordinary = bytes(
+    varintField(1, 1),
+    messageField(2, stringField(1, "ordinary-av-payload")),
+    messageField(12, stringField(1, "ordinary-related-video")),
+  );
+  const memberMall = bytes(
+    varintField(1, 5),
+    messageField(6, stringField(1, "member-mall-product-payload")),
+    messageField(12, stringField(1, "商品-价格-定金-加购人数")),
+  );
+  const payload = bytes(
+    messageField(1, ordinary),
+    messageField(1, memberMall),
+    stringField(99, "unknown-field-must-stay"),
+  );
+  const url =
+    "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/RelatesFeed";
+
+  for (const input of [
+    grpcFrame(payload),
+    grpcFrame(new Uint8Array(gzipSync(payload)), 1),
+  ]) {
+    const result = input[0] === 1
+      ? await enhance.transformGrpcBodyAsync(
+          input,
+          url,
+          enhance.parseArgument(""),
+          { responseHeaders: { "grpc-encoding": "gzip" } },
+        )
+      : enhance.transformGrpcBody(input, url, enhance.parseArgument(""));
+    const text = Buffer.from(grpcPayload(result.body)).toString("latin1");
+    assert.equal(result.changed, 1);
+    assert.match(text, /ordinary-related-video|ordinary-av-payload/);
+    assert.match(text, /unknown-field-must-stay/);
+    assert.doesNotMatch(text, /member-mall-product|商品|价格|定金|加购/);
+  }
+});
+
 test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field by field", async () => {
   const material = (type, label) =>
     bytes(
@@ -3913,4 +4093,150 @@ test("unknown framed gRPC method is diagnosed and cache-normalized without body 
   assert.match(logs[0], /topFields=1:1\|7:1/);
   assert.match(logs[0], /reason=endpoint-unmatched/);
   assert.doesNotMatch(logs[0], /secret|access_key|shape/);
+});
+
+test("unknown gzip gRPC method reports decoded top fields without rewriting its body", async () => {
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
+  const payload = bytes(varintField(1, 7), stringField(7, "private-shape"));
+  const input = grpcFrame(new Uint8Array(gzipSync(payload)), 1);
+  const logs = [];
+  let resolveCompletion;
+  const completionPromise = new Promise((resolve) => {
+    resolveCompletion = resolve;
+  });
+  const context = {
+    $argument: JSON.stringify({ ads: true, debug: true }),
+    $done(value) {
+      resolveCompletion(value);
+    },
+    $request: {
+      method: "POST",
+      headers: { "User-Agent": "bilibili/9.7.0 build/90700000" },
+      url: "https://grpc.biliapi.net/bilibili.app.viewunite.v2.View/NewCommercialCard?access_key=secret",
+    },
+    $response: {
+      body: input,
+      headers: {
+        "Content-Type": "application/grpc+proto",
+        "grpc-encoding": "gzip",
+      },
+      statusCode: 200,
+    },
+    ArrayBuffer,
+    console: { log(message) { logs.push(message); } },
+    DecompressionStream,
+    Promise,
+    ReadableStream,
+    Uint8Array,
+  };
+
+  vm.runInNewContext(source, context, { filename: "bilibili-enhance.js" });
+  const completion = await completionPromise;
+
+  assert.equal("body" in completion, false);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /frameFlags=1:/);
+  assert.match(logs[0], /topFields=1:1\|7:1/);
+  assert.match(logs[0], /reason=endpoint-unmatched/);
+  assert.doesNotMatch(logs[0], /secret|access_key|private-shape/);
+});
+
+test("9.7.0 JSON diagnostics report bounded registry, transport, paths, and types without payload leakage", () => {
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
+  const fixture = ios970Fixture("ios970-search-creator-promotion.json");
+  const completions = [];
+  const logs = [];
+  const context = {
+    $argument: '{"ads":true,"debug":true}',
+    $done(value) {
+      completions.push(value);
+    },
+    $request: {
+      method: "GET",
+      headers: {
+        "User-Agent": "bilibili/9.7.0 build/90700000",
+        "x-bili-build": "90700000",
+        "x-bili-version": "9.7.0",
+      },
+      url: `${appRoot}/x/v2/search?keyword=secret-query&access_key=secret-token`,
+    },
+    $response: {
+      body: JSON.stringify(fixture),
+      headers: {
+        "Content-Encoding": "identity",
+        "Content-Type": "application/json; charset=utf-8",
+        ETag: '"resume-cache"',
+      },
+      statusCode: 200,
+    },
+    console: { log(message) { logs.push(message); } },
+  };
+
+  vm.runInNewContext(source, context, { filename: "bilibili-enhance.js" });
+  assert.equal(completions.length, 1);
+  assert.doesNotMatch(completions[0].body, /千问 3\.8 Max|点击立刻下载/);
+  assert.equal(completions[0].headers.ETag, undefined);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /registry=search-results/);
+  assert.match(logs[0], /method=GET status=200/);
+  assert.match(logs[0], /contentEncoding=identity/);
+  assert.match(logs[0], /removed=1/);
+  assert.match(logs[0], /paths=data\.pages\[\]\.sections\[\]\.cards/);
+  assert.match(logs[0], /types=.*business_type:creator_promotion/);
+  assert.match(logs[0], /reason=ios970-search-commercial-removed/);
+  assert.doesNotMatch(
+    logs[0],
+    /secret-query|secret-token|access_key|千问|点击立刻下载|CREATIVE_FIXTURE/,
+  );
+});
+
+test("volatile 304-shaped response with no ad change still returns no-store headers", () => {
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
+  const completions = [];
+  const logs = [];
+  const context = {
+    $argument: '{"debug":true}',
+    $done(value) {
+      completions.push(value);
+    },
+    $request: {
+      method: "GET",
+      headers: { "User-Agent": "bilibili/9.7.0 build/90700000" },
+      url: `${appRoot}/x/v2/view?aid=97401&access_key=secret-token`,
+    },
+    $response: {
+      body: JSON.stringify({
+        code: 0,
+        data: {
+          relates: [{
+            aid: 97402,
+            goto: "av",
+            title: "ordinary",
+            uri: "bilibili://video/97402",
+          }],
+        },
+      }),
+      headers: {
+        Age: "120",
+        "Cache-Control": "public, max-age=300",
+        "Content-Type": "application/json",
+        ETag: '"stale"',
+      },
+      statusCode: 304,
+    },
+    console: { log(message) { logs.push(message); } },
+  };
+
+  vm.runInNewContext(source, context, { filename: "bilibili-enhance.js" });
+  assert.equal(completions.length, 1);
+  assert.equal("body" in completions[0], false);
+  assert.equal(completions[0].headers.Age, undefined);
+  assert.equal(completions[0].headers.ETag, undefined);
+  assert.equal(
+    completions[0].headers["Cache-Control"],
+    "no-store, no-cache, must-revalidate",
+  );
+  assert.match(logs[0], /registry=view method=GET status=304/);
+  assert.match(logs[0], /changed=0 .*reason=resume-fresh-response/);
+  assert.doesNotMatch(logs[0], /secret-token|access_key|ordinary/);
 });

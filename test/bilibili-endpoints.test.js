@@ -26,10 +26,17 @@ test("endpoint registry rows are complete and uniquely classified", () => {
 test("registry classifies reviewed JSON, gRPC, and 9.5 log discoveries", () => {
   const cases = [
     ["https://app.bilibili.com/x/v2/feed/index?pull=1", "feed", "json"],
+    ["https://app.biliapi.net/x/v2/search?keyword=x", "search-results", "json"],
+    ["https://app.bilibili.com/x/v2/search/type?type=0", "search-results", "json"],
     ["https://app.biliapi.net/x/v2/view?aid=1", "view", "json"],
     [
       "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/ViewProgress",
       "grpc-view-unite-progress",
+      "grpc",
+    ],
+    [
+      "https://app.biliapi.net/bilibili.app.viewunite.v1.View/RelatesFeed",
+      "grpc-view-unite-relates",
       "grpc",
     ],
     [
@@ -52,6 +59,14 @@ test("registry classifies reviewed JSON, gRPC, and 9.5 log discoveries", () => {
     endpoints.classify("https://evil.example/x/v2/feed/index"),
     null,
   );
+  assert.equal(
+    endpoints.classify("https://app.bilibili.com/x/v2/search/typeahead"),
+    null,
+  );
+  assert.equal(
+    endpoints.classify("https://app.bilibili.com/x/v2/view/extra"),
+    null,
+  );
 });
 
 test("registry-generated matchers cover exactly their runtime groups", () => {
@@ -65,7 +80,9 @@ test("registry-generated matchers cover exactly their runtime groups", () => {
 
   for (const url of [
     "https://app.bilibili.com/x/v2/feed/index",
+    "https://app.biliapi.net/x/v2/search/type?type=0",
     "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
+    "https://app.biliapi.net/bilibili.app.viewunite.v1.View/RelatesFeed",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
     "https://grpc.bilibili.com/bilibili.app.story.v1.Story/BottomDiversionEntrance",
   ]) {

@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented here.
 
+## [3.9.2] - 2026-08-14
+
+- Add bounded Bilibili iOS 9.7.0 JSON container compatibility for nested search
+  sections/cards, creator-promotion metadata, home native-ad wrappers,
+  under-player marketplace modules and explicit product relates. Filtering uses
+  structural card/business/payload evidence and never ordinary title keywords.
+- Remove a commercial search card as one parent item so its bound recommendation,
+  action and download CTA cannot survive independently; remove whole marketplace
+  modules and empty layout slots rather than blanking their text.
+- Recognize explicit product relates through product/purchase/mall/goods/commerce
+  card types or payloads while preserving normal AV order and ordinary price text.
+  The v3.9.1 six-video ordering, two-stage non-empty fallback and refill behavior
+  remain unchanged.
+- Strengthen resume handling by writing request `Cache-Control: no-cache,
+  no-store, max-age=0`, reporting removed validators, and applying the existing
+  no-store response normalization even to classified volatile responses with no
+  body changes.
+- Expand bounded debug output with registry id, method/status/encoding/body size,
+  matched JSON array paths, observed card/business types, removed counts and
+  stable iOS 9.7.0 reason codes without logging queries, response bodies or
+  credentials.
+- Add structure-equivalent 9.7.0 fixtures for the four reported UI defects plus
+  cache/304, cold/resume, JSON, identity/gzip gRPC, unknown-field, matcher and
+  CDN-only isolation regressions. No new endpoint or protobuf field number is
+  claimed without an original 9.7.0 capture; the device capture procedure and
+  remaining evidence gaps are documented separately.
+- Leave hostAuto v10, mediaRoutes v9, playback URL rewriting, signed Akamai URLs,
+  media Range behavior and the 4 MiB gRPC limit unchanged.
+
 ## [3.9.1] - 2026-08-08
 
 - Fix the Bilibili iOS 9.6.1 empty-home regression by accepting ordinary AV

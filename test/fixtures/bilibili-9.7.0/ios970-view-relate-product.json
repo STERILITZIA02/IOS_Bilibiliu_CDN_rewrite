@@ -1,0 +1,39 @@
+{
+  "code": 0,
+  "message": "0",
+  "data": {
+    "relates": [
+      {
+        "goto": "av",
+        "card_type": "video",
+        "aid": 97301,
+        "title": "普通 UP 主视频：商品价格与广告行业",
+        "desc": "简介提到 99 元、定金和推广也必须保留",
+        "uri": "bilibili://video/97301"
+      },
+      {
+        "goto": "av",
+        "card_type": "video",
+        "aid": 97302,
+        "title": "会员购商品卡",
+        "uri": "bilibili://video/97302",
+        "goods_info": {
+          "product_type": "member_mall",
+          "badge": "商品",
+          "price": "¥299",
+          "discount": "满 300 减 40",
+          "deposit": "定金 ¥30",
+          "sales": "1234 人加购",
+          "purchase_uri": "bilibili://mall/items/STABLE_FIXTURE"
+        }
+      },
+      {
+        "goto": "av",
+        "card_type": "video",
+        "aid": 97303,
+        "title": "普通推荐视频 2",
+        "uri": "bilibili://video/97303"
+      }
+    ]
+  }
+}

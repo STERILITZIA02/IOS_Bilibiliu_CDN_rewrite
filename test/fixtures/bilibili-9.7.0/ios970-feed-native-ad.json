@@ -1,0 +1,68 @@
+{
+  "code": 0,
+  "message": "0",
+  "data": {
+    "items": [
+      {
+        "card_type": "small_cover_v2",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97101,
+        "title": "普通视频 1",
+        "inline_data": {
+          "playable": true
+        }
+      },
+      {
+        "card_type": "small_cover_v2",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97999,
+        "title": "RTX 5090D",
+        "promotion_label": {
+          "text": "广告"
+        },
+        "inline_data": {
+          "business_type": "native_ad",
+          "creative_id": "CREATIVE_FIXTURE",
+          "click_uri": "bilibili://ad/native/STABLE_FIXTURE"
+        }
+      },
+      {
+        "card_type": "small_cover_v2",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97102,
+        "title": "普通视频 2"
+      },
+      {
+        "card_type": "large_cover_v1",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97103,
+        "title": "普通视频 3"
+      },
+      {
+        "card_type": "large_cover_single_v9",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97104,
+        "title": "广告行业观察"
+      },
+      {
+        "card_type": "small_cover_v2",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97105,
+        "title": "闲鱼商品体验"
+      },
+      {
+        "card_type": "future_video_card_v97",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97106,
+        "title": "普通视频 6"
+      }
+    ]
+  }
+}

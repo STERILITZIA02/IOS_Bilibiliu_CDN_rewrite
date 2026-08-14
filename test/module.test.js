@@ -238,9 +238,13 @@ test("fresh UI request guard covers every reviewed cache-sensitive metadata API"
     "https://api.vc.bilibili.com/search_svr/v3/Search/recommend_words",
     "https://manga.bilibili.com/twirp/comic.v1.Comic/ListFlash",
     "https://app.bilibili.com/x/v2/search/square",
+    "https://app.biliapi.net/x/v2/search?keyword=x",
+    "https://app.bilibili.com/x/v2/search/type?type=0",
     "https://app.bilibili.com/x/resource/show/tab/v2",
     "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
+    "https://grpc.bilibili.com/bilibili.app.view.v1.View/RelatesFeed",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
+    "https://app.biliapi.net/bilibili.app.viewunite.v1.View/RelatesFeed",
     "https://grpc.bilibili.com/bilibili.app.story.v1.Story/BottomDiversionEntrance",
   ]) {
     assert.match(url, pattern);
@@ -581,6 +585,7 @@ test("enhancement response pattern covers only reviewed API endpoints", () => {
   for (const url of [
     "https://app.biliapi.net/x/v2/feed/index/story?device=phone",
     "https://app.biliapi.net/x/v2/feed/index/story/cart",
+    "https://app.biliapi.net/x/v2/search/typeahead",
     "https://upos-sz-mirrorali.bilivideo.com/upgcxcode/video.m4s",
     "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo",
     "https://passport.bilibili.com/x/passport-login/web/login",

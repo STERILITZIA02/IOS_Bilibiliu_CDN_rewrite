@@ -1,0 +1,64 @@
+{
+  "code": 0,
+  "message": "0",
+  "data": {
+    "pages": [
+      {
+        "page_type": "search_all",
+        "sections": [
+          {
+            "section_type": "video",
+            "cards": [
+              {
+                "card_type": "video",
+                "goto": "av",
+                "aid": 97001,
+                "bvid": "BV1a2B3c4D5E",
+                "title": "广告与闲鱼商品推广下载体验",
+                "desc": "普通搜索视频，标题和简介关键词不能作为广告证据",
+                "uri": "bilibili://video/97001"
+              },
+              {
+                "card_type": "video",
+                "goto": "av",
+                "aid": 97002,
+                "business_type": "creator_promotion",
+                "promotion_label": {
+                  "text": "创作推广"
+                },
+                "report": {
+                  "creative_id": "CREATIVE_FIXTURE"
+                },
+                "title": "千问 3.8 Max",
+                "uri": "bilibili://video/97002",
+                "modules": [
+                  {
+                    "module_type": "recommendation",
+                    "recommendation": {
+                      "text": "推荐：赶紧看看"
+                    }
+                  },
+                  {
+                    "module_type": "action",
+                    "action": {
+                      "text": "点击立刻下载",
+                      "uri": "bilibili://game_center/detail?id=STABLE_FIXTURE"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "result": [
+      {
+        "goto": "av",
+        "aid": 97003,
+        "title": "普通旧容器视频",
+        "uri": "bilibili://video/97003"
+      }
+    ]
+  }
+}

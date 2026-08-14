@@ -338,6 +338,8 @@
     var keys;
     var index;
     var removedValidators = 0;
+    var removedValidatorNames = [];
+    var validatorName;
     if (!endpoint) {
       return {
         changed: false,
@@ -350,12 +352,16 @@
     for (index = 0; index < keys.length; index += 1) {
       if (/^(?:if-none-match|if-modified-since|if-range)$/i.test(keys[index])) {
         removedValidators += 1;
+        validatorName = keys[index].toLowerCase();
+        if (removedValidatorNames.indexOf(validatorName) === -1) {
+          removedValidatorNames.push(validatorName);
+        }
       }
     }
     deleteHeader(output, "if-none-match");
     deleteHeader(output, "if-modified-since");
     deleteHeader(output, "if-range");
-    setHeader(output, "Cache-Control", "no-cache, no-store");
+    setHeader(output, "Cache-Control", "no-cache, no-store, max-age=0");
     setHeader(output, "Pragma", "no-cache");
     if (matched.transport === "grpc") {
       setHeader(output, "grpc-accept-encoding", "gzip,identity");
@@ -366,6 +372,7 @@
       handler: matched.handler,
       headers: output,
       removedValidators: removedValidators,
+      removedValidatorNames: removedValidatorNames,
       transport: matched.transport
     };
   }
@@ -405,13 +412,26 @@
         ? $request.headers
         : null
     );
+    var parsedUrl = endpointRegistry && endpointRegistry.parseRequestUrl
+      ? endpointRegistry.parseRequestUrl(requestUrl)
+      : null;
+    var method =
+      typeof $request !== "undefined" && $request
+        ? String($request.method || "unknown").toUpperCase().slice(0, 12)
+        : "unknown";
     if (
       debugEnabled(
         typeof $argument === "string" ? $argument : ""
       )
     ) {
       safeLog(
-        "endpoint=" +
+        "host=" +
+          (parsedUrl ? parsedUrl.host : "unknown") +
+          " path=" +
+          (parsedUrl ? parsedUrl.path : "unknown") +
+          " method=" +
+          method +
+          " endpoint=" +
           (result.endpoint || "unmatched") +
           " handler=" +
           (result.handler || "none") +
@@ -421,8 +441,15 @@
           (result.changed ? 1 : 0) +
           " validatorsRemoved=" +
           (result.removedValidators || 0) +
+          " validators=" +
+          (
+            Array.isArray(result.removedValidatorNames) &&
+            result.removedValidatorNames.length > 0
+              ? result.removedValidatorNames.join("|")
+              : "none"
+          ) +
           " reason=" +
-          (result.changed ? "fresh-response-requested" : "endpoint-unmatched")
+          (result.changed ? "resume-fresh-response" : "endpoint-unmatched")
       );
     }
     if (result.changed) {

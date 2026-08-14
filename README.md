@@ -18,8 +18,11 @@
 > 组合的真机验收。仓库会明确区分“代码测试通过”和“真机已验证”；发布前后的
 > 检查矩阵见 [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
 >
-> v3.9.1 修复 Bilibili iOS 9.6.1 普通视频身份字段不完整时被全部过滤的首页空流
-> 回归，并增加非空响应 fail-open；规则与回归边界见
+> v3.9.2 为 Bilibili iOS 9.7.0 增加搜索创作推广、首页原生广告、播放器下闲鱼
+> 横幅、相关推荐会员购商品卡的有界结构过滤，并强化恢复态缓存与脱敏诊断。现有
+> 证据不含 9.7.0 原始抓包，因此没有猜测新 endpoint 或 protobuf field；确认项、
+> 自动测试边界与待抓包项见 [v3.9.2 审计](docs/V3_9_2_AUDIT.md) 和
+> [9.7.0 抓包指南](docs/BILIBILI_9_7_CAPTURE.md)。v3.9.1 的首页非空修复见
 > [v3.9.1 审计](docs/V3_9_1_AUDIT.md)。v3.9.0 的 endpoint registry、商业
 > AV/大 Banner、闲鱼操作卡与 TTFB 优先 hostAuto v10 见
 > [v3.9 审计](docs/V3_9_AUDIT.md)。v3.8.2 的魔力赏修复见
@@ -135,9 +138,9 @@ Enhanced 还会加入 `api.live.bilibili.com`、
 
 | 参数 | 默认 | 行为 |
 | --- | --- | --- |
-| `广告过滤` | `true` | 过滤明确广告字段、魔力赏等已审核营销角标，以及播放进度、暂停页、结束页和专用素材接口重新下发的运营容器 |
+| `广告过滤` | `true` | 过滤明确广告字段、创作推广/魔力赏等已审核营销结构、播放器下商业横幅和商品关系卡，以及播放进度、暂停页、结束页和专用素材接口重新下发的运营容器 |
 | `首页推荐6个普通视频` | `true` | 在`广告过滤`开启时，每次首页/推荐响应只保留按原顺序出现的前 6 个明确普通 AV；同时清理横幅、广告、小游戏/应用、纪录片、影视、综艺、直播、活动和未知卡片 |
-| `推荐仅普通视频` | `true` | 在`广告过滤`开启时，播放页推荐只保留明确普通 AV；移除番剧、综艺、纪录片、影视、直播、游戏、课程、活动、广告、必火推荐及未知类型卡片 |
+| `推荐仅普通视频` | `true` | 在`广告过滤`开启时，播放页推荐只保留明确普通 AV；移除番剧、综艺、纪录片、影视、直播、游戏、课程、活动、广告、会员购商品、必火推荐及未知类型卡片 |
 | `界面精简` | `true` | 启用下面的首页/“我的”逐项设置 |
 | `搜索推广` | `true` | 隐藏明确的搜索运营推广词 |
 | `直播带货` | `true` | 隐藏直播间明确购物卡片、业务编号 33 的购物标签及已验证商业弹层 |
@@ -184,7 +187,11 @@ length-delimited 字段；`ViewEndPage` 按
 no-op 并原样放行。
 
 搜索结果广告由 `广告过滤=true` 控制，独立于只负责运营搜索词的
-`搜索推广`。JSON `/x/v2/search`、`/x/v2/search/type` 与 gRPC
+`搜索推广`。JSON `/x/v2/search`、`/x/v2/search/type` 会在固定的
+`items/item/result/list/cards/sections/pages` 等搜索容器内有界遍历，删除明确
+商业卡的整个父项，因此与创作推广主体绑定的 recommendation/action/download CTA
+不会留下孤立操作条；普通标题、简介或评论中的“推广”“下载”等文字不参与判定。
+gRPC
 `SearchAll`/`SearchByType` 会删除明确 `cm`、游戏、购买、横幅、top-game
 商业 oneof，以及普通 AV 外壳内的 `CardBusinessBadge`；普通视频、用户和未知
 schema 原样保留。精确的 gRPC `Search/DefaultWords` 和旧版
@@ -203,7 +210,8 @@ schema 原样保留。精确的 gRPC `Search/DefaultWords` 和旧版
 接口、`/x/v2/feed/index`、`/x/v2/feed/index/story(/cart)`、
 `/x/v2/feed/index/relate/story`、`/x/v2/view`、
 `/x/v2/account/mine(/ipad)`、`/x/v2/account/myinfo`、搜索运营词、漫画闪屏以及
-两个 VIP 广告素材/上报接口移除条件缓存校验头，并设置 `no-cache, no-store`；响应侧在
+两个 VIP 广告素材/上报接口移除条件缓存校验头，并设置
+`no-cache, no-store, max-age=0`；响应侧在
 feed/story、mine、view、splash 与 VIP 素材/上报等实际过滤接口成功分类后，也会
 移除 ETag/Last-Modified/Content-Length 等缓存元数据并返回 `no-store`，避免
 过滤后的页面被旧响应覆盖。`myinfo` 仍只诊断、不改正文或响应头。不修改原始 URL、
@@ -338,8 +346,8 @@ DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 Shadowrocket 会取得新的远程资源地址，不会继续复用上一版同名脚本缓存。
 
 如果原先安装的是 README 的固定 `main/dist/*.sgmodule` 地址、历史兼容地址或
-BiliFlow 生成的固定 URL，升级到 3.9.1 **不需要重新订阅**，只需执行上述“更新
-模块”。更新后模块详情应显示 `3.9.1`，脚本 URL 应含 `?v=3.9.1`。只有把 Release
+BiliFlow 生成的固定 URL，升级到 3.9.2 **不需要重新订阅**，只需执行上述“更新
+模块”。更新后模块详情应显示 `3.9.2`，脚本 URL 应含 `?v=3.9.2`。只有把 Release
 附件下载成本地文件、或使用不带远程 URL 的旧副本时，才需要重新安装固定地址。
 
 按影响最小顺序回滚：

@@ -1,0 +1,35 @@
+{
+  "code": 0,
+  "message": "0",
+  "data": {
+    "aid": 97201,
+    "title": "普通视频",
+    "view_modules": [
+      {
+        "module_type": "under_player_operation_v97",
+        "layout": {
+          "height": 64,
+          "divider": true
+        },
+        "operation_area": {
+          "content": {
+            "title": "【闲鱼集市】更便宜，货源生猛价更低！"
+          },
+          "actions": [
+            {
+              "text": "立即打开",
+              "jump_url": "https://www.goofish.com/item/STABLE_FIXTURE"
+            }
+          ]
+        }
+      },
+      {
+        "module_type": "ordinary_introduction",
+        "content": {
+          "title": "普通视频简介",
+          "text": "保留正常简介与 UP 主信息"
+        }
+      }
+    ]
+  }
+}

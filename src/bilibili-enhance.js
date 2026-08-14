@@ -281,6 +281,8 @@
   var VIEW_JSON_CONTAINER_KEYS = {
     action: true,
     actions: true,
+    activity_modules: true,
+    activityModules: true,
     buttons: true,
     cards: true,
     commercial_modules: true,
@@ -297,13 +299,19 @@
     operation_cards: true,
     operationCard: true,
     operationCards: true,
+    operation_area: true,
+    operationArea: true,
     relates: true,
     relates_feed: true,
     relatesFeed: true,
     tab: true,
     tab_modules: true,
     tabModules: true,
-    tabs: true
+    tabs: true,
+    under_player_modules: true,
+    underPlayerModules: true,
+    view_modules: true,
+    viewModules: true
   };
   var VIEW_JSON_AD_KEYS = {
     ad_info: true,
@@ -325,7 +333,23 @@
     player_ad: true,
     playerAd: true,
     under_player_ad: true,
-    underPlayerAd: true
+    underPlayerAd: true,
+    under_player_banner: true,
+    underPlayerBanner: true
+  };
+  var SEARCH_JSON_CONTAINER_KEYS = {
+    blocks: true,
+    cards: true,
+    data: true,
+    groups: true,
+    item: true,
+    items: true,
+    list: true,
+    modules: true,
+    pages: true,
+    result: true,
+    rows: true,
+    sections: true
   };
   var MAX_GRPC_DECOMPRESSED_BYTES = 4 * 1024 * 1024;
 
@@ -339,6 +363,73 @@
 
   function includes(list, value) {
     return list.indexOf(value) !== -1;
+  }
+
+  function appendBoundedMeta(meta, key, value, limit) {
+    var normalized = String(value || "").trim().slice(0, 64);
+    if (!isPlainObject(meta) || !normalized) {
+      return;
+    }
+    if (!Array.isArray(meta[key])) {
+      meta[key] = [];
+    }
+    if (
+      meta[key].length < (limit || 12) &&
+      !includes(meta[key], normalized)
+    ) {
+      meta[key].push(normalized);
+    }
+  }
+
+  function recordMatchedPath(meta, path) {
+    appendBoundedMeta(meta, "matchedPaths", path, 16);
+  }
+
+  function recordObservedTypes(meta, item) {
+    var keys = [
+      "card_type",
+      "cardType",
+      "card_goto",
+      "cardGoto",
+      "goto",
+      "type",
+      "business_type",
+      "businessType",
+      "biz_type",
+      "bizType",
+      "product_type",
+      "productType"
+    ];
+    var index;
+    var value;
+    if (!isPlainObject(item)) {
+      return;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      value = item[keys[index]];
+      if (
+        (typeof value === "string" || typeof value === "number") &&
+        String(value).trim()
+      ) {
+        appendBoundedMeta(
+          meta,
+          "observedTypes",
+          keys[index] + ":" + String(value),
+          16
+        );
+      }
+    }
+  }
+
+  function recordRemoval(meta, count, path, reason) {
+    if (!isPlainObject(meta) || !count) {
+      return;
+    }
+    meta.removed = (Number(meta.removed) || 0) + count;
+    recordMatchedPath(meta, path);
+    if (reason) {
+      meta.reason = reason;
+    }
   }
 
   function parseBoolean(value, fallback) {
@@ -640,9 +731,13 @@
       "corner_mark",
       "commercial_label",
       "business_badge",
+      "business_label",
+      "card_business_badge",
       "bottom_rcmd_reason_style",
       "cover_left_text",
       "cover_right_text",
+      "promotion_badge",
+      "promotion_label",
       "rcmd_reason",
       "rcmd_reason_style",
       "reason",
@@ -656,7 +751,7 @@
     for (index = 0; index < keys.length; index += 1) {
       value = knownLabelText(item[keys[index]], 0);
       if (
-        /(?:广告|必火推广|必火推荐|小火箭|商业推广|魔力[赏賞])/.test(value)
+        /(?:广告|创作推广|必火推广|必火推荐|小火箭|商业推广|魔力[赏賞])/.test(value)
       ) {
         return true;
       }
@@ -934,7 +1029,7 @@
       ""
     );
     if (
-      /^(?:ad|cm|commercial|promotion|promote|game_ad)$/i.test(
+      /^(?:ad|cm|commercial|promotion|promote|creator_promotion|creative_promotion|business_promotion|native_ad|game_ad)$/i.test(
         businessType
       )
     ) {
@@ -1074,6 +1169,7 @@
     var before;
     var removed;
     var cardType;
+    var commercialRemoved = 0;
 
     if (!isPlainObject(data) || !Array.isArray(data.items)) {
       return 0;
@@ -1081,6 +1177,12 @@
     source = data.items;
     if (source.length === 0) {
       return 0;
+    }
+    for (index = 0; index < source.length; index += 1) {
+      recordObservedTypes(meta, source[index]);
+      if (hasExplicitHomeCommercialEvidence(source[index])) {
+        commercialRemoved += 1;
+      }
     }
     if (config.homeFeedVideoOnly !== false) {
       for (index = 0; index < source.length; index += 1) {
@@ -1120,6 +1222,12 @@
       }
       if (kept.length !== source.length) {
         data.items = kept;
+        recordRemoval(
+          meta,
+          source.length - kept.length,
+          "data.items",
+          commercialRemoved > 0 ? "ios970-feed-ad-removed" : ""
+        );
         return source.length - kept.length;
       }
       return 0;
@@ -1163,6 +1271,12 @@
     }
     if (kept.length !== source.length) {
       data.items = kept;
+      recordRemoval(
+        meta,
+        source.length - kept.length,
+        "data.items",
+        commercialRemoved > 0 ? "ios970-feed-ad-removed" : ""
+      );
     }
     return changes;
   }
@@ -1591,31 +1705,73 @@
     );
   }
 
-  function handleSearchResults(body) {
+  function filterKnownSearchJsonContainers(node, meta, path, depth) {
     var changes = 0;
-    var data = body.data;
-    if (Array.isArray(data)) {
-      return replaceFilteredArray(
-        body,
-        "data",
-        isSearchPromotion
-      );
-    }
-    if (!isPlainObject(data)) {
+    var keys;
+    var index;
+    var key;
+    var value;
+    var childPath;
+    var removed;
+    if (!isPlainObject(node) || depth > 8) {
       return 0;
     }
-    changes += filterSearchArray(data, "items");
-    changes += filterSearchArray(data, "item");
-    changes += filterSearchArray(data, "result");
-    if (Array.isArray(data.result)) {
-      data.result.forEach(function (group) {
-        if (isPlainObject(group)) {
-          changes += filterSearchArray(group, "items");
-          changes += filterSearchArray(group, "data");
+    keys = Object.keys(node);
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (!SEARCH_JSON_CONTAINER_KEYS[key]) {
+        continue;
+      }
+      value = node[key];
+      childPath = path ? path + "." + key : key;
+      if (Array.isArray(value)) {
+        value.forEach(function (item) {
+          recordObservedTypes(meta, item);
+        });
+        removed = filterSearchArray(node, key);
+        changes += removed;
+        recordRemoval(
+          meta,
+          removed,
+          childPath,
+          "ios970-search-commercial-removed"
+        );
+        node[key].forEach(function (item) {
+          if (isPlainObject(item)) {
+            changes += filterKnownSearchJsonContainers(
+              item,
+              meta,
+              childPath + "[]",
+              depth + 1
+            );
+          }
+        });
+      } else if (isPlainObject(value)) {
+        recordObservedTypes(meta, value);
+        if (key !== "data" && isSearchPromotion(value)) {
+          delete node[key];
+          changes += 1;
+          recordRemoval(
+            meta,
+            1,
+            childPath,
+            "ios970-search-commercial-removed"
+          );
+        } else {
+          changes += filterKnownSearchJsonContainers(
+            value,
+            meta,
+            childPath,
+            depth + 1
+          );
         }
-      });
+      }
     }
     return changes;
+  }
+
+  function handleSearchResults(body, meta) {
+    return filterKnownSearchJsonContainers(body, meta, "", 0);
   }
 
   function normalizeLabel(value) {
@@ -2583,7 +2739,16 @@
       "commercial_info",
       "commercialInfo"
     ];
+    var wrapperKeys = [
+      "inline_data",
+      "inlineData",
+      "native_ad",
+      "nativeAd",
+      "business_data",
+      "businessData"
+    ];
     var index;
+    var nested;
     if (!isPlainObject(item)) {
       return false;
     }
@@ -2605,6 +2770,19 @@
     }
     for (index = 0; index < keys.length; index += 1) {
       if (hasOwn.call(item, keys[index]) && hasMarkerValue(item[keys[index]])) {
+        return true;
+      }
+    }
+    for (index = 0; index < wrapperKeys.length; index += 1) {
+      nested = item[wrapperKeys[index]];
+      if (
+        isPlainObject(nested) &&
+        (
+          isHighConfidencePromotion(nested) ||
+          explicitCommercialLabel(nested) ||
+          hasNestedCommercialEvidence(nested, 0)
+        )
+      ) {
         return true;
       }
     }
@@ -2754,14 +2932,82 @@
     return changes;
   }
 
-  function handleView(body, config) {
+  function isExplicitRelateProductCard(item) {
+    var marker;
+    var payloadKeys = [
+      "commerce",
+      "commerce_info",
+      "commerceInfo",
+      "goods",
+      "goods_info",
+      "goodsInfo",
+      "mall",
+      "mall_info",
+      "mallInfo",
+      "product",
+      "product_info",
+      "productInfo",
+      "purchase",
+      "purchase_info",
+      "purchaseInfo"
+    ];
+    var index;
+    if (!isPlainObject(item)) {
+      return false;
+    }
+    marker = recommendationMarker(
+      item,
+      [
+        "goto",
+        "card_goto",
+        "type",
+        "card_type",
+        "card_type_en",
+        "business_type",
+        "businessType",
+        "biz_type",
+        "bizType",
+        "product_type",
+        "productType"
+      ]
+    );
+    if (
+      /(?:^|\|)(?:product|goods|purchase|mall|member_mall|member_purchase|commerce)(?:[_-][^|]*)?(?:\||$)/i.test(
+        marker
+      )
+    ) {
+      return true;
+    }
+    for (index = 0; index < payloadKeys.length; index += 1) {
+      if (
+        hasOwn.call(item, payloadKeys[index]) &&
+        hasMarkerValue(item[payloadKeys[index]])
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function handleView(body, config, meta) {
     var data = body.data;
     var changes = 0;
+    var productRemoved = 0;
+    var relateRemoved;
     if (!isPlainObject(data)) {
       return 0;
     }
     changes += deleteKnownViewAdKeys(data, config);
-    changes += replaceFilteredArray(data, "relates", function (item) {
+    if (Array.isArray(data.relates)) {
+      data.relates.forEach(function (item) {
+        recordObservedTypes(meta, item);
+      });
+    }
+    relateRemoved = replaceFilteredArray(data, "relates", function (item) {
+      if (isExplicitRelateProductCard(item)) {
+        productRemoved += 1;
+        return true;
+      }
       if (
         config.videoOnlyRecommendations !== false &&
         (
@@ -2784,7 +3030,24 @@
         )
       );
     });
-    changes += filterKnownViewJsonContainers(data, config, 0);
+    changes += relateRemoved;
+    if (productRemoved > 0) {
+      recordRemoval(
+        meta,
+        productRemoved,
+        "data.relates",
+        "ios970-relate-product-removed"
+      );
+    } else if (relateRemoved > 0) {
+      recordRemoval(meta, relateRemoved, "data.relates", "");
+    }
+    changes += filterKnownViewJsonContainers(
+      data,
+      config,
+      0,
+      meta,
+      "data"
+    );
     return changes;
   }
 
@@ -2828,8 +3091,12 @@
       "jump",
       "marketing_action",
       "marketingAction",
+      "operation_area",
+      "operationArea",
       "operation_card",
-      "operationCard"
+      "operationCard",
+      "under_player",
+      "underPlayer"
     ];
     var index;
     var value;
@@ -2854,7 +3121,7 @@
       } else if (isPlainObject(value)) {
         if (
           isCommercialUri(objectLink(value)) ||
-          /(?:闲鱼集市|立即打开)/.test(knownLabelText(value, 0)) ||
+          /闲鱼集市/.test(knownLabelText(value, 0)) ||
           hasReviewedCommercialAction(value, depth + 1)
         ) {
           return true;
@@ -2864,12 +3131,64 @@
     return false;
   }
 
-  function filterKnownViewJsonContainers(node, config, depth) {
+  function hasReviewedMarketplaceAction(item, depth) {
+    var keys = [
+      "action",
+      "actions",
+      "button",
+      "buttons",
+      "content",
+      "jump",
+      "operation_area",
+      "operationArea",
+      "operation_card",
+      "operationCard",
+      "under_player",
+      "underPlayer"
+    ];
+    var index;
+    var nestedIndex;
+    var value;
+    var link;
+    if (!isPlainObject(item) || depth > 5) {
+      return false;
+    }
+    link = objectLink(item);
+    if (
+      /(?:goofish\.com|2\.taobao\.com|market\.m\.taobao\.com|(?:taobao|fleamarket):\/\/)/i.test(
+        link
+      ) ||
+      /闲鱼集市/.test(knownLabelText(item, 0))
+    ) {
+      return true;
+    }
+    for (index = 0; index < keys.length; index += 1) {
+      value = item[keys[index]];
+      if (Array.isArray(value)) {
+        for (nestedIndex = 0; nestedIndex < value.length; nestedIndex += 1) {
+          if (hasReviewedMarketplaceAction(value[nestedIndex], depth + 1)) {
+            return true;
+          }
+        }
+      } else if (
+        isPlainObject(value) &&
+        hasReviewedMarketplaceAction(value, depth + 1)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function filterKnownViewJsonContainers(node, config, depth, meta, path) {
     var keys;
     var index;
     var key;
     var value;
     var changes = 0;
+    var childPath;
+    var removed;
+    var marketplaceRemoved;
     if (!isPlainObject(node) || depth > 8) {
       return 0;
     }
@@ -2881,16 +3200,34 @@
         continue;
       }
       value = node[key];
+      childPath = path ? path + "." + key : key;
       if (Array.isArray(value)) {
-        changes += replaceFilteredArray(node, key, function (item) {
-          return shouldRemoveViewJsonModule(item, config);
+        marketplaceRemoved = 0;
+        value.forEach(function (item) {
+          recordObservedTypes(meta, item);
         });
+        removed = replaceFilteredArray(node, key, function (item) {
+          var shouldRemove = shouldRemoveViewJsonModule(item, config);
+          if (shouldRemove && hasReviewedMarketplaceAction(item, 0)) {
+            marketplaceRemoved += 1;
+          }
+          return shouldRemove;
+        });
+        changes += removed;
+        recordRemoval(
+          meta,
+          removed,
+          childPath,
+          marketplaceRemoved > 0 ? "ios970-view-xianyu-removed" : ""
+        );
         node[key].forEach(function (item) {
           if (isPlainObject(item)) {
             changes += filterKnownViewJsonContainers(
               item,
               config,
-              depth + 1
+              depth + 1,
+              meta,
+              childPath + "[]"
             );
           }
         });
@@ -2898,11 +3235,21 @@
         if (shouldRemoveViewJsonModule(value, config)) {
           delete node[key];
           changes += 1;
+          recordRemoval(
+            meta,
+            1,
+            childPath,
+            hasReviewedMarketplaceAction(value, 0)
+              ? "ios970-view-xianyu-removed"
+              : ""
+          );
         } else {
           changes += filterKnownViewJsonContainers(
             value,
             config,
-            depth + 1
+            depth + 1,
+            meta,
+            childPath
           );
         }
       }
@@ -3108,9 +3455,9 @@
       case "story-cart":
         return handleStoryCart(body);
       case "search-results":
-        return handleSearchResults(body);
+        return handleSearchResults(body, meta);
       case "view":
-        return handleView(body, config);
+        return handleView(body, config, meta);
       case "reply":
         return handleReply(body);
       case "pgc":
@@ -3133,6 +3480,7 @@
     var data;
     var meta = {};
     var arrayCounts = [];
+    var registryRow;
     var effectiveConfig = config || parseArgument("");
 
     try {
@@ -3157,6 +3505,12 @@
         valid: true
       };
     }
+    registryRow = endpointRegistry && endpointRegistry.classify
+      ? endpointRegistry.classify(requestUrl, {
+          responseFilter: true,
+          transport: "json"
+        })
+      : null;
 
     try {
       changes = transformObject(parsed, endpoint, effectiveConfig, meta);
@@ -3191,6 +3545,12 @@
       changed: changes,
       endpoint: endpoint,
       hitType: changes > 0 ? endpoint + "-filter" : "",
+      matchedPaths: Array.isArray(meta.matchedPaths)
+        ? meta.matchedPaths
+        : [],
+      observedTypes: Array.isArray(meta.observedTypes)
+        ? meta.observedTypes
+        : [],
       reason:
         meta.reason ||
         (changes > 0
@@ -3198,8 +3558,12 @@
           : (
               endpoint === "myinfo-diagnostic"
                 ? "diagnostic-only"
-                : "no-ad-fields"
+                : registryRow && registryRow.volatile
+                  ? "resume-fresh-response"
+                  : "no-ad-fields"
             )),
+      registryId: registryRow ? registryRow.id : "",
+      removed: Number(meta.removed) || changes,
       topKeys: Object.keys(parsed).slice(0, 12),
       valid: true
     };
@@ -4884,7 +5248,10 @@
         valid: false
       });
     }
-    if (!grpcEndpointEnabled(endpoint, effectiveConfig)) {
+    if (
+      !grpcEndpointEnabled(endpoint, effectiveConfig) &&
+      (endpoint || !effectiveConfig.debug)
+    ) {
       return Promise.resolve({
         body: original,
         changed: 0,
@@ -4911,6 +5278,7 @@
           : Promise.resolve(payload);
       return payloadPromise.then(function (decoded) {
         return {
+          decoded: decoded,
           frame: frame,
           result: transformGrpcPayload(
             decoded,
@@ -4966,9 +5334,13 @@
           frames: frames.length,
           hitType: changed > 0 ? endpoint + "-filter" : "",
           reason:
+            (!endpoint ? "endpoint-unmatched" : "") ||
             Object.keys(reasons)[0] ||
             (changed > 0 ? "changed" : "no-ad-fields"),
           schema: Object.keys(schemas).join(","),
+          topFields: protoPayloadTopFieldSummaryForLog(
+            entries.map(function (value) { return value.decoded; })
+          ),
           valid: true
         };
       },
@@ -5059,6 +5431,33 @@
       .join("|") || "none";
   }
 
+  function protoPayloadTopFieldSummaryForLog(payloads) {
+    var counts = {};
+    var index;
+    var fields;
+    var fieldIndex;
+    if (!Array.isArray(payloads)) {
+      return "none";
+    }
+    for (index = 0; index < payloads.length; index += 1) {
+      fields = parseProtoFields(payloads[index]);
+      if (!fields) {
+        continue;
+      }
+      for (fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
+        counts[fields[fieldIndex].fieldNumber] =
+          (counts[fields[fieldIndex].fieldNumber] || 0) + 1;
+      }
+    }
+    return Object.keys(counts)
+      .sort(function (left, right) { return Number(left) - Number(right); })
+      .slice(0, 24)
+      .map(function (fieldNumber) {
+        return fieldNumber + ":" + counts[fieldNumber];
+      })
+      .join("|") || "none";
+  }
+
   function appVersionForLog(headers) {
     var userAgent = headerValue(headers, "user-agent");
     var version = headerValue(headers, "x-bili-version");
@@ -5084,12 +5483,35 @@
       .split(";")[0]
       .trim()
       .toLowerCase();
+    var contentEncoding = headerValue(responseHeaders, "content-encoding") || "identity";
     var parsedUrl = endpointRegistry && endpointRegistry.parseRequestUrl
       ? endpointRegistry.parseRequestUrl(requestUrl)
       : null;
+    var registryRow = endpointRegistry && endpointRegistry.classify
+      ? endpointRegistry.classify(requestUrl, {
+          responseFilter: true,
+          transport: transport === "json" || transport === "grpc"
+            ? transport
+            : undefined
+        })
+      : null;
+    var requestMethod =
+      typeof $request !== "undefined" && $request
+        ? String($request.method || "unknown").toUpperCase().slice(0, 12)
+        : "unknown";
+    var responseStatus =
+      typeof $response !== "undefined" && $response
+        ? String($response.statusCode || $response.status || "unknown").slice(0, 24)
+        : "unknown";
     safeLog(
       "host=" + (parsedUrl ? parsedUrl.host : "unknown") +
         " path=" + (parsedUrl ? parsedUrl.path : "unknown") +
+        " registry=" +
+        (result.registryId || (registryRow ? registryRow.id : "unmatched")) +
+        " method=" +
+        requestMethod +
+        " status=" +
+        responseStatus +
         " " + appVersionForLog(requestHeaders) +
         " handler=" +
         (result.endpoint || "unmatched") +
@@ -5097,6 +5519,8 @@
         transport +
         " contentType=" +
         (contentType || "unknown") +
+        " contentEncoding=" +
+        contentEncoding +
         " grpcEncoding=" +
         (headerValue(responseHeaders, "grpc-encoding") || "identity") +
         " grpcStatus=" +
@@ -5108,11 +5532,14 @@
         (
           transport === "grpc"
             ? " frameFlags=" + grpcFrameSummaryForLog(body) +
-              " topFields=" + grpcTopFieldSummaryForLog(body)
+              " topFields=" +
+              (result.topFields || grpcTopFieldSummaryForLog(body))
             : ""
         ) +
         " changed=" +
         (result.changed || 0) +
+        " removed=" +
+        (result.removed || result.changed || 0) +
         " schema=" +
         (result.schema || "none") +
         " hit=" +
@@ -5126,6 +5553,18 @@
           Array.isArray(result.arrayCounts) &&
           result.arrayCounts.length > 0
             ? " arrays=" + result.arrayCounts.join(",")
+            : ""
+        ) +
+        (
+          Array.isArray(result.matchedPaths) &&
+          result.matchedPaths.length > 0
+            ? " paths=" + result.matchedPaths.join("|")
+            : ""
+        ) +
+        (
+          Array.isArray(result.observedTypes) &&
+          result.observedTypes.length > 0
+            ? " types=" + result.observedTypes.join("|")
             : ""
         ) +
         " reason=" +

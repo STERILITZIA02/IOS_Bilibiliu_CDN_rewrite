@@ -29,19 +29,24 @@ test("cache guard is exact to reviewed volatile Bilibili metadata", () => {
     "https://app.bilibili.com/x/v2/splash/event/list2",
     "https://app.biliapi.net/x/v2/splash/brand/list",
     "https://app.bilibili.com/x/v2/view",
+    "https://app.biliapi.net/x/v2/search?keyword=x",
+    "https://app.bilibili.com/x/v2/search/type?type=0",
     "https://app.bilibili.com/x/v2/account/mine?build=9400000",
     "https://app.biliapi.net/x/v2/account/mine/ipad",
     "https://app.bilibili.com/x/v2/account/myinfo",
     "https://api.bilibili.com/x/vip/ads/materials",
     "https://api.biliapi.net/x/vip/ads/material/report",
     "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
+    "https://grpc.bilibili.com/bilibili.app.view.v1.View/RelatesFeed",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
+    "https://app.biliapi.net/bilibili.app.viewunite.v1.View/RelatesFeed",
     "https://grpc.bilibili.com/bilibili.app.story.v1.Story/BottomDiversionEntrance",
   ]) {
     assert.equal(refresh.isVolatileMetadataUrl(url), true);
   }
   for (const url of [
     "https://app.bilibili.com/x/v2/view/extra",
+    "https://app.bilibili.com/x/v2/search/typeahead",
     "https://app.bilibili.com/x/v2/account/myinfo/extra",
     "https://api.bilibili.com/x/vip/ads/material",
     "https://evil.example/x/v2/account/mine",
@@ -66,6 +71,11 @@ test("cache guard removes validators without changing unrelated headers", () => 
   assert.equal(result.changed, true);
   assert.equal(result.endpoint, "mine");
   assert.equal(result.removedValidators, 3);
+  assert.deepEqual(result.removedValidatorNames, [
+    "if-none-match",
+    "if-modified-since",
+    "if-range",
+  ]);
   assert.deepEqual(original, {
     Accept: "application/json",
     "If-None-Match": "\"server-original\"",
@@ -76,7 +86,7 @@ test("cache guard removes validators without changing unrelated headers", () => 
   assert.deepEqual(result.headers, {
     Accept: "application/json",
     "X-Bili-Trace-Id": "trace-1",
-    "Cache-Control": "no-cache, no-store",
+    "Cache-Control": "no-cache, no-store, max-age=0",
     Pragma: "no-cache",
   });
 });
@@ -114,6 +124,7 @@ test("Shadowrocket request entrypoint returns guarded headers only", () => {
       completion = value;
     },
     $request: {
+      method: "GET",
       headers: {
         "If-None-Match": "\"stale\"",
         "User-Agent": "Bilibili/9400000",
@@ -134,12 +145,15 @@ test("Shadowrocket request entrypoint returns guarded headers only", () => {
     filename: "bilibili-refresh.js",
   });
   assert.equal(completion.headers["If-None-Match"], undefined);
-  assert.equal(completion.headers["Cache-Control"], "no-cache, no-store");
+  assert.equal(
+    completion.headers["Cache-Control"],
+    "no-cache, no-store, max-age=0",
+  );
   assert.equal(completion.headers["User-Agent"], "Bilibili/9400000");
   assert.equal("url" in completion, false);
   assert.equal("body" in completion, false);
   assert.deepEqual(logs, [
-    "[BiliRefresh] endpoint=feed handler=feed transport=json changed=1 validatorsRemoved=1 reason=fresh-response-requested",
+    "[BiliRefresh] host=app.bilibili.com path=/x/v2/feed/index method=GET endpoint=feed handler=feed transport=json changed=1 validatorsRemoved=1 validators=if-none-match reason=resume-fresh-response",
   ]);
 });
 
