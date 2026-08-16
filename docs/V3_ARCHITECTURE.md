@@ -1,6 +1,6 @@
 # v3 架构、数据流与安全边界
 
-> 适用版本：`3.9.2`
+> 适用版本：`3.9.3`
 >
 > 本文描述仓库当前实现，不代表所有 Bilibili App/iOS 组合已完成真机验证。
 > 当前自动化专项覆盖 Bilibili iOS 9.6.1 fixture 与 9.7.0 结构等价 fixture；现有
@@ -164,6 +164,10 @@ URL/creative/广告字段证据的 length-delimited 字段；`mall-magic-c` 魔�
 `View/ViewEndPage` 只过滤已验证 `ViewEndPageCard.relate(1)` 中的广告或
 非普通 AV 关系卡。Chronos、视频快照、进度点、播放地址、普通 AV、未知顶层
 wire bytes 和无商业证据的暂停字段不在删除目标中。未知 schema 原样放行。
+播放器下原生卡另只在已审核的 `card/metadata/badge/subtitle` 展示容器
+中匹配独立“广告 · 兴趣人数”标签，命中后删除整个 module 以避免空占位；
+同一标签证据可用于已确认的 `VideoGuide.Material.text(2)`，但不读取普通
+标题作为商业证据。
 “我的”页另对明确的 `vip_section`、`vip_section_v2`、
 `modular_vip_section` 容器及 `/x/vip/ads/materials` 专用响应做独立处理，
 但不修改 `vip` 会员状态对象。后台恢复时异步返回的

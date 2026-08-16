@@ -271,6 +271,82 @@ test("9.7.0 View removes the complete Xianyu banner module and its layout placeh
   assert.match(result.body, /普通视频简介|保留正常简介/);
 });
 
+test("9.7.0 View removes a nested under-player native ad card and its placeholder", () => {
+  const fixture = ios970Fixture("ios970-view-native-under-player-ad.json");
+  const urls = [
+    `${appRoot}/x/v2/view?aid=97501&cold=1`,
+    `${appRoot}/x/v2/view?aid=97501&resume=30`,
+    `${appRoot}/x/v2/view?aid=97501&resume=300`,
+  ];
+  const results = urls.map((url) => transform(url, fixture));
+
+  for (const result of results) {
+    const modules = JSON.parse(result.body).data.view_modules;
+    assert.deepEqual(modules.map((item) => item.module_type), [
+      "ordinary_introduction",
+    ]);
+    assert.equal(result.reason, "ios970-view-under-player-ad-removed");
+    assert.ok(result.matchedPaths.includes("data.view_modules"));
+    assert.doesNotMatch(
+      result.body,
+      /AirPods Pro 3|7\.1万人感兴趣|STABLE_NATIVE_AD_COVER|under_player_native_card_v97/,
+    );
+    assert.match(result.body, /广告、闲鱼、推广与商品行业观察/);
+    assert.match(result.body, /普通 UP 主视频简介/);
+  }
+  assert.equal(results[0].body, results[1].body);
+  assert.equal(results[1].body, results[2].body);
+});
+
+test("9.7.0 under-player native ad response remains filtered and no-store after resume", () => {
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
+  const fixture = ios970Fixture("ios970-view-native-under-player-ad.json");
+
+  for (const resume of ["cold", "30", "300"]) {
+    let completion;
+    let doneCalls = 0;
+    const context = {
+      $argument: "",
+      $done(value) {
+        doneCalls += 1;
+        completion = value;
+      },
+      $request: {
+        method: "GET",
+        headers: { "User-Agent": "bilibili/9.7.0 build/90700000" },
+        url: `${appRoot}/x/v2/view?aid=97501&resume=${resume}`,
+      },
+      $response: {
+        body: JSON.stringify(fixture),
+        headers: {
+          Age: "120",
+          "Cache-Control": "public, max-age=300",
+          "Content-Length": "999",
+          "Content-Type": "application/json",
+          ETag: '"stale-under-player-card"',
+          Expires: "tomorrow",
+          "Last-Modified": "yesterday",
+        },
+        statusCode: 200,
+      },
+      console,
+    };
+
+    vm.runInNewContext(source, context, { filename: "bilibili-enhance.js" });
+    assert.equal(doneCalls, 1);
+    assert.doesNotMatch(completion.body, /AirPods Pro 3|7\.1万人感兴趣/);
+    assert.match(completion.body, /广告、闲鱼、推广与商品行业观察/);
+    assert.equal(
+      completion.headers["Cache-Control"],
+      "no-store, no-cache, must-revalidate",
+    );
+    assert.equal(completion.headers.ETag, undefined);
+    assert.equal(completion.headers.Age, undefined);
+    assert.equal(completion.headers["Content-Length"], undefined);
+    assert.equal(completion.headers["Last-Modified"], undefined);
+  }
+});
+
 test("9.7.0 View does not treat a generic open button as marketplace evidence", () => {
   const fixture = {
     code: 0,
@@ -2886,6 +2962,38 @@ test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field b
     Buffer.from(disabled.body),
     Buffer.from(grpcFrame(reply)),
   );
+});
+
+test("ViewProgress removes the confirmed Material text ad-interest label without title keyword matching", () => {
+  const material = (label) => bytes(
+    stringField(2, label),
+    varintField(4, 8),
+  );
+  const videoGuide = bytes(
+    messageField(1, material("广告 · 7.1万人感兴趣")),
+    messageField(1, material("广告行业观察：闲鱼商品推广")),
+    stringField(99, "unknown-video-guide-field"),
+  );
+  const reply = bytes(
+    messageField(1, videoGuide),
+    stringField(99, "unknown-view-progress-field"),
+  );
+  const result = enhance.transformGrpcBody(
+    grpcFrame(reply),
+    "https://app.bilibili.com/bilibili.app.viewunite.v1.View/ViewProgress",
+    enhance.parseArgument(""),
+  );
+  const output = grpcPayload(result.body);
+  const guideField = protoFields(output, 1, 2)[0];
+  const filteredGuide = fieldPayload(output, guideField);
+  const text = Buffer.from(output).toString("utf8");
+
+  assert.equal(result.valid, true);
+  assert.equal(result.changed, 1);
+  assert.equal(protoFields(filteredGuide, 1, 2).length, 1);
+  assert.doesNotMatch(text, /7\.1万人感兴趣/);
+  assert.match(text, /广告行业观察：闲鱼商品推广/);
+  assert.match(text, /unknown-video-guide-field|unknown-view-progress-field/);
 });
 
 test("9.5.0 PlayPause removes only evidenced commercial fields", async () => {

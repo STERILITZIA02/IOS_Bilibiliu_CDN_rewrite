@@ -1,0 +1,41 @@
+{
+  "code": 0,
+  "message": "0",
+  "data": {
+    "aid": 97501,
+    "title": "普通视频",
+    "view_modules": [
+      {
+        "module_type": "under_player_native_card_v97",
+        "layout": {
+          "height": 72,
+          "divider": true
+        },
+        "card": {
+          "cover": "https://i0.hdslb.com/bfs/archive/STABLE_NATIVE_AD_COVER.jpg",
+          "title": "AirPods Pro 3",
+          "metadata": {
+            "subtitle": {
+              "text": "广告 · 7.1万人感兴趣"
+            }
+          }
+        }
+      },
+      {
+        "module_type": "ordinary_introduction",
+        "layout": {
+          "height": 72,
+          "divider": true
+        },
+        "card": {
+          "title": "广告、闲鱼、推广与商品行业观察",
+          "metadata": {
+            "subtitle": {
+              "text": "普通 UP 主视频简介"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -3335,7 +3335,8 @@ this.__BILIFLOW_COMBINED__ = true;
       config.ads !== false &&
       (
         isHighConfidencePromotion(item) ||
-        hasReviewedCommercialAction(item, 0)
+        hasReviewedCommercialAction(item, 0) ||
+        hasReviewedUnderPlayerAdLabel(item, 0)
       )
     ) {
       return true;
@@ -3352,6 +3353,84 @@ this.__BILIFLOW_COMBINED__ = true;
       ) ||
       (config.vipPromotions !== false && moduleType === 29)
     );
+  }
+
+  function isUnderPlayerAdLabel(value) {
+    var label = normalizeLabel(String(value || ""));
+    return /^(?:广告|ad)(?:[·•｜|:：-](?:\d+(?:\.\d+)?[万亿]?人(?:感兴趣|看过|围观|点击)|推荐|推广)?)?$/i.test(
+      label
+    );
+  }
+
+  function labelValueContainsUnderPlayerAd(value) {
+    var text = knownLabelText(value, 0);
+    var parts = text ? text.split("|") : [];
+    var index;
+    for (index = 0; index < parts.length; index += 1) {
+      if (isUnderPlayerAdLabel(parts[index])) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function hasReviewedUnderPlayerAdLabel(item, depth) {
+    var wrapperKeys = [
+      "card",
+      "card_info",
+      "cardInfo",
+      "content",
+      "metadata",
+      "meta",
+      "native_card",
+      "nativeCard",
+      "presentation"
+    ];
+    var labelKeys = [
+      "ad_label",
+      "adLabel",
+      "badge",
+      "badge_info",
+      "badgeInfo",
+      "badge_text",
+      "badgeText",
+      "label",
+      "sub_title",
+      "subTitle",
+      "subtitle",
+      "tag",
+      "tags"
+    ];
+    var index;
+    var nestedIndex;
+    var value;
+    if (!isPlainObject(item) || depth > 5) {
+      return false;
+    }
+    for (index = 0; index < labelKeys.length; index += 1) {
+      if (
+        hasOwn.call(item, labelKeys[index]) &&
+        labelValueContainsUnderPlayerAd(item[labelKeys[index]])
+      ) {
+        return true;
+      }
+    }
+    for (index = 0; index < wrapperKeys.length; index += 1) {
+      value = item[wrapperKeys[index]];
+      if (Array.isArray(value)) {
+        for (nestedIndex = 0; nestedIndex < value.length; nestedIndex += 1) {
+          if (hasReviewedUnderPlayerAdLabel(value[nestedIndex], depth + 1)) {
+            return true;
+          }
+        }
+      } else if (
+        isPlainObject(value) &&
+        hasReviewedUnderPlayerAdLabel(value, depth + 1)
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function hasReviewedCommercialAction(item, depth) {
@@ -3464,6 +3543,7 @@ this.__BILIFLOW_COMBINED__ = true;
     var childPath;
     var removed;
     var marketplaceRemoved;
+    var nativeAdRemoved;
     if (!isPlainObject(node) || depth > 8) {
       return 0;
     }
@@ -3478,6 +3558,7 @@ this.__BILIFLOW_COMBINED__ = true;
       childPath = path ? path + "." + key : key;
       if (Array.isArray(value)) {
         marketplaceRemoved = 0;
+        nativeAdRemoved = 0;
         value.forEach(function (item) {
           recordObservedTypes(meta, item);
         });
@@ -3486,6 +3567,9 @@ this.__BILIFLOW_COMBINED__ = true;
           if (shouldRemove && hasReviewedMarketplaceAction(item, 0)) {
             marketplaceRemoved += 1;
           }
+          if (shouldRemove && hasReviewedUnderPlayerAdLabel(item, 0)) {
+            nativeAdRemoved += 1;
+          }
           return shouldRemove;
         });
         changes += removed;
@@ -3493,7 +3577,11 @@ this.__BILIFLOW_COMBINED__ = true;
           meta,
           removed,
           childPath,
-          marketplaceRemoved > 0 ? "ios970-view-xianyu-removed" : ""
+          marketplaceRemoved > 0
+            ? "ios970-view-xianyu-removed"
+            : nativeAdRemoved > 0
+              ? "ios970-view-under-player-ad-removed"
+              : ""
         );
         node[key].forEach(function (item) {
           if (isPlainObject(item)) {
@@ -3516,6 +3604,8 @@ this.__BILIFLOW_COMBINED__ = true;
             childPath,
             hasReviewedMarketplaceAction(value, 0)
               ? "ios970-view-xianyu-removed"
+              : hasReviewedUnderPlayerAdLabel(value, 0)
+                ? "ios970-view-under-player-ad-removed"
               : ""
           );
         } else {
@@ -4153,6 +4243,23 @@ this.__BILIFLOW_COMBINED__ = true;
     return text.toLowerCase();
   }
 
+  function shortUtf8Field(input, fieldNumber, maximumLength) {
+    var field = findProtoField(input, fieldNumber, 2);
+    var payload;
+    if (!field) {
+      return null;
+    }
+    payload = protoPayload(input, field);
+    if (
+      !payload ||
+      payload.length === 0 ||
+      payload.length > (maximumLength || 256)
+    ) {
+      return null;
+    }
+    return decodeUtf8Strict(payload);
+  }
+
   function positiveVarintField(input, fieldNumber) {
     var field = findProtoField(input, fieldNumber, 0);
     return Boolean(field && field.scalar > 0);
@@ -4424,8 +4531,10 @@ this.__BILIFLOW_COMBINED__ = true;
 
   function isPromotionalVideoGuideMaterial(input) {
     var materialType = smallVarintField(input, 4);
+    var materialText = shortUtf8Field(input, 2, 192);
     return (
       includes([1, 6], materialType) ||
+      isUnderPlayerAdLabel(materialText) ||
       bytesContainCommercialEvidence(input)
     );
   }

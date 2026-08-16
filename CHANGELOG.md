@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here.
 
+## [3.9.3] - 2026-08-16
+
+- Remove the complete under-player native ad card and its layout placeholder when
+  a standalone `广告 · <interest count>` label is nested in reviewed
+  card/metadata/badge/subtitle presentation containers. Ordinary video titles and
+  descriptions containing ad, marketplace, promotion or product words remain
+  content, not commercial evidence.
+- Apply the same bounded label check to the confirmed
+  `ViewProgressReply.video_guide(1) -> VideoGuide.material(1) -> Material.text(2)`
+  wire path while preserving unrelated materials and unknown protobuf bytes.
+- Add screenshot-equivalent JSON, confirmed protobuf, cold-start, 30-second
+  resume and five-minute resume regressions. Volatile View responses remain
+  normalized to no-store even after filtering, and the combined runtime still
+  calls `$done()` exactly once.
+- Keep the endpoint registry, CDN hostAuto v10, mediaRoutes v9, playback URL
+  rewriting, signed URLs, Range requests and media MITM boundary unchanged. The
+  supplied screenshot is not a raw response capture, so no new endpoint or field
+  number is claimed.
+
 ## [3.9.2] - 2026-08-14
 
 - Add bounded Bilibili iOS 9.7.0 JSON container compatibility for nested search

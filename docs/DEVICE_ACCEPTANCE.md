@@ -32,8 +32,8 @@
 - [ ] 历史 `Bilibili.CDN.sgmodule` 与 Enhanced 内容和版本一致。
 - [ ] 模块信息页显示正确名称和版本。
 - [ ] “编辑参数”显示全部参数，中文说明可读。
-- [ ] 更新到 3.9.2 后可见 `首页推荐6个普通视频`、`测速方式` 与 `CDN 学习状态`，
-      模块脚本 URL 含 `?v=3.9.2`，并包含 `Bilibili Enhance Fresh UI`、
+- [ ] 更新到 3.9.3 后可见 `首页推荐6个普通视频`、`测速方式` 与 `CDN 学习状态`，
+      模块脚本 URL 含 `?v=3.9.3`，并包含 `Bilibili Enhance Fresh UI`、
       `Bilibili Story Safe Pipeline` 与唯一一条 `Bilibili CDN Background Benchmark`
       cron（含 `wake-system=1`），以及唯一一条 `Bilibili CDN Cached Media Route`
       请求脚本。
@@ -124,6 +124,11 @@
       保留；字段不完整时不出现空流或“页面加载失败，请重试”。
 - [ ] Bilibili 9.7.0 普通视频页“闲鱼集市—立即打开”整块横幅及空占位消失；
       相关推荐中的会员购商品、价格、定金、满减卡消失，普通 UP 主视频保持顺序。
+- [ ] Bilibili 9.7.0 普通视频播放器下的“AirPods Pro 3 / 广告 · 兴趣人数”
+      原生卡整块与空占位消失；标题含“广告/闲鱼/推广/商品”的普通视频
+      介绍卡仍保留。
+- [ ] 上述原生卡在冷启动、手动刷新、后台 30 秒和后台 5 分钟后恢复均不出现；
+      如果恢复时存在 `/x/v2/view` 或 `ViewProgress` 请求，响应仍带 no-store。
 - [ ] 对以上三处页面分别冷启动、刷新、后台 30 秒和后台 5 分钟恢复；若恢复后有
       网络请求，调试日志显示 registry 命中、请求 validator 清除和
       `resume-fresh-response`，广告不重新出现。
