@@ -1,6 +1,6 @@
 # Bilibili iOS 9.7.0 脱敏抓包与差分指南
 
-本指南用于补齐 v3.9.3 尚缺的真实载荷证据。目标是确认 9.7.0 的 endpoint、JSON
+本指南用于补齐 v3.9.4 尚缺的真实载荷证据。目标是确认 9.7.0 的 endpoint、JSON
 父路径或 protobuf field，而不是只提交截图文字。请勿公开 Cookie、SESSDATA、
 access_key、buvid、设备标识、证书私钥或完整媒体签名 URL。
 
@@ -54,6 +54,8 @@ URL 只保留 host/path 和决定分类的非敏感参数名；query 值统一�
 
 - 搜索商业主体及 recommendation/action/download CTA 的共同父数组；
 - 首页广告卡的 `goto/card_goto/card_type`、商业 badge/wrapper 与视频身份；
+- 首页魔力赏双列卡的完整对象，尤其是“广告”角标与“人数感兴趣”分别落在哪个
+  JSON 字段；若来自 gRPC，保存 `Popular/Index` 原始帧以核对具体 oneof；
 - 闲鱼横幅所在 module 数组、operation/action/button/jump URI 与 layout；
 - 播放器下“商品名 + 广告 · 兴趣人数”原生卡的完整父数组、标签路径、
   卡片类型、layout 与跳转证据；

@@ -18,6 +18,18 @@
 > 组合的真机验收。仓库会明确区分“代码测试通过”和“真机已验证”；发布前后的
 > 检查矩阵见 [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
 >
+> v3.10.0 针对 Bilibili iOS 9.8.0 增加 `View/AIRelateAsync` 异步相关推荐
+> 过滤，阻止主 View 已过滤后由延迟/恢复请求重新注入 `cm`、商品、游戏、直播和
+> 非普通视频卡；同时补齐公开 schema 已确认的 View、ViewUnite、评论置顶运营卡、
+> 动态直播推荐与直播首页商业容器。所有新 endpoint 都进入同一 request guard 与
+> no-store 流程。证据边界与真机抓包项见 [v3.10 审计](docs/V3_10_AUDIT.md) 和
+> [9.8.0 抓包指南](docs/BILIBILI_9_8_CAPTURE.md)。
+>
+> v3.9.4 修复首页普通 AV 外壳的魔力赏/原生广告卡：JSON 仅检查角标、封面 badge
+> 与推荐理由等展示字段，gRPC `Popular/Index` 仅检查公开 `bilibili.app.card.v1`
+> 中已确认的小/大封面展示字段；两级首页 fallback 也不会放回这些卡。普通标题中的
+> “广告/魔力赏”仍不参与判定，详见 [v3.9.4 审计](docs/V3_9_4_AUDIT.md)。
+>
 > v3.9.3 修复播放器下新的原生兴趣广告卡：仅在已审核的卡片展示容器中识别
 > 独立“广告 · 兴趣人数”标签，并删除整卡及其布局占位；同一有界证据也用于
 > 已确认的 `ViewProgress VideoGuide.Material.text(2)`。普通标题中的“广告/闲鱼/
@@ -352,8 +364,8 @@ DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 Shadowrocket 会取得新的远程资源地址，不会继续复用上一版同名脚本缓存。
 
 如果原先安装的是 README 的固定 `main/dist/*.sgmodule` 地址、历史兼容地址或
-BiliFlow 生成的固定 URL，升级到 3.9.3 **不需要重新订阅**，只需执行上述“更新
-模块”。更新后模块详情应显示 `3.9.3`，脚本 URL 应含 `?v=3.9.3`。只有把 Release
+BiliFlow 生成的固定 URL，升级到 3.10.0 **不需要重新订阅**，只需执行上述“更新
+模块”。更新后模块详情应显示 `3.10.0`，脚本 URL 应含 `?v=3.10.0`。只有把 Release
 附件下载成本地文件、或使用不带远程 URL 的旧副本时，才需要重新安装固定地址。
 
 按影响最小顺序回滚：

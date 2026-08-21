@@ -13,7 +13,7 @@
 | iPhone / iPad 型号 |  |
 | iOS 版本与构建号 |  |
 | Shadowrocket 版本 |  |
-| Bilibili App 版本 | 9.7.0 |
+| Bilibili App 版本 | 9.8.0 |
 | Bilibili App 请求构建号 / 构建 ID |  /  |
 | 账号状态 | 未登录 / 普通账号 / 大会员 / 已购内容账号 |
 | 网络 | 中国大陆 Wi-Fi / 中国大陆蜂窝 / 海外直连 / 海外回国线路 |
@@ -32,8 +32,8 @@
 - [ ] 历史 `Bilibili.CDN.sgmodule` 与 Enhanced 内容和版本一致。
 - [ ] 模块信息页显示正确名称和版本。
 - [ ] “编辑参数”显示全部参数，中文说明可读。
-- [ ] 更新到 3.9.3 后可见 `首页推荐6个普通视频`、`测速方式` 与 `CDN 学习状态`，
-      模块脚本 URL 含 `?v=3.9.3`，并包含 `Bilibili Enhance Fresh UI`、
+- [ ] 更新到 3.10.0 后可见 `首页推荐6个普通视频`、`测速方式` 与 `CDN 学习状态`，
+      模块脚本 URL 含 `?v=3.10.0`，并包含 `Bilibili Enhance Fresh UI`、
       `Bilibili Story Safe Pipeline` 与唯一一条 `Bilibili CDN Background Benchmark`
       cron（含 `wake-system=1`），以及唯一一条 `Bilibili CDN Cached Media Route`
       请求脚本。
@@ -81,6 +81,8 @@
       暂停广告；播放、拖动进度、画中画/后台切换和视频快照仍正常。
 - [ ] 分别后台停留 30 秒和 10 分钟后恢复，再进入首页、切 Tab、播放、暂停、拖动和
       自动连播；过滤结果与冷启动一致，无 Banner、商业 AV 或闲鱼操作卡重新注入。
+- [ ] 播放页主内容稳定后等待异步相关推荐，再分别后台 30 秒、5 分钟、30 分钟恢复；
+      `AIRelateAsync` 不重新注入商品/游戏/直播/AI 推荐或顶层 CM，普通 AV 顺序不变。
 - [ ] 视频暂停后等待、切后台至少 30 分钟再恢复，以及从后台直接进入“我的”页，
       `PlayPause` 商业字段、`ViewEndPage` 广告/非普通 AV 卡、发布引导和大会员
       横幅均不重新出现；正常结束页普通 AV 和播放器状态仍存在。
@@ -99,8 +101,15 @@
 - [ ] 首页伪装成普通 AV、但 `ad_badge`、`ad_tag_style`、`badge_info`、
       `commercial_label`、`business_badge`、推荐理由样式、creative/tracking/action
       明确商业的显卡抽奖或 ROG NUC 卡不出现；顶部大型活动 Banner 同样不出现。
+- [ ] 首页双列流中“35 元抽 RTX5090D”“15 元抽手办”等魔力赏卡，即使保留
+      普通 AV identity，只要封面角标独立显示“广告”便整卡消失；冷启动、连续刷新、
+      后台 30 秒与 5 分钟恢复后均不重现，普通标题“魔力赏广告行业观察”仍保留。
 - [ ] 视频页下方“闲鱼集市—立即打开”、Goofish、`2.taobao.com`、
       `market.m.taobao.com` 商业操作卡不出现；普通视频标题含“闲鱼”“广告”仍保留。
+- [ ] 评论区置顶区域不出现类型为 CM/运营的 SubjectTopCard，普通评分、UP 保护、
+      UP 精选、投票和电竞评分卡仍存在；普通置顶评论不因商品文字误删。
+- [ ] 直播首页不出现 `banner_v2`/`activity_card_v1`，主播页的组队/商业功能卡和
+      房间商业大卡不出现；普通直播间、主播信息和正常预约仍可用。
 - [ ] 普通 `av` 外壳但推荐角标/理由为“魔力赏”的首页或相关推荐不出现；普通视频
       标题仅提到“魔力赏活动复盘”等文字时仍保留。
 - [ ] 视频暂停、拖动进度以及从后台恢复时，带 `mall-magic-c` 链接的魔力赏操作卡

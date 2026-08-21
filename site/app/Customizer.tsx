@@ -469,8 +469,8 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.9.3 为 Bilibili iOS 9.7.0
-              增加搜索创作推广、首页原生广告、播放器下闲鱼横幅/原生兴趣广告卡和会员购关系卡的有界结构
+              使用本站同版本的已审核快照。Enhanced 3.10.0 为 Bilibili iOS 9.8.0
+              增加异步相关推荐、搜索创作推广、首页原生广告/魔力赏角标、播放器下商业卡、评论运营卡和直播商业容器的有界结构
               过滤与恢复态诊断，同时保留首页非空保护、TTFB 优先 CDN v10 与 v9 缓存媒体直达。
             </p>
             <div className="hero-actions">
@@ -517,7 +517,7 @@ export function Customizer({
                 </strong>
                 <small>
                   {variant === "enhanced"
-                    ? "CDN、9.7.0 首页/搜索/播放页广告、六条 AV 与界面过滤"
+                    ? "CDN、9.8.0 异步/首页/搜索/播放页广告、六条 AV 与界面过滤"
                     : "仅 CDN 与流量分流"}
                 </small>
               </div>
@@ -594,7 +594,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>CDN + Enhanced</strong>
-                    <small>推荐 · 9.7.0 有界去广告、六条 AV 与 CDN v10 + v9 缓存直达</small>
+                    <small>推荐 · 9.8.0 有界去广告、六条 AV 与 CDN v10 + v9 缓存直达</small>
                   </span>
                   <span className="radio-dot">
                     {variant === "enhanced" && <span />}

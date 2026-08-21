@@ -123,6 +123,20 @@ function ios970Fixture(filename) {
   );
 }
 
+function ios980Fixture(filename) {
+  return JSON.parse(
+    fs.readFileSync(
+      path.join(
+        __dirname,
+        "fixtures",
+        "bilibili-9.8.0",
+        filename,
+      ),
+      "utf8",
+    ),
+  );
+}
+
 test("parses independent enhancement switches and rejects malformed arguments", () => {
   assert.deepEqual(enhance.parseArgument(""), {
     ads: true,
@@ -255,6 +269,62 @@ test("9.7.0 home native ad never re-enters fallback and six ordinary videos stay
   }
   assert.equal(outputs[0].body, outputs[1].body);
   assert.equal(outputs[1].body, outputs[2].body);
+});
+
+test("9.7.0 home removes screenshot-equivalent magic reward presentation ads", () => {
+  const fixture = ios970Fixture("ios970-feed-magic-reward-presentation-ad.json");
+  const urls = [
+    `${appRoot}/x/v2/feed/index?pull=0&cold=1`,
+    `${appRoot}/x/v2/feed/index?pull=1&resume=30`,
+    `${appRoot}/x/v2/feed/index?pull=1&resume=300`,
+  ];
+  const results = urls.map((url) => transform(url, fixture));
+  const expected = [
+    "普通视频 1",
+    "魔力赏广告行业观察",
+    "普通视频 3",
+    "普通视频 4",
+    "普通视频 5",
+    "普通视频 6",
+  ];
+
+  for (const result of results) {
+    assert.deepEqual(
+      JSON.parse(result.body).data.items.map((item) => item.title),
+      expected,
+    );
+    assert.equal(result.reason, "ios970-feed-ad-removed");
+    assert.doesNotMatch(result.body, /143万人感兴趣|877万人感兴趣/);
+    assert.match(result.body, /魔力赏广告行业观察|3万点赞/);
+  }
+  assert.equal(results[0].body, results[1].body);
+  assert.equal(results[1].body, results[2].body);
+});
+
+test("9.7.0 home fallback never restores presentation-badge ads", () => {
+  const fixture = ios970Fixture("ios970-feed-magic-reward-presentation-ad.json");
+  const result = transform(`${appRoot}/x/v2/feed/index?pull=2`, {
+    code: 0,
+    data: {
+      items: [
+        fixture.data.items[0],
+        fixture.data.items[1],
+        {
+          card_type: "small_cover_v2",
+          card_goto: "av",
+          goto: "av",
+          cid: 97899,
+          title: "字段不完整但可 fallback 的普通视频",
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    JSON.parse(result.body).data.items.map((item) => item.title),
+    ["字段不完整但可 fallback 的普通视频"],
+  );
+  assert.doesNotMatch(result.body, /143万人感兴趣|877万人感兴趣/);
 });
 
 test("9.7.0 View removes the complete Xianyu banner module and its layout placeholder", () => {
@@ -2343,6 +2413,167 @@ test("handles view, reply, PGC, web feed, and live ads conservatively", () => {
   ]);
 });
 
+test("9.8.0 live feed and user handlers remove reviewed interference only", () => {
+  const feed = transform(
+    "https://api.live.bilibili.com/xlive/app-interface/v2/index/feed?relation_page=1",
+    ios980Fixture("ios980-live-feed.json"),
+  );
+  const feedData = JSON.parse(feed.body).data;
+  assert.deepEqual(
+    feedData.card_list.map((item) => item.title),
+    ["普通直播间", "未知普通直播卡"],
+  );
+  assert.equal(feedData.card_list[1].unknown_field, "keep-live-feed-unknown");
+  assert.equal(feedData.unknown_top, "keep-live-feed-top");
+  assert.equal(feed.reason, "ios980-live-feed-promotion-removed");
+  assert.ok(feed.matchedPaths.includes("data.card_list"));
+
+  const user = transform(
+    "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser?uid=STABLE",
+    ios980Fixture("ios980-live-user.json"),
+  );
+  const userData = JSON.parse(user.body).data;
+  assert.equal("play_together_info" in userData, false);
+  assert.equal("play_together_info_v2" in userData, false);
+  assert.equal("function_card" in userData, false);
+  assert.deepEqual(userData.user_info, { uid: 98001, name: "普通主播" });
+  assert.deepEqual(userData.room_info, {
+    room_id: 98002,
+    title: "普通直播间",
+  });
+  assert.equal(userData.unknown_top, "keep-live-user-unknown");
+  assert.equal(user.reason, "ios980-live-user-interference-removed");
+
+  const disabled = transform(
+    "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser",
+    ios980Fixture("ios980-live-user.json"),
+    '{"ads":false,"liveShopping":false}',
+  );
+  assert.deepEqual(
+    JSON.parse(disabled.body),
+    ios980Fixture("ios980-live-user.json"),
+  );
+});
+
+test("9.8.0 live room removes reviewed commerce tabs without deleting reservations", () => {
+  const result = transform(
+    "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByRoom",
+    {
+      code: 0,
+      data: {
+        big_card_info: { business_type: "commercial", title: "大卡广告" },
+        function_card: { shopping: { business_type: "commercial" } },
+        show_reserve_status: true,
+        reserve_info: { show_reserve_status: true, title: "正常主播预约" },
+        new_tab_info: {
+          candidate_list: [
+            { biz_id: 33, title: "购物" },
+            { biz_id: 36, title: "商业玩法" },
+            { biz_id: 162, title: "带货入口" },
+            { biz_id: 186, title: "营销入口" },
+            { biz_id: 8, title: "正常互动" },
+          ],
+          v2_outer_list: [
+            { id: 1, indices: [33, 36, 8, 162, 186] },
+          ],
+        },
+        room_info: { room_id: 98003 },
+      },
+    },
+  );
+  const data = JSON.parse(result.body).data;
+  assert.equal("big_card_info" in data, false);
+  assert.equal("function_card" in data, false);
+  assert.equal(data.show_reserve_status, true);
+  assert.deepEqual(data.reserve_info, {
+    show_reserve_status: true,
+    title: "正常主播预约",
+  });
+  assert.deepEqual(data.new_tab_info.candidate_list, [
+    { biz_id: 8, title: "正常互动" },
+  ]);
+  assert.deepEqual(data.new_tab_info.v2_outer_list, [
+    { id: 1, indices: [8] },
+  ]);
+  assert.deepEqual(data.room_info, { room_id: 98003 });
+});
+
+test("9.8.0 live metadata is identical and no-store across long resume", () => {
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
+  const fixture = ios980Fixture("ios980-live-feed.json");
+  const outputs = [];
+  for (const resume of ["cold", "30", "300", "1800"]) {
+    let completion;
+    let doneCalls = 0;
+    vm.runInNewContext(source, {
+      $argument: "",
+      $done(value) {
+        doneCalls += 1;
+        completion = value;
+      },
+      $request: {
+        method: "GET",
+        headers: { "User-Agent": "bili-universal/90800100" },
+        url: `https://api.live.bilibili.com/xlive/app-interface/v2/index/feed?resume=${resume}`,
+      },
+      $response: {
+        body: JSON.stringify(fixture),
+        headers: {
+          Age: "120",
+          "Cache-Control": "public, max-age=300",
+          "Content-Length": "999",
+          "Content-Type": "application/json",
+          ETag: '"stale-live-feed"',
+          Expires: "tomorrow",
+          "Last-Modified": "yesterday",
+        },
+        statusCode: 200,
+      },
+      console,
+    }, { filename: "bilibili-enhance.js" });
+    assert.equal(doneCalls, 1);
+    assert.deepEqual(
+      JSON.parse(completion.body).data.card_list.map((item) => item.title),
+      ["普通直播间", "未知普通直播卡"],
+    );
+    assert.equal(
+      completion.headers["Cache-Control"],
+      "no-store, no-cache, must-revalidate",
+    );
+    assert.equal(completion.headers.ETag, undefined);
+    assert.equal(completion.headers["Content-Length"], undefined);
+    outputs.push(completion.body);
+  }
+  assert.equal(new Set(outputs).size, 1);
+
+  let unchanged;
+  vm.runInNewContext(source, {
+    $argument: "",
+    $done(value) {
+      unchanged = value;
+    },
+    $request: {
+      method: "GET",
+      url: "https://api.live.bilibili.com/xlive/app-interface/v2/index/feed",
+    },
+    $response: {
+      body: JSON.stringify({
+        code: 0,
+        data: { card_list: [{ card_type: "room_card_v1", room_id: 1 }] },
+      }),
+      headers: { ETag: '"stale-ordinary"', "Content-Type": "application/json" },
+      statusCode: 200,
+    },
+    console,
+  }, { filename: "bilibili-enhance.js" });
+  assert.equal(unchanged.body, undefined);
+  assert.equal(unchanged.headers.ETag, undefined);
+  assert.equal(
+    unchanged.headers["Cache-Control"],
+    "no-store, no-cache, must-revalidate",
+  );
+});
+
 test("view recommendations keep only ordinary videos by default", () => {
   const fixture = {
     code: 0,
@@ -3310,6 +3541,386 @@ test("9.6.1 Popular gRPC fallback keeps exactly six explicit ordinary AV cards",
   assert.deepEqual(Buffer.from(disabled.body), Buffer.from(input));
 });
 
+test("9.7.0 Popular removes AV-shaped cards with confirmed presentation ad badges", () => {
+  function smallCoverV5(aid, title, presentationFields, unknownText) {
+    const base = bytes(
+      stringField(2, "av"),
+      stringField(3, "av"),
+      stringField(4, String(aid)),
+      stringField(6, title),
+      messageField(10, varintField(2, aid)),
+    );
+    const card = bytes(
+      messageField(1, bytes(messageField(1, base), ...presentationFields)),
+      ...(unknownText ? [stringField(99, unknownText)] : []),
+    );
+    return messageField(1, card);
+  }
+
+  const input = grpcFrame(bytes(
+    smallCoverV5(
+      97801,
+      "35元低价抽中 RTX5090D",
+      [stringField(4, "广告"), stringField(6, "143万人感兴趣")],
+    ),
+    smallCoverV5(
+      97802,
+      "Prime 1 Studio 女神异闻录5",
+      [messageField(9, stringField(1, "广告")), stringField(6, "877万人感兴趣")],
+    ),
+    smallCoverV5(
+      97811,
+      "魔力赏广告行业观察",
+      [stringField(4, "12:34"), messageField(7, stringField(1, "3万点赞"))],
+      "keep-popular-unknown-field",
+    ),
+    smallCoverV5(
+      97812,
+      "普通视频 2",
+      [stringField(4, "03:21")],
+    ),
+  ));
+  const result = enhance.transformGrpcBody(
+    input,
+    "https://grpc.biliapi.net/bilibili.app.show.v1.Popular/Index",
+    enhance.parseArgument(""),
+  );
+  const output = grpcPayload(result.body);
+  const text = Buffer.from(output).toString("utf8");
+
+  assert.equal(result.endpoint, "grpc-popular");
+  assert.equal(protoFields(output, 1, 2).length, 2);
+  assert.doesNotMatch(text, /RTX5090D|143万人感兴趣|877万人感兴趣/);
+  assert.match(text, /魔力赏广告行业观察|普通视频 2/);
+  assert.match(text, /keep-popular-unknown-field/);
+});
+
+test("9.8.0 AIRelateAsync removes delayed commercial cards and empty modules", async () => {
+  const relateCard = (type, title, payloadField = 2) =>
+    bytes(
+      varintField(1, type),
+      messageField(payloadField, stringField(1, `${title}-payload`)),
+      stringField(90, title),
+    );
+  const relatedWithOrdinary = bytes(
+    varintField(1, 28),
+    messageField(
+      22,
+      bytes(
+        messageField(1, relateCard(1, "ordinary-async-video")),
+        messageField(1, relateCard(5, "delayed-commercial-card", 6)),
+      ),
+    ),
+    stringField(99, "keep-related-module-unknown"),
+  );
+  const emptiedRelated = bytes(
+    varintField(1, 28),
+    messageField(
+      22,
+      messageField(1, relateCard(5, "only-commercial-card", 6)),
+    ),
+    stringField(99, "remove-empty-related-module"),
+  );
+  const futureModule = bytes(
+    varintField(1, 98),
+    stringField(99, "keep-future-module"),
+  );
+  const payload = bytes(
+    stringField(1, "top-level-delayed-cm"),
+    messageField(
+      2,
+      bytes(
+        messageField(1, relatedWithOrdinary),
+        messageField(1, emptiedRelated),
+        messageField(1, futureModule),
+        stringField(98, "keep-async-module-unknown"),
+      ),
+    ),
+    stringField(97, "keep-ai-relate-reply-unknown"),
+  );
+  const url =
+    "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync";
+  const result = enhance.transformGrpcBody(
+    grpcFrame(payload),
+    url,
+    enhance.parseArgument(""),
+  );
+  const output = grpcPayload(result.body);
+  const text = Buffer.from(output).toString("utf8");
+  const asyncField = protoFields(output, 2, 2)[0];
+  const asyncModule = fieldPayload(output, asyncField);
+
+  assert.equal(result.endpoint, "grpc-view-unite-ai-relate-async");
+  assert.equal(result.reason, "ios980-ai-relate-async-commercial-removed");
+  assert.equal(protoFields(output, 1, 2).length, 0);
+  assert.equal(protoFields(asyncModule, 1, 2).length, 2);
+  assert.match(text, /ordinary-async-video/);
+  assert.match(text, /keep-related-module-unknown/);
+  assert.match(text, /keep-future-module/);
+  assert.match(text, /keep-async-module-unknown/);
+  assert.match(text, /keep-ai-relate-reply-unknown/);
+  assert.doesNotMatch(
+    text,
+    /top-level-delayed-cm|delayed-commercial-card|only-commercial-card|remove-empty-related-module/,
+  );
+
+  const multi = bytes(
+    grpcFrame(payload),
+    grpcFrame(new Uint8Array(gzipSync(payload)), 1),
+  );
+  const multiResult = await enhance.transformGrpcBodyAsync(
+    multi,
+    url,
+    enhance.parseArgument(""),
+    { responseHeaders: { "grpc-encoding": "gzip" } },
+  );
+  const multiText = Buffer.from(multiResult.body).toString("utf8");
+  assert.equal(multiResult.frames, 2);
+  assert.equal(multiResult.body[0], 0);
+  assert.doesNotMatch(multiText, /delayed-commercial-card|only-commercial-card/);
+  assert.match(multiText, /keep-ai-relate-reply-unknown/);
+});
+
+test("9.8.0 AIRelateAsync runtime remains filtered and no-store after resume", () => {
+  const source = shadowrocketRuntimeSource("bilibili-enhance.js");
+  const payload = bytes(
+    stringField(1, "resume-delayed-cm"),
+    messageField(
+      2,
+      bytes(
+        messageField(
+          1,
+          bytes(
+            varintField(1, 28),
+            messageField(
+              22,
+              bytes(
+                messageField(
+                  1,
+                  bytes(
+                    varintField(1, 1),
+                    messageField(2, stringField(1, "resume-ordinary-av")),
+                  ),
+                ),
+                messageField(
+                  1,
+                  bytes(
+                    varintField(1, 5),
+                    messageField(6, stringField(1, "resume-commercial")),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  const outputs = [];
+
+  for (const resume of ["cold", "30", "300", "1800"]) {
+    let completion;
+    let doneCalls = 0;
+    const context = {
+      $argument: "",
+      $done(value) {
+        doneCalls += 1;
+        completion = value;
+      },
+      $request: {
+        method: "POST",
+        headers: {
+          "User-Agent": "bili-universal/90800100",
+          "x-bili-moss-engine-type": "1",
+        },
+        url: `https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync?resume=${resume}`,
+      },
+      $response: {
+        body: grpcFrame(payload),
+        headers: {
+          Age: "60",
+          "Cache-Control": "public, max-age=300",
+          "Content-Length": "999",
+          "Content-Type": "application/grpc",
+          ETag: '"stale-ai-relate"',
+          Expires: "tomorrow",
+          "Last-Modified": "yesterday",
+        },
+        statusCode: 200,
+      },
+      ArrayBuffer,
+      console,
+      Uint8Array,
+    };
+    vm.runInNewContext(source, context, { filename: "bilibili-enhance.js" });
+    assert.equal(doneCalls, 1);
+    assert.ok(completion.body instanceof Uint8Array);
+    const text = Buffer.from(grpcPayload(completion.body)).toString("utf8");
+    assert.match(text, /resume-ordinary-av/);
+    assert.doesNotMatch(text, /resume-delayed-cm|resume-commercial/);
+    assert.equal(
+      completion.headers["Cache-Control"],
+      "no-store, no-cache, must-revalidate",
+    );
+    assert.equal(completion.headers["grpc-status"], "0");
+    assert.equal(completion.headers.ETag, undefined);
+    assert.equal(completion.headers["Content-Length"], undefined);
+    outputs.push(Buffer.from(completion.body).toString("base64"));
+  }
+  assert.equal(new Set(outputs).size, 1);
+
+  let unchangedCompletion;
+  vm.runInNewContext(source, {
+    $argument: "",
+    $done(value) {
+      unchangedCompletion = value;
+    },
+    $request: {
+      method: "POST",
+      headers: { "User-Agent": "bili-universal/90800100" },
+      url: "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync",
+    },
+    $response: {
+      body: grpcFrame(stringField(97, "ordinary-unchanged-async")),
+      headers: {
+        "Content-Type": "application/grpc",
+        ETag: '"stale-unchanged"',
+      },
+      statusCode: 200,
+    },
+    ArrayBuffer,
+    console,
+    Uint8Array,
+  }, { filename: "bilibili-enhance.js" });
+  assert.equal(unchangedCompletion.body, undefined);
+  assert.equal(unchangedCompletion.headers.ETag, undefined);
+  assert.equal(
+    unchangedCompletion.headers["Cache-Control"],
+    "no-store, no-cache, must-revalidate",
+  );
+});
+
+test("9.8.0 confirmed View fields remove upsells while preserving parent messages", () => {
+  const viewV1 = enhance.transformGrpcBody(
+    grpcFrame(
+      bytes(
+        messageField(
+          4,
+          bytes(
+            stringField(2, "keep-view-user"),
+            stringField(9, "remove-elec-plus-v1"),
+            stringField(99, "keep-view-user-unknown"),
+          ),
+        ),
+        stringField(23, "remove-view-label"),
+        stringField(30, "remove-view-cms"),
+        stringField(31, "remove-view-cm-config"),
+        stringField(41, "remove-view-cm-ipad"),
+        stringField(50, "remove-special-cell-new"),
+        stringField(99, "keep-view-reply-unknown"),
+      ),
+    ),
+    "https://grpc.biliapi.net/bilibili.app.view.v1.View/View",
+    enhance.parseArgument(""),
+  );
+  const viewOutput = grpcPayload(viewV1.body);
+  const viewUser = fieldPayload(viewOutput, protoFields(viewOutput, 4, 2)[0]);
+  const viewText = Buffer.from(viewOutput).toString("utf8");
+  assert.equal(protoFields(viewOutput, 23, 2).length, 0);
+  assert.equal(protoFields(viewOutput, 50, 2).length, 0);
+  assert.equal(protoFields(viewUser, 9, 2).length, 0);
+  assert.match(viewText, /keep-view-user|keep-view-user-unknown|keep-view-reply-unknown/);
+  assert.doesNotMatch(viewText, /remove-view-label|remove-special-cell-new|remove-elec-plus-v1/);
+
+  const viewUnite = enhance.transformGrpcBody(
+    grpcFrame(
+      bytes(
+        messageField(
+          3,
+          bytes(
+            stringField(2, "keep-unite-user"),
+            stringField(7, "remove-elec-plus-unite"),
+            stringField(99, "keep-unite-user-unknown"),
+          ),
+        ),
+        messageField(
+          5,
+          messageField(
+            1,
+            messageField(
+              2,
+              messageField(
+                2,
+                bytes(
+                  varintField(1, 3),
+                  messageField(
+                    5,
+                    bytes(
+                      stringField(1, "remove-headline-label"),
+                      stringField(2, "keep-headline-content"),
+                    ),
+                  ),
+                  stringField(99, "keep-headline-module-unknown"),
+                ),
+              ),
+            ),
+          ),
+        ),
+        stringField(99, "keep-unite-reply-unknown"),
+      ),
+    ),
+    "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/View",
+    enhance.parseArgument(""),
+  );
+  const uniteOutput = grpcPayload(viewUnite.body);
+  const uniteText = Buffer.from(uniteOutput).toString("utf8");
+  const uniteUser = fieldPayload(
+    uniteOutput,
+    protoFields(uniteOutput, 3, 2)[0],
+  );
+  assert.equal(protoFields(uniteUser, 7, 2).length, 0);
+  assert.match(
+    uniteText,
+    /keep-unite-user|keep-unite-user-unknown|keep-headline-content|keep-headline-module-unknown|keep-unite-reply-unknown/,
+  );
+  assert.doesNotMatch(uniteText, /remove-elec-plus-unite|remove-headline-label/);
+});
+
+test("9.8.0 reply subject cards remove only confirmed CM and operation types", () => {
+  const card = (type, title) =>
+    messageField(
+      28,
+      bytes(
+        varintField(1, type),
+        stringField(99, title),
+      ),
+    );
+  const result = enhance.transformGrpcBody(
+    grpcFrame(
+      bytes(
+        card(1, "keep-ogv-grade"),
+        card(2, "keep-up-protection"),
+        card(3, "remove-subject-cm"),
+        card(4, "keep-up-selection"),
+        card(5, "remove-subject-operation"),
+        card(6, "keep-vote"),
+        card(7, "keep-esports-grade"),
+        stringField(99, "keep-reply-unknown"),
+      ),
+    ),
+    "https://grpc.biliapi.net/bilibili.main.community.reply.v1.Reply/MainList",
+    enhance.parseArgument(""),
+  );
+  const output = grpcPayload(result.body);
+  const text = Buffer.from(output).toString("utf8");
+  assert.equal(protoFields(output, 28, 2).length, 5);
+  assert.match(
+    text,
+    /keep-ogv-grade|keep-up-protection|keep-up-selection|keep-vote|keep-esports-grade|keep-reply-unknown/,
+  );
+  assert.doesNotMatch(text, /remove-subject-cm|remove-subject-operation/);
+});
+
 test("compressed first ViewUnite response removes the under-player ad and disguised cards", async () => {
   const card = (type, title, payloadField) =>
     bytes(
@@ -3417,6 +4028,10 @@ test("gRPC dynamic, search, and reply filters use endpoint-specific fields", () 
       1,
       bytes(varintField(1, 15), stringField(6, "ad-dynamic")),
     ),
+    messageField(
+      1,
+      bytes(varintField(1, 18), stringField(6, "live-recommend-dynamic")),
+    ),
   );
   const dynamic = enhance.transformGrpcBody(
     grpcFrame(messageField(1, dynamicList)),
@@ -3428,6 +4043,7 @@ test("gRPC dynamic, search, and reply filters use endpoint-specific fields", () 
   ).toString("latin1");
   assert.match(dynamicText, /normal-dynamic/);
   assert.doesNotMatch(dynamicText, /ad-dynamic/);
+  assert.doesNotMatch(dynamicText, /live-recommend-dynamic/);
 
   const searchReply = bytes(
     messageField(

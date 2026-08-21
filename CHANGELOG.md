@@ -2,6 +2,50 @@
 
 All notable changes to this project are documented here.
 
+## [3.10.0] - 2026-08-21
+
+- Add exact Bilibili iOS 9.8.0-era coverage for
+  `bilibili.app.viewunite.v1.View/AIRelateAsync`. The previous generic diagnostic
+  matcher already guarded caches but passed the payload through, allowing delayed or
+  resume-time `cm` and related commercial cards to be injected after the main View
+  response. The new field-preserving handler removes top-level `cm(1)`, filters
+  `module(2) -> modules(1) -> Module.relates(22)`, and removes emptied related modules.
+- Close reviewed protobuf gaps from current public schemas: View v1 labels,
+  `special_cell_new` and nested `elec_plus_btn`; ViewUnite nested `elec_plus_btn`
+  and headline label; MainList subject-top CM/operation cards; and Dynamic AD/live
+  recommendation cards. Ordinary parents, subject cards, comments and unknown wire
+  fields retain their original order and bytes.
+- Add exact live JSON handlers for `/xlive/app-interface/v2/index/feed` and
+  `/xlive/app-room/v1/index/getInfoByUser`, plus reviewed room commerce containers.
+  Banner/activity cards, play-together/function cards and known commerce tab IDs are
+  removed while ordinary rooms, users, reservations and unknown cards are preserved.
+- Mark every new endpoint volatile/request-guarded/response-filtered in the shared
+  registry. Conditional validators are removed, gRPC compression negotiation remains
+  `gzip,identity`, and changed as well as unchanged responses receive no-store headers.
+- Add 9.8.0 structure-equivalent JSON and exact-wire protobuf regressions for identity,
+  gzip, multi-frame ordering, cold start, 30-second/5-minute/30-minute resume,
+  case-insensitive validators, single `$done()`, false positives and unknown fields.
+- Keep home non-empty fail-open, six-video order, hostAuto v10, mediaRoutes v9, CDN
+  scoring/benchmarking, signed URLs, Range headers and the media MITM boundary
+  unchanged. A 9.8.0 screenshot or App Store version is not a raw payload capture;
+  remaining transport and no-network resume gaps are documented explicitly.
+
+## [3.9.4] - 2026-08-17
+
+- Remove home-feed magic-reward/native ads that retain an ordinary AV identity but
+  expose the commercial marker only through reviewed card presentation fields such
+  as `cover_right_text_1`, `corner_mark_style`, cover badges or recommendation styles.
+- Apply the same bounded rule to the confirmed `bilibili.app.card.v1` Popular wire
+  layout: `SmallCoverV5` text fields 4/13 and `ReasonStyle` fields 7/9/12, plus
+  `LargeCoverV1` text fields 7/18/21 and style fields 13–17. Unknown protobuf fields
+  and ordinary cards remain byte-preserved.
+- Keep ordinary titles containing `广告` or `魔力赏`, normal duration/recommendation
+  labels, server order, the six-video limit and both non-empty-feed fallbacks intact;
+  explicit presentation-badge ads cannot re-enter through fallback.
+- Add screenshot-equivalent JSON and exact identity gRPC regressions across cold,
+  30-second resume and five-minute resume inputs. No endpoint, refresh guard, CDN,
+  signed URL, Range or media MITM behavior changes.
+
 ## [3.9.3] - 2026-08-16
 
 - Remove the complete under-player native ad card and its layout placeholder when

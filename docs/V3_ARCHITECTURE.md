@@ -1,11 +1,11 @@
 # v3 架构、数据流与安全边界
 
-> 适用版本：`3.9.3`
+> 适用版本：`3.10.0`
 >
 > 本文描述仓库当前实现，不代表所有 Bilibili App/iOS 组合已完成真机验证。
-> 当前自动化专项覆盖 Bilibili iOS 9.6.1 fixture 与 9.7.0 结构等价 fixture；现有
-> PacketTunnel 日志仍是 9.5.0 请求构建号 `90500100`，9.7.0 真实流量需按
-> `BILIBILI_9_7_CAPTURE.md` 与真机清单复核。
+> 当前自动化专项覆盖 Bilibili iOS 9.6.1 fixture、9.7.0 结构等价 fixture 与
+> 9.8.0 公开 schema 对应 fixture；现有 PacketTunnel 日志仍是 9.5.0 请求构建号
+> `90500100`，9.8.0 真实流量需按 `BILIBILI_9_8_CAPTURE.md` 与真机清单复核。
 
 ## 设计目标
 
@@ -185,10 +185,20 @@ wire bytes 和无商业证据的暂停字段不在删除目标中。未知 schem
 Story 严格模式仍只保留 `vertical_av`。
 `bilibili.app.show.v1.Popular/Index` 备用流执行相同边界：只接受
 标准小/大封面 AV oneof、明确 `av/video` 类型且带视频身份的卡，最多保留 6 条。
+普通 AV 外壳若只在 `SmallCoverV5` 的文本字段 4/13、`ReasonStyle` 字段 7/9/12，
+或 `LargeCoverV1` 的文本字段 7/18/21、样式字段 13–17 中携带独立商业角标，则整张
+卡删除；普通标题、时长/点赞推荐理由和未知 wire 字段不参与该判定。
+
+9.8.0 时期的 `bilibili.app.viewunite.v1.View/AIRelateAsync` 是独立于主 View 的
+延迟相关推荐响应。registry 为它提供精确 matcher、请求缓存守卫与 no-store 响应；
+handler 仅进入 `AIRelateAsyncReply.cm(1)`、`module(2) -> AsyncModule.modules(1)` 和
+已确认的 `Module.relates(22)`，复用普通关系卡判定并删除已经为空的关系模块。
+`View v1`、`ViewUnite`、`MainList` 与 `DynAll` 的新增处理同样限定在公开 schema
+确认的字段，未知 wire bytes 不重编码。
 
 `src/bilibili-refresh.js` 依据 endpoint registry 在 splash、Home/Story、View、
 ViewProgress、RelatesFeed、ViewUnite View/Progress/PlayPause/ViewEndPage、Mine 与
-VIP 等易变元数据请求上移除 ETag/时间条件校验头，并设置 `no-cache, no-store`；
+`AIRelateAsync`、Mine、直播 UI 与 VIP 等易变元数据请求上移除 ETag/时间条件校验头，并设置 `no-cache, no-store`；
 目标 gRPC 还把 `grpc-accept-encoding` 限制为 `gzip,identity`。它不改 URL、查询参数、正文或
 签名；目标是让冷/热启动、刷新和后台恢复后的新服务端响应再次进入过滤链，而
 不是依赖可能绕过响应脚本的 304/旧缓存。实际过滤的易变响应还会移除缓存元数据并

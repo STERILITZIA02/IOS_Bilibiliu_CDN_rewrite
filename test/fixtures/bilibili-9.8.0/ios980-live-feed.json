@@ -1,0 +1,28 @@
+{
+  "code": 0,
+  "message": "0",
+  "data": {
+    "card_list": [
+      {
+        "card_type": "banner_v2",
+        "title": "直播首页商业 Banner"
+      },
+      {
+        "card_type": "activity_card_v1",
+        "title": "直播首页运营活动卡"
+      },
+      {
+        "card_type": "room_card_v1",
+        "room_id": 98001,
+        "title": "普通直播间"
+      },
+      {
+        "card_type": "future_room_card_v98",
+        "room_id": 98002,
+        "title": "未知普通直播卡",
+        "unknown_field": "keep-live-feed-unknown"
+      }
+    ],
+    "unknown_top": "keep-live-feed-top"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "code": 0,
+  "message": "0",
+  "data": {
+    "items": [
+      {
+        "card_type": "small_cover_v2",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97801,
+        "param": "97801",
+        "title": "35元！低价抽中微星 RTX5090D！今日欧皇就……",
+        "cover_right_text_1": "广告",
+        "right_desc_2": "143万人感兴趣"
+      },
+      {
+        "card_type": "small_cover_v2",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97802,
+        "param": "97802",
+        "title": "15元！Prime 1 Studio 女神异闻录5",
+        "corner_mark_style": {
+          "text": "广告",
+          "bg_style": 2
+        },
+        "right_desc_2": "877万人感兴趣"
+      },
+      {
+        "card_type": "small_cover_v2",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97811,
+        "title": "普通视频 1",
+        "cover_right_text_1": "12:34"
+      },
+      {
+        "card_type": "small_cover_v2",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97812,
+        "title": "魔力赏广告行业观察",
+        "rcmd_reason_style": {
+          "text": "3万点赞"
+        }
+      },
+      {
+        "card_type": "large_cover_v1",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97813,
+        "title": "普通视频 3"
+      },
+      {
+        "card_type": "large_cover_single_v9",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97814,
+        "title": "普通视频 4"
+      },
+      {
+        "card_type": "small_cover_v2",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97815,
+        "title": "普通视频 5"
+      },
+      {
+        "card_type": "future_video_card_v97",
+        "card_goto": "av",
+        "goto": "av",
+        "aid": 97816,
+        "title": "普通视频 6"
+      }
+    ]
+  }
+}

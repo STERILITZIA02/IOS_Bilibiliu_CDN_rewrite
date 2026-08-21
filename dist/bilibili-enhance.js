@@ -68,6 +68,8 @@
     row("vip-center", API_HOSTS, "/x/vip/web/vip_center/combine", "json", "vip-center", ["enhance"], true, true, true),
     row("pgc-activity-material", API_HOSTS, "/pgc/activity/deliver/material/receive", "json", "pgc-activity-material", ["enhance"], true, true, true),
     row("live", ["api.live.bilibili.com"], "/xlive/app-room/v1/index/getInfoByRoom", "json", "live", ["enhance"], true, true, true),
+    row("live-user", ["api.live.bilibili.com"], "/xlive/app-room/v1/index/getInfoByUser", "json", "live-user", ["enhance"], true, true, true),
+    row("live-feed", ["api.live.bilibili.com"], "/xlive/app-interface/v2/index/feed", "json", "live-feed", ["enhance"], true, true, true),
     row("live-shopping-material", ["api.live.bilibili.com"], "/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info", "json", "live-shopping-material", ["enhance"], true, true, true),
     row("game-live-material", ["line3-h5-mobile-api.biligame.com"], "/game/live/large_card_material", "json", "game-live-material", ["enhance"], true, true, true),
     row("search-recommend-words", ["api.vc.bilibili.com"], "\\/search_svr\\/v\\d+\\/Search\\/recommend_words", "json", "search-recommend-words", ["enhance"], true, true, true, true),
@@ -82,6 +84,7 @@
     row("grpc-view-unite-play-pause", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/PlayPause", "grpc", "grpc-view-unite-play-pause", ["enhance"], true, true, true),
     row("grpc-view-unite-end-page", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/ViewEndPage", "grpc", "grpc-view-unite-end-page", ["enhance"], true, true, true),
     row("grpc-view-unite-relates", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/RelatesFeed", "grpc", "grpc-view-unite-relates", ["enhance"], true, true, true),
+    row("grpc-view-unite-ai-relate-async", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/AIRelateAsync", "grpc", "grpc-view-unite-ai-relate-async", ["enhance"], true, true, true),
     row("grpc-mine-pub-module", GRPC_HOSTS, "/bilibili.app.mine.v1.Mine/PubModule", "grpc", "grpc-mine-pub-module", ["enhance"], true, true, true),
     row("grpc-mine-device-feature", GRPC_HOSTS, "/bilibili.app.mine.v1.Mine/DeviceFeature", "grpc", "grpc-mine-device-feature", ["enhance"], true, true, true),
     row("grpc-resource-module-list", GRPC_HOSTS, "/bilibili.app.resource.v1.Module/List", "grpc", "grpc-resource-module-list", ["enhance"], true, true, true),
@@ -893,7 +896,8 @@
       endpoint === "grpc-view-v1" ||
       endpoint === "grpc-view-v1-relates" ||
       endpoint === "grpc-view-unite" ||
-      endpoint === "grpc-view-unite-relates"
+      endpoint === "grpc-view-unite-relates" ||
+      endpoint === "grpc-view-unite-ai-relate-async"
     ) {
       return (
         config.ads !== false ||
@@ -1001,19 +1005,29 @@
       "badge",
       "badge_info",
       "badge_text",
+      "cover_badge",
+      "cover_badge_2",
       "corner_mark",
+      "corner_mark_style",
       "commercial_label",
       "business_badge",
       "business_label",
       "card_business_badge",
       "bottom_rcmd_reason_style",
+      "cover_right_text_1",
+      "cover_right_text_content_description",
       "cover_left_text",
       "cover_right_text",
+      "left_corner_mark_style",
+      "left_cover_badge_style",
       "promotion_badge",
       "promotion_label",
       "rcmd_reason",
       "rcmd_reason_style",
+      "rcmd_reason_style_v2",
       "reason",
+      "right_cover_badge_style",
+      "top_rcmd_reason_style",
       "source_name"
     ];
     var index;
@@ -1030,6 +1044,13 @@
       }
     }
     return false;
+  }
+
+  function isHomeFeedCommercialBadgeLabel(value) {
+    var label = normalizeLabel(String(value || ""));
+    return /^(?:广告|ad|创作推广|商业推广|魔力[赏賞])(?:[·•｜|:：-](?:\d+(?:\.\d+)?[万亿]?人(?:感兴趣|看过|围观|点击)|推荐|推广)?)?$/i.test(
+      label
+    );
   }
 
   function hasExplicitAdMarker(item) {
@@ -3729,10 +3750,13 @@
   function handleLive(body, config) {
     var data = body.data;
     var changes = 0;
+    var commerceBizIds = [33, 36, 162, 186];
     if (!isPlainObject(data)) {
       return 0;
     }
     changes += deleteProperty(data, "activity_banner_info");
+    changes += deleteProperty(data, "big_card_info");
+    changes += deleteProperty(data, "function_card");
     if (config.liveShopping && isPlainObject(data.shopping_info)) {
       if (
         data.shopping_info.is_show !== 0 ||
@@ -3751,9 +3775,45 @@
         data.new_tab_info,
         "outer_list",
         function (item) {
-          return isPlainObject(item) && Number(item.biz_id) === 33;
+          return (
+            isPlainObject(item) &&
+            includes(commerceBizIds, Number(item.biz_id))
+          );
         }
       );
+    }
+    if (
+      config.liveShopping &&
+      isPlainObject(data.new_tab_info) &&
+      Array.isArray(data.new_tab_info.candidate_list)
+    ) {
+      changes += replaceFilteredArray(
+        data.new_tab_info,
+        "candidate_list",
+        function (item) {
+          return (
+            isPlainObject(item) &&
+            includes(commerceBizIds, Number(item.biz_id))
+          );
+        }
+      );
+    }
+    if (
+      config.liveShopping &&
+      isPlainObject(data.new_tab_info) &&
+      Array.isArray(data.new_tab_info.v2_outer_list)
+    ) {
+      data.new_tab_info.v2_outer_list.forEach(function (item) {
+        var before;
+        if (!isPlainObject(item) || !Array.isArray(item.indices)) {
+          return;
+        }
+        before = item.indices.length;
+        item.indices = item.indices.filter(function (value) {
+          return !includes(commerceBizIds, Number(value));
+        });
+        changes += before - item.indices.length;
+      });
     }
     if (config.ads !== false || config.liveShopping) {
       changes += filterKnownCommercialUiContainers(
@@ -3762,6 +3822,48 @@
         Boolean(config.liveShopping)
       );
     }
+    return changes;
+  }
+
+  function handleLiveFeed(body, meta) {
+    var data = body.data;
+    var removed;
+    if (!isPlainObject(data)) {
+      return 0;
+    }
+    removed = replaceFilteredArray(data, "card_list", function (item) {
+      return Boolean(
+        isPlainObject(item) &&
+        includes(
+          ["banner_v2", "activity_card_v1"],
+          String(item.card_type || "").toLowerCase()
+        )
+      );
+    });
+    recordRemoval(
+      meta,
+      removed,
+      "data.card_list",
+      "ios980-live-feed-promotion-removed"
+    );
+    return removed;
+  }
+
+  function handleLiveUser(body, meta) {
+    var data = body.data;
+    var changes = 0;
+    if (!isPlainObject(data)) {
+      return 0;
+    }
+    changes += deleteProperty(data, "play_together_info");
+    changes += deleteProperty(data, "play_together_info_v2");
+    changes += deleteProperty(data, "function_card");
+    recordRemoval(
+      meta,
+      changes,
+      "data",
+      "ios980-live-user-interference-removed"
+    );
     return changes;
   }
 
@@ -3829,6 +3931,10 @@
         return handleWebFeed(body, config);
       case "live":
         return handleLive(body, config);
+      case "live-feed":
+        return handleLiveFeed(body, meta);
+      case "live-user":
+        return handleLiveUser(body, meta);
       default:
         return 0;
     }
@@ -4277,6 +4383,62 @@
     return base ? protoPayload(container, base) : null;
   }
 
+  function popularPresentationHasCommercialLabel(
+    input,
+    textFields,
+    reasonStyleFields
+  ) {
+    var index;
+    var field;
+    var payload;
+    for (index = 0; index < textFields.length; index += 1) {
+      if (
+        isHomeFeedCommercialBadgeLabel(
+          shortUtf8Field(input, textFields[index], 128)
+        )
+      ) {
+        return true;
+      }
+    }
+    for (index = 0; index < reasonStyleFields.length; index += 1) {
+      field = findProtoField(input, reasonStyleFields[index], 2);
+      if (!field) {
+        continue;
+      }
+      payload = protoPayload(input, field);
+      if (
+        isHomeFeedCommercialBadgeLabel(
+          shortUtf8Field(payload, 1, 128)
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isPopularPresentationAd(input) {
+    var bytes = toUint8Array(input);
+    var small = findProtoField(bytes, 1, 2);
+    var large = findProtoField(bytes, 2, 2);
+    var container;
+    if (!bytes || Boolean(small) === Boolean(large)) {
+      return false;
+    }
+    container = protoPayload(bytes, small || large);
+    return small
+      ? popularPresentationHasCommercialLabel(
+          container,
+          [4, 13],
+          [7, 9, 12]
+        )
+      : popularPresentationHasCommercialLabel(
+          container,
+          [7, 18, 21],
+          [13, 14, 15, 16, 17]
+        );
+  }
+
   function isPopularCardAd(input) {
     var bytes = toUint8Array(input);
     var base;
@@ -4293,7 +4455,8 @@
     }
     adInfo = findProtoField(base, 12, 2);
     return Boolean(
-      adInfo && adInfo.payloadEnd > adInfo.payloadStart
+      (adInfo && adInfo.payloadEnd > adInfo.payloadStart) ||
+      isPopularPresentationAd(bytes)
     );
   }
 
@@ -4506,12 +4669,33 @@
       });
     }
     return rewriteProtoMessage(input, function (field, bytes) {
+      var nested;
       if (
         config.ads !== false &&
         field.wireType === 2 &&
-        includes([30, 31, 34, 41, 48], field.fieldNumber)
+        includes([23, 30, 31, 34, 41, 48, 50], field.fieldNumber)
       ) {
         return { changed: 1, remove: true };
+      }
+      if (
+        config.ads !== false &&
+        field.fieldNumber === 4 &&
+        field.wireType === 2
+      ) {
+        nested = rewriteProtoMessage(
+          protoPayload(bytes, field),
+          function (userField) {
+            return userField.fieldNumber === 9 && userField.wireType === 2
+              ? { changed: 1, remove: true }
+              : null;
+          }
+        );
+        if (!nested.valid) {
+          return { invalid: true };
+        }
+        return nested.changed > 0
+          ? { changed: nested.changed, payload: nested.body }
+          : null;
       }
       if (
         field.fieldNumber === 10 &&
@@ -4962,10 +5146,33 @@
 
   function transformViewUniteModule(input, config) {
     var hadRelates = Boolean(findProtoField(input, 22, 2));
+    var moduleType = smallVarintField(input, 1);
     var result = rewriteProtoMessage(
       input,
       function (field, bytes) {
         var nested;
+        if (
+          config.ads !== false &&
+          moduleType === 3 &&
+          field.fieldNumber === 5 &&
+          field.wireType === 2
+        ) {
+          nested = rewriteProtoMessage(
+            protoPayload(bytes, field),
+            function (headlineField) {
+              return headlineField.fieldNumber === 1 &&
+                headlineField.wireType === 2
+                ? { changed: 1, remove: true }
+                : null;
+            }
+          );
+          if (!nested.valid) {
+            return { invalid: true };
+          }
+          return nested.changed > 0
+            ? { changed: nested.changed, payload: nested.body }
+            : null;
+        }
         if (
           field.fieldNumber !== 22 ||
           field.wireType !== 2
@@ -5133,6 +5340,26 @@
       ) {
         return { changed: 1, remove: true };
       }
+      if (
+        config.ads !== false &&
+        field.fieldNumber === 3 &&
+        field.wireType === 2
+      ) {
+        nested = rewriteProtoMessage(
+          protoPayload(bytes, field),
+          function (userField) {
+            return userField.fieldNumber === 7 && userField.wireType === 2
+              ? { changed: 1, remove: true }
+              : null;
+          }
+        );
+        if (!nested.valid) {
+          return { invalid: true };
+        }
+        return nested.changed > 0
+          ? { changed: nested.changed, payload: nested.body }
+          : null;
+      }
       if (field.fieldNumber !== 5 || field.wireType !== 2) {
         return null;
       }
@@ -5149,9 +5376,65 @@
     });
   }
 
+  function transformViewUniteAsyncModule(input, config) {
+    return rewriteProtoMessage(input, function (field, bytes) {
+      var nested;
+      if (field.fieldNumber !== 1 || field.wireType !== 2) {
+        return null;
+      }
+      nested = transformViewUniteModule(
+        protoPayload(bytes, field),
+        config
+      );
+      if (!nested.valid) {
+        return { invalid: true };
+      }
+      if (nested.changed > 0 && nested.empty) {
+        return {
+          changed: nested.changed + 1,
+          remove: true
+        };
+      }
+      return nested.changed > 0
+        ? { changed: nested.changed, payload: nested.body }
+        : null;
+    });
+  }
+
+  function transformViewUniteAiRelateAsync(input, config) {
+    var result = rewriteProtoMessage(input, function (field, bytes) {
+      var nested;
+      if (
+        config.ads !== false &&
+        field.fieldNumber === 1 &&
+        field.wireType === 2
+      ) {
+        return { changed: 1, remove: true };
+      }
+      if (field.fieldNumber !== 2 || field.wireType !== 2) {
+        return null;
+      }
+      nested = transformViewUniteAsyncModule(
+        protoPayload(bytes, field),
+        config
+      );
+      if (!nested.valid) {
+        return { invalid: true };
+      }
+      return nested.changed > 0
+        ? { changed: nested.changed, payload: nested.body }
+        : null;
+    });
+    result.reason = result.changed > 0
+      ? "ios980-ai-relate-async-commercial-removed"
+      : "no-ad-fields";
+    result.schema = "view-unite-ai-relate-async-v1";
+    return result;
+  }
+
   function transformDynamicList(input) {
     return filterRepeatedMessage(input, 1, function (item) {
-      return smallVarintField(item, 1) === 15;
+      return includes([15, 18], smallVarintField(item, 1));
     });
   }
 
@@ -5268,6 +5551,16 @@
       ) {
         return { changed: 1, remove: true };
       }
+      if (
+        field.fieldNumber === 28 &&
+        field.wireType === 2 &&
+        includes(
+          [3, 5],
+          smallVarintField(protoPayload(bytes, field), 1)
+        )
+      ) {
+        return { changed: 1, remove: true };
+      }
       return null;
     });
   }
@@ -5293,6 +5586,8 @@
         return transformViewEndPage(input, config);
       case "grpc-view-unite-relates":
         return transformViewUnite(input, true, config);
+      case "grpc-view-unite-ai-relate-async":
+        return transformViewUniteAiRelateAsync(input, config);
       case "grpc-mine-pub-module":
         return transformMinePubModule(input, config);
       case "grpc-mine-device-feature":

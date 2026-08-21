@@ -40,6 +40,21 @@ test("registry classifies reviewed JSON, gRPC, and 9.5 log discoveries", () => {
       "grpc",
     ],
     [
+      "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync",
+      "grpc-view-unite-ai-relate-async",
+      "grpc",
+    ],
+    [
+      "https://api.live.bilibili.com/xlive/app-interface/v2/index/feed",
+      "live-feed",
+      "json",
+    ],
+    [
+      "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser",
+      "live-user",
+      "json",
+    ],
+    [
       "https://app.bilibili.com/bilibili.app.show.v1.Popular/Index",
       "grpc-popular",
       "grpc",
@@ -67,6 +82,18 @@ test("registry classifies reviewed JSON, gRPC, and 9.5 log discoveries", () => {
     endpoints.classify("https://app.bilibili.com/x/v2/view/extra"),
     null,
   );
+  assert.equal(
+    endpoints.classify(
+      "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsyncV2",
+    )?.id,
+    "grpc-metadata-diagnostic",
+  );
+  assert.equal(
+    endpoints.classify(
+      "https://api.live.bilibili.com/xlive/app-interface/v2/index/feeds",
+    ),
+    null,
+  );
 });
 
 test("registry-generated matchers cover exactly their runtime groups", () => {
@@ -84,7 +111,10 @@ test("registry-generated matchers cover exactly their runtime groups", () => {
     "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
     "https://app.biliapi.net/bilibili.app.viewunite.v1.View/RelatesFeed",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
+    "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync",
     "https://grpc.bilibili.com/bilibili.app.story.v1.Story/BottomDiversionEntrance",
+    "https://api.live.bilibili.com/xlive/app-interface/v2/index/feed",
+    "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser",
   ]) {
     assert.match(url, refresh);
   }

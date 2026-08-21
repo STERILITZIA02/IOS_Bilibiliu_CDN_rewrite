@@ -40,7 +40,10 @@ test("cache guard is exact to reviewed volatile Bilibili metadata", () => {
     "https://grpc.bilibili.com/bilibili.app.view.v1.View/RelatesFeed",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
     "https://app.biliapi.net/bilibili.app.viewunite.v1.View/RelatesFeed",
+    "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync",
     "https://grpc.bilibili.com/bilibili.app.story.v1.Story/BottomDiversionEntrance",
+    "https://api.live.bilibili.com/xlive/app-interface/v2/index/feed",
+    "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser",
   ]) {
     assert.equal(refresh.isVolatileMetadataUrl(url), true);
   }
@@ -174,4 +177,40 @@ test("gRPC request guard constrains compression without touching Range or body m
   assert.equal(result.headers.Range, "bytes=0-65535");
   assert.equal(result.headers.Authorization, "Bearer keep");
   assert.equal(original["grpc-accept-encoding"], "br,gzip");
+});
+
+test("9.8.0 asynchronous metadata guards remove every validator", () => {
+  const validators = {
+    "IF-NONE-MATCH": '"stale"',
+    "If-Modified-Since": "Thu, 20 Aug 2026 00:00:00 GMT",
+    "if-range": '"range"',
+    "grpc-accept-encoding": "br,gzip",
+    Authorization: "Bearer keep",
+  };
+  const grpc = refresh.guardRequest(
+    "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync",
+    validators,
+  );
+  assert.equal(grpc.endpoint, "grpc-view-unite-ai-relate-async");
+  assert.equal(grpc.removedValidators, 3);
+  assert.deepEqual(grpc.removedValidatorNames.sort(), [
+    "if-modified-since",
+    "if-none-match",
+    "if-range",
+  ]);
+  assert.equal(grpc.headers["grpc-accept-encoding"], "gzip,identity");
+  assert.equal(grpc.headers.Authorization, "Bearer keep");
+  assert.equal(grpc.headers["Cache-Control"], "no-cache, no-store, max-age=0");
+  assert.equal(grpc.headers.Pragma, "no-cache");
+
+  for (const url of [
+    "https://api.live.bilibili.com/xlive/app-interface/v2/index/feed",
+    "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser",
+  ]) {
+    const guarded = refresh.guardRequest(url, validators);
+    assert.equal(guarded.transport, "json");
+    assert.equal(guarded.removedValidators, 3);
+    assert.equal(guarded.headers["grpc-accept-encoding"], "br,gzip");
+    assert.equal(guarded.headers["Cache-Control"], "no-cache, no-store, max-age=0");
+  }
 });

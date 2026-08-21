@@ -1,0 +1,27 @@
+{
+  "code": 0,
+  "message": "0",
+  "data": {
+    "play_together_info": {
+      "title": "一起玩"
+    },
+    "play_together_info_v2": {
+      "title": "组队入口"
+    },
+    "function_card": {
+      "shopping": {
+        "business_type": "commercial",
+        "title": "直播商业功能卡"
+      }
+    },
+    "user_info": {
+      "uid": 98001,
+      "name": "普通主播"
+    },
+    "room_info": {
+      "room_id": 98002,
+      "title": "普通直播间"
+    },
+    "unknown_top": "keep-live-user-unknown"
+  }
+}

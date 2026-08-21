@@ -245,7 +245,10 @@ test("fresh UI request guard covers every reviewed cache-sensitive metadata API"
     "https://grpc.bilibili.com/bilibili.app.view.v1.View/RelatesFeed",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
     "https://app.biliapi.net/bilibili.app.viewunite.v1.View/RelatesFeed",
+    "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync",
     "https://grpc.bilibili.com/bilibili.app.story.v1.Story/BottomDiversionEntrance",
+    "https://api.live.bilibili.com/xlive/app-interface/v2/index/feed",
+    "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser",
   ]) {
     assert.match(url, pattern);
   }
@@ -280,6 +283,7 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
     "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/ViewEndPage",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/RelatesFeed",
+    "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync",
     "https://grpc.biliapi.net/bilibili.app.mine.v1.Mine/PubModule",
     "https://grpc.biliapi.net/bilibili.app.mine.v1.Mine/DeviceFeature",
     "https://app.bilibili.com/bilibili.app.resource.v1.Module/List",
@@ -573,6 +577,8 @@ test("enhancement response pattern covers only reviewed API endpoints", () => {
     "https://api.bilibili.com/pgc/page/cinema/tab",
     "https://api.bilibili.com/pgc/activity/deliver/material/receive",
     "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByRoom",
+    "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser",
+    "https://api.live.bilibili.com/xlive/app-interface/v2/index/feed",
     "https://api.live.bilibili.com/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info",
     "https://line3-h5-mobile-api.biligame.com/game/live/large_card_material",
     "https://api.vc.bilibili.com/search_svr/v3/Search/recommend_words",
