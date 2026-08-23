@@ -46,6 +46,7 @@ this.__BILIFLOW_COMBINED__ = true;
   var REGISTRY = [
     row("cdn-json-playurl", ["api.bilibili.com", "api.biliapi.net", "app.bilibili.com", "app.biliapi.net", "interface.bilibili.com"], "\\/(?:x\\/(?:player\\/(?:wbi\\/)?playurl(?:v2)?|v2\\/playurl)|pgc\\/player\\/(?:api\\/playurl(?:proj)?|web\\/(?:v2\\/)?playurl(?:\\/html5)?)|pugv\\/player\\/(?:api|web)\\/playurl|v2\\/playurl)", "json", "cdn", ["cdn"], false, false, true, true),
     row("cdn-grpc-playurl", GRPC_HOSTS, "\\/(?:bilibili\\.app\\.playerunite\\.v1\\.Player\\/PlayViewUnite|bilibili\\.app\\.playurl\\.v1\\.PlayURL\\/PlayView|bilibili\\.(?:pgc\\.gateway\\.player\\.(?:v1|v2)|cheese\\.gateway\\.player\\.v1)\\.PlayURL\\/PlayView)", "grpc", "cdn", ["cdn"], false, false, true, true),
+    row("grpc-playerunite-ui-guard", GRPC_HOSTS, "/bilibili.app.playerunite.v1.Player/PlayViewUnite", "grpc", "grpc-playerunite-ui-guard", ["enhance"], true, true, false),
 
     row("vip-materials", APP_HOSTS.concat(API_HOSTS), "/x/vip/ads/materials", "json", "vip-materials", ["enhance"], true, true, true),
     row("vip-material-report", APP_HOSTS.concat(API_HOSTS), "/x/vip/ads/material/report", "json", "vip-material-report", ["enhance"], true, true, true),
@@ -1504,6 +1505,7 @@ this.__BILIFLOW_COMBINED__ = true;
         for (index = 0; index < source.length; index += 1) {
           if (
             !hasExplicitHomeCommercialEvidence(source[index]) &&
+            !hasExplicitHomeNonVideoEvidence(source[index]) &&
             kept.length < HOME_FEED_VIDEO_LIMIT
           ) {
             kept.push(source[index]);
@@ -1511,10 +1513,14 @@ this.__BILIFLOW_COMBINED__ = true;
         }
       }
       if (kept.length === 0) {
-        if (isPlainObject(meta)) {
-          meta.reason = "feed-empty-fail-open";
-        }
-        return 0;
+        data.items = [];
+        recordRemoval(
+          meta,
+          source.length,
+          "data.items",
+          "feed-all-commercial-blocked"
+        );
+        return source.length;
       }
       if (kept.length !== source.length) {
         data.items = kept;
@@ -4754,10 +4760,66 @@ this.__BILIFLOW_COMBINED__ = true;
     );
   }
 
+  function commandDmExtraIsCommercial(value) {
+    var parsed;
+    var text;
+    if (!value) {
+      return false;
+    }
+    try {
+      parsed = JSON.parse(value);
+    } catch (error) {
+      return false;
+    }
+    if (!isPlainObject(parsed)) {
+      return false;
+    }
+    try {
+      text = JSON.stringify(parsed);
+    } catch (error) {
+      return false;
+    }
+    return (
+      /"(?:is_ad|is_commercial)"\s*:\s*(?:true|1)/i.test(text) ||
+      /"(?:ad_info|ad_data|cm|commercial|mini_program|miniProgram|small_app|smallApp|applet)"\s*:/i.test(
+        text
+      ) ||
+      /"(?:creative_id|ad_id|commercial_id|game_id|app_id|sales_type)"\s*:\s*(?:"[^"]+"|[1-9]\d*)/i.test(
+        text
+      ) ||
+      /bilibili:\/\/(?:game_center|mall|smallapp|miniapp|applet|nativeact|following\/home_activity_tab)(?:[/?#]|$)/i.test(
+        text
+      )
+    );
+  }
+
+  function isPromotionalCommandDm(input) {
+    var command = shortUtf8Field(input, 4, 64);
+    var extra = shortUtf8Field(input, 9, 8192);
+    return Boolean(
+      /^(?:#(?:AD|ACTIVITY|GAME|MINIAPP|RESERVE|REDIRECT)#)$/i.test(
+        String(command || "")
+      ) ||
+      commandDmExtraIsCommercial(extra) ||
+      bytesContainCommercialEvidence(input)
+    );
+  }
+
   function transformViewProgressDmResource(input) {
-    return filterRepeatedMessage(input, 3, function (card) {
+    var commands = filterRepeatedMessage(input, 1, function (command) {
+      return isPromotionalCommandDm(command);
+    });
+    var cards;
+    if (!commands.valid) {
+      return commands;
+    }
+    cards = filterRepeatedMessage(commands.body, 3, function (card) {
       return isPromotionalOperationCard(card);
     });
+    if (cards.valid) {
+      cards.changed += commands.changed;
+    }
+    return cards;
   }
 
   function transformViewProgressFields(input, includeDmResource) {
@@ -6714,8 +6776,10 @@ this.__BILIFLOW_COMBINED__ = true;
         result.valid &&
         endpoint === "feed" &&
         config.homeFeedVideoOnly !== false &&
-        result.reason !== "feed-empty-fail-open" &&
-        filteredFeedLength(result) > 0 &&
+        (
+          filteredFeedLength(result) > 0 ||
+          result.reason === "feed-all-commercial-blocked"
+        ) &&
         filteredFeedLength(result) < HOME_FEED_VIDEO_LIMIT &&
         headerValue(context.requestHeaders, FEED_REFILL_HEADER) !== "1"
       ) {
@@ -7312,6 +7376,7 @@ this.__BILIFLOW_COMBINED__ = true;
 
   function parseArgument(argument) {
     var config = {
+      ads: false,
       auto: true,
       cdnHost: null,
       debug: false,
@@ -7344,6 +7409,7 @@ this.__BILIFLOW_COMBINED__ = true;
     }
 
     if (isObject(parsed) && !Array.isArray(parsed)) {
+      config.ads = parseBoolean(parsed.ads);
       if (Object.prototype.hasOwnProperty.call(parsed, "cdn")) {
         applyCdnSetting(config, String(parsed.cdn));
       }
@@ -7388,6 +7454,8 @@ this.__BILIFLOW_COMBINED__ = true;
       value = decodedValue.trim();
       if (key === "cdn") {
         applyCdnSetting(config, value);
+      } else if (key === "ads") {
+        config.ads = parseBoolean(value);
       } else if (key === "debug") {
         config.debug = parseBoolean(value);
       } else if (key === "networkprofile" || key === "profile") {
@@ -10928,6 +10996,148 @@ this.__BILIFLOW_COMBINED__ = true;
     return fields;
   }
 
+  function removeLengthDelimitedProtoFields(input, fieldNumbers) {
+    var bytes = toUint8Array(input);
+    var fields = parseProtoFields(bytes);
+    var chunks = [];
+    var changed = 0;
+    var index;
+    var field;
+    if (!bytes || !fields) {
+      return { bytes: bytes || input, changed: 0, valid: false };
+    }
+    for (index = 0; index < fields.length; index += 1) {
+      field = fields[index];
+      if (
+        field.wireType === 2 &&
+        fieldNumbers.indexOf(field.fieldNumber) !== -1
+      ) {
+        changed += 1;
+        continue;
+      }
+      chunks.push(bytes.subarray(field.rawStart, field.end));
+    }
+    return {
+      bytes: changed > 0 ? concatBytes(chunks) : bytes,
+      changed: changed,
+      valid: true
+    };
+  }
+
+  function stripPlayerPromotionPayload(input, config) {
+    var bytes = toUint8Array(input);
+    var fields = parseProtoFields(bytes);
+    var chunks = [];
+    var changed = 0;
+    var index;
+    var field;
+    var nested;
+    if (
+      !bytes ||
+      !fields ||
+      !config ||
+      config.ads !== true ||
+      config.grpcAdapter !== "playerunite-v1"
+    ) {
+      return {
+        bytes: bytes || input,
+        changed: 0,
+        valid: Boolean(bytes && fields)
+      };
+    }
+    for (index = 0; index < fields.length; index += 1) {
+      field = fields[index];
+      if (field.fieldNumber !== 9 || field.wireType !== 2) {
+        chunks.push(bytes.subarray(field.rawStart, field.end));
+        continue;
+      }
+      nested = removeLengthDelimitedProtoFields(field.payload, [1, 2, 3]);
+      if (!nested.valid) {
+        return { bytes: bytes, changed: 0, valid: false };
+      }
+      if (nested.changed === 0) {
+        chunks.push(bytes.subarray(field.rawStart, field.end));
+        continue;
+      }
+      changed += nested.changed;
+      if (nested.bytes.length === 0) {
+        changed += 1;
+        continue;
+      }
+      chunks.push(bytes.subarray(field.rawStart, field.tagEnd));
+      chunks.push(encodeVarint(nested.bytes.length));
+      chunks.push(nested.bytes);
+    }
+    return {
+      bytes: changed > 0 ? concatBytes(chunks) : bytes,
+      changed: changed,
+      valid: true
+    };
+  }
+
+  function stripPlayerPromotionsFromGrpcBody(input, config) {
+    var bytes = toUint8Array(input);
+    var offset = 0;
+    var chunks = [];
+    var changed = 0;
+    var frames = 0;
+    var flag;
+    var length;
+    var frameEnd;
+    var transformed;
+    var raw;
+    if (!bytes) {
+      return { body: input, changed: 0, valid: false };
+    }
+    while (offset + 5 <= bytes.length) {
+      flag = bytes[offset];
+      length = readUint32Be(bytes, offset + 1);
+      frameEnd = offset + 5 + length;
+      if ((flag !== 0 && flag !== 1) || frameEnd > bytes.length) {
+        frames = 0;
+        break;
+      }
+      frames += 1;
+      transformed = flag === 0
+        ? stripPlayerPromotionPayload(
+            bytes.subarray(offset + 5, frameEnd),
+            config
+          )
+        : {
+            bytes: bytes.subarray(offset + 5, frameEnd),
+            changed: 0,
+            valid: true
+          };
+      if (!transformed.valid) {
+        return { body: bytes, changed: 0, valid: false };
+      }
+      if (transformed.changed > 0) {
+        chunks.push(grpcHeader(flag, transformed.bytes.length));
+        chunks.push(transformed.bytes);
+        changed += transformed.changed;
+      } else {
+        chunks.push(bytes.subarray(offset, frameEnd));
+      }
+      offset = frameEnd;
+    }
+    if (frames > 0 && offset === bytes.length) {
+      return {
+        body: changed > 0 ? concatBytes(chunks) : bytes,
+        changed: changed,
+        valid: true
+      };
+    }
+    if (bytes.length >= 5 && (bytes[0] === 0 || bytes[0] === 1)) {
+      return { body: bytes, changed: 0, valid: false };
+    }
+    raw = stripPlayerPromotionPayload(bytes, config);
+    return {
+      body: raw.changed > 0 ? raw.bytes : bytes,
+      changed: raw.changed,
+      valid: raw.valid
+    };
+  }
+
   function protoUrlsForField(fields, fieldNumber) {
     var output = [];
     var index;
@@ -12597,7 +12807,70 @@ this.__BILIFLOW_COMBINED__ = true;
     }
   }
 
-  function finishManualShadowrocketResponse(config, body, binary) {
+  function normalizePlayerPromotionHeaders(bodyChanged) {
+    var responseHeaders =
+      typeof $response !== "undefined" && $response
+        ? $response.headers
+        : null;
+    var requestHeaders =
+      typeof $request !== "undefined" && $request
+        ? $request.headers
+        : null;
+    var output = {};
+    var keys = isObject(responseHeaders) ? Object.keys(responseHeaders) : [];
+    var index;
+    var key;
+    var contentType = headerValue(responseHeaders, "content-type");
+    var userAgent = headerValue(requestHeaders, "user-agent").toLowerCase();
+    var mossEngine = headerValue(requestHeaders, "x-bili-moss-engine-type");
+    for (index = 0; index < keys.length; index += 1) {
+      key = keys[index];
+      if (
+        !/^(?:age|cache-control|content-length|content-type|etag|expires|grpc-status|last-modified|pragma)$/i.test(
+          key
+        ) &&
+        !(
+          bodyChanged &&
+          /^grpc-encoding$/i.test(key)
+        )
+      ) {
+        output[key] = responseHeaders[key];
+      }
+    }
+    output["Content-Type"] = /^application\/grpc(?:\+proto)?(?:;|$)/i.test(
+      contentType
+    )
+      ? contentType
+      : "application/grpc";
+    output["Cache-Control"] = "no-store, no-cache, must-revalidate";
+    output.Pragma = "no-cache";
+    output.Expires = "0";
+    if (
+      (/bili-universal/i.test(userAgent) && mossEngine === "1") ||
+      /bili-blue/i.test(userAgent)
+    ) {
+      output["grpc-status"] = "0";
+    }
+    return output;
+  }
+
+  function completeShadowrocketResponse(config, body, changed) {
+    var completion = {};
+    if (changed > 0) {
+      completion.body = body;
+    }
+    if (config && config.playerPromotionGuarded === true) {
+      completion.headers = normalizePlayerPromotionHeaders(changed > 0);
+    }
+    $done(completion);
+  }
+
+  function finishManualShadowrocketResponse(
+    config,
+    body,
+    binary,
+    baseChanges
+  ) {
     var result;
 
     try {
@@ -12605,7 +12878,7 @@ this.__BILIFLOW_COMBINED__ = true;
         if (config.debug) {
           safeLog("fixed CDN rewrite disabled");
         }
-        $done({});
+        completeShadowrocketResponse(config, body, baseChanges);
         return;
       }
 
@@ -12624,19 +12897,23 @@ this.__BILIFLOW_COMBINED__ = true;
               " URL(s)"
           );
         }
-        $done({ body: result.body });
+        completeShadowrocketResponse(
+          config,
+          result.body,
+          baseChanges + result.changed
+        );
       } else {
         if (config.debug && !result.valid) {
           safeLog("unsupported response; left unchanged");
         }
-        $done({});
+        completeShadowrocketResponse(config, body, baseChanges);
       }
     } catch (error) {
       safeLog(
         "fixed mode error; response left unchanged: " +
           (error && error.message ? error.message : String(error))
       );
-      $done({});
+      completeShadowrocketResponse(config, body, baseChanges);
     }
   }
 
@@ -12644,7 +12921,8 @@ this.__BILIFLOW_COMBINED__ = true;
     config,
     body,
     binary,
-    services
+    services,
+    baseChanges
   ) {
     processSafeAutoResponse(
       body,
@@ -12676,9 +12954,13 @@ this.__BILIFLOW_COMBINED__ = true;
             );
           }
           if (result.valid && result.changed > 0) {
-            $done({ body: result.body });
+            completeShadowrocketResponse(
+              config,
+              result.body,
+              baseChanges + result.changed
+            );
           } else {
-            $done({});
+            completeShadowrocketResponse(config, body, baseChanges);
           }
         } catch (error) {
           safeLog(
@@ -12687,22 +12969,46 @@ this.__BILIFLOW_COMBINED__ = true;
                 ? error.message
                 : String(error))
           );
-          $done({});
+          completeShadowrocketResponse(config, body, baseChanges);
         }
       }
     );
   }
 
   function processShadowrocketBody(config, body, binary) {
+    var working = body;
+    var promotionResult;
+    var baseChanges = 0;
+    config.playerPromotionChanges = 0;
+    config.playerPromotionGuarded = false;
+    if (
+      binary &&
+      config.ads === true &&
+      config.grpcAdapter === "playerunite-v1"
+    ) {
+      config.playerPromotionGuarded = true;
+      promotionResult = stripPlayerPromotionsFromGrpcBody(body, config);
+      if (promotionResult.valid && promotionResult.changed > 0) {
+        working = promotionResult.body;
+        baseChanges = promotionResult.changed;
+        config.playerPromotionChanges = promotionResult.changed;
+      }
+    }
     if (!config.auto) {
-      finishManualShadowrocketResponse(config, body, binary);
+      finishManualShadowrocketResponse(
+        config,
+        working,
+        binary,
+        baseChanges
+      );
       return;
     }
     finishAutoShadowrocketResponse(
       config,
-      body,
+      working,
       binary,
-      createShadowrocketServices()
+      createShadowrocketServices(),
+      baseChanges
     );
   }
 
@@ -12723,14 +13029,6 @@ this.__BILIFLOW_COMBINED__ = true;
         $done({});
         return;
       }
-      if (!config.auto && !config.cdnHost) {
-        if (config.debug) {
-          safeLog("CDN rewrite disabled");
-        }
-        $done({});
-        return;
-      }
-
       requestUrl =
         typeof $request !== "undefined" && $request && $request.url
           ? String($request.url)

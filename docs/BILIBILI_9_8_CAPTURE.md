@@ -1,6 +1,6 @@
 # Bilibili iOS 9.8.0 脱敏抓包与长期后台差分指南
 
-本指南用于补齐 v3.10.0 仍缺的 9.8.0 真机载荷证据。App Store 已确认正式版
+本指南用于补齐 v3.10.1 仍缺的 9.8.0 真机载荷证据。App Store 已确认正式版
 9.8.0 发布，但版本号和截图不能确认实际 endpoint、JSON 父路径、gRPC field 或
 HTTP/3 行为。请勿公开 Cookie、SESSDATA、access_key、buvid、设备标识、WBI/签名
 值或完整媒体 URL。
@@ -8,7 +8,7 @@ HTTP/3 行为。请勿公开 Cookie、SESSDATA、access_key、buvid、设备标�
 ## 环境与模块
 
 1. 记录设备、iOS、Shadowrocket、Bilibili `9.8.0` 与实际 build。
-2. 只启用本仓库 Enhanced 3.10.0；关闭其他会命中 Bilibili API 的脚本。
+2. 只启用本仓库 Enhanced 3.10.1；关闭其他会命中 Bilibili API 的脚本。
 3. HTTPS 解密 CA 完全信任，参数设为 `调试日志=true`。
 4. 不把 `bilivideo`、`acgvideo`、`akamaized.net` 等媒体 CDN 加入 MITM。
 5. 录屏并记录每一步本地时间，便于对齐请求、脚本日志和 PacketTunnel 日志。
@@ -39,6 +39,7 @@ HTTP/3 行为。请勿公开 Cookie、SESSDATA、access_key、buvid、设备标�
 优先核对这些已知入口：
 
 - `bilibili.app.viewunite.v1.View/AIRelateAsync`
+- `bilibili.app.playerunite.v1.Player/PlayViewUnite`
 - `View`、`ViewProgress`、`RelatesFeed`、`PlayPause`、`ViewEndPage`
 - `bilibili.main.community.reply.v1.Reply/MainList`
 - `bilibili.app.dynamic.v2.Dynamic/DynAll`
@@ -46,6 +47,10 @@ HTTP/3 行为。请勿公开 Cookie、SESSDATA、access_key、buvid、设备标�
 - `/xlive/app-room/v1/index/getInfoByRoom`
 - `/xlive/app-room/v1/index/getInfoByUser`
 - `/x/v2/feed/index`、`/x/resource/show/tab/v2`、`/x/v2/account/mine`
+
+播放器下横幅/延迟弹窗需同时保留 `PlayViewUniteReply.view_info(9)` 的顶层字段统计，
+以及 `ViewProgressReply.dm(4) -> command_dms(1)` 中脱敏后的 `command(4)` 与
+`extra(9)` JSON key 层级。不要提交广告落地页的完整 query、设备或追踪标识。
 
 若 debug 出现 `registry=unmatched` 或 generic diagnostic，请保存精确 host/path/method；
 不要只截取广告文字。

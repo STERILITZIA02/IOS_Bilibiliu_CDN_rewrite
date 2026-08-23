@@ -327,6 +327,46 @@ test("9.7.0 home fallback never restores presentation-badge ads", () => {
   assert.doesNotMatch(result.body, /143万人感兴趣|877万人感兴趣/);
 });
 
+test("9.8.0 home recognizes direct feedback-panel ads without scanning titles", () => {
+  const disguisedAd = {
+    aid: 98051,
+    card_type: "small_cover_v2",
+    card_goto: "av",
+    goto: "av",
+    param: "98051",
+    player_args: { aid: 98051, type: "av" },
+    title: "15元抽游戏周边",
+    ad_tag_style: {
+      text: "",
+      img_url: "https://i0.hdslb.com/bfs/sycp/mng/STABLE_AD_BADGE.png",
+    },
+    feedback_panel: {
+      panel_type_text: "广告",
+      toast: "将减少相似广告推荐",
+    },
+    sales_type: 31,
+  };
+  const ordinary = {
+    aid: 98052,
+    card_type: "small_cover_v2",
+    card_goto: "av",
+    goto: "av",
+    param: "98052",
+    player_args: { aid: 98052, type: "av" },
+    title: "魔力赏广告投放机制观察",
+  };
+  const result = transform(`${appRoot}/x/v2/feed/index?pull=98`, {
+    code: 0,
+    data: { items: [disguisedAd, ordinary] },
+  });
+  assert.equal(enhance.hasExplicitAdMarker(disguisedAd), true);
+  assert.deepEqual(
+    JSON.parse(result.body).data.items.map((item) => item.title),
+    ["魔力赏广告投放机制观察"],
+  );
+  assert.doesNotMatch(result.body, /STABLE_AD_BADGE|sales_type/);
+});
+
 test("9.7.0 View removes the complete Xianyu banner module and its layout placeholder", () => {
   const fixture = ios970Fixture("ios970-view-xianyu-banner.json");
   const result = transform(`${appRoot}/x/v2/view?aid=97201`, fixture);
@@ -703,7 +743,7 @@ test("non-empty home responses use bounded fallbacks instead of becoming an empt
   });
   assert.deepEqual(
     JSON.parse(commercialOnlyFallback.body).data.items.map((item) => item.title),
-    ["直播占位", "未来普通模块"],
+    ["未来普通模块"],
   );
 
   const allCommercialFixture = {
@@ -718,9 +758,9 @@ test("non-empty home responses use bounded fallbacks instead of becoming an empt
     `${appRoot}/x/v2/feed/index?pull=2`,
     allCommercialFixture,
   );
-  assert.equal(allCommercial.changed, 0);
-  assert.equal(allCommercial.reason, "feed-empty-fail-open");
-  assert.deepEqual(JSON.parse(allCommercial.body), allCommercialFixture);
+  assert.equal(allCommercial.changed, 1);
+  assert.equal(allCommercial.reason, "feed-all-commercial-blocked");
+  assert.deepEqual(JSON.parse(allCommercial.body).data.items, []);
 
   const emptyFixture = { code: 0, data: { items: [], config: { keep: true } } };
   const serverEmpty = transform(`${appRoot}/x/v2/feed/index?pull=3`, emptyFixture);
@@ -3088,8 +3128,41 @@ test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field b
       varintField(5, type),
       messageField(6, stringField(1, label)),
     );
+  const commandDm = (command, content, extra) =>
+    bytes(
+      stringField(4, command),
+      stringField(5, content),
+      stringField(9, JSON.stringify(extra)),
+    );
   const dmResource = bytes(
-    messageField(1, stringField(1, "normal-command-dm")),
+    messageField(
+      1,
+      commandDm("#UP#", "normal-command-dm", {
+        icon: "https://i0.hdslb.com/bfs/face/STABLE_FACE.png",
+      }),
+    ),
+    messageField(
+      1,
+      commandDm("#LINK#", "hongguo-delayed-popup", {
+        is_ad: true,
+        creative_id: 98001,
+        jump_url: "https://example-ad.invalid/hongguo",
+      }),
+    ),
+    messageField(
+      1,
+      commandDm("#LINK#", "mini-program-popup", {
+        mini_program: { app_id: "STABLE_MINI_APP" },
+        jump_url: "bilibili://smallapp/open?id=STABLE_MINI_APP",
+      }),
+    ),
+    messageField(
+      1,
+      commandDm("#GAME#", "game-popup", {
+        game_id: 98002,
+        jump_url: "bilibili://game_center/detail?id=98002",
+      }),
+    ),
     messageField(2, stringField(1, "normal-attention-card")),
     messageField(3, operationCard(1, "follow-video-card")),
     messageField(3, operationCard(2, "reserve-activity-card")),
@@ -3134,7 +3207,7 @@ test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field b
     const filteredDm = fieldPayload(output, dmField);
 
     assert.equal(result.valid, true);
-    assert.equal(result.changed, 7);
+    assert.equal(result.changed, 10);
     assert.equal(result.body[0], 0);
     assert.equal(protoFields(filteredGuide, 1, 2).length, 1);
     assert.equal(protoFields(filteredGuide, 2, 2).length, 1);
@@ -3156,7 +3229,7 @@ test("ViewProgress filters 9.5 VideoGuide and operation-card reinjection field b
     );
     assert.doesNotMatch(
       outputText,
-      /activity-material|under_player_ad|reserve-activity-card|jump-link-card|reserve-game-card|mall-magic-c|goofish/,
+      /activity-material|under_player_ad|reserve-activity-card|jump-link-card|reserve-game-card|mall-magic-c|goofish|hongguo-delayed-popup|mini-program-popup|game-popup|STABLE_MINI_APP/,
     );
   }
 
@@ -4416,7 +4489,7 @@ test("9.6.1 feed entrypoint performs one bounded no-cache refill to reach six AV
   assert.equal("Content-Length" in completion.headers, false);
 });
 
-test("feed refill failure preserves existing videos, skips zero-video fail-open, and completes once", () => {
+test("feed refill failure preserves existing videos, refills blocked zero-video pages, and completes once", () => {
   const source = shadowrocketRuntimeSource("bilibili-enhance.js");
 
   function run(items, mode = "failure") {
@@ -4538,9 +4611,9 @@ test("feed refill failure preserves existing videos, skips zero-video fail-open,
       ad_info: { ad_id: 802 },
     },
   ]);
-  assert.equal(failOpen.refillCalls, 0);
+  assert.equal(failOpen.refillCalls, 1);
   assert.equal(failOpen.doneCalls, 1);
-  assert.equal(JSON.parse(failOpen.body).data.items.length, 1);
+  assert.equal(JSON.parse(failOpen.body).data.items.length, 0);
 });
 
 test("Shadowrocket entrypoint returns a changed body without leaking response data", () => {

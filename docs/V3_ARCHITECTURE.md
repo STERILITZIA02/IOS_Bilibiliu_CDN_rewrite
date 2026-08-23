@@ -1,6 +1,6 @@
 # v3 架构、数据流与安全边界
 
-> 适用版本：`3.10.0`
+> 适用版本：`3.10.1`
 >
 > 本文描述仓库当前实现，不代表所有 Bilibili App/iOS 组合已完成真机验证。
 > 当前自动化专项覆盖 Bilibili iOS 9.6.1 fixture、9.7.0 结构等价 fixture 与
@@ -133,7 +133,8 @@ host 不在当前候选或任一 alias lane 不匹配时原样放行，不执行
   只在已审核的角标/推荐理由等营销字段中匹配，不读取普通视频标题；
 - 首页/推荐流是明确例外：`首页推荐6个普通视频=true` 时先排除明确商业与非视频
   证据，再要求 AV/video 类型和任一强视频身份；每次响应按服务端原顺序最多保留
-  前 6 个，且不会把服务端非空响应主动改成空数组；
+  前 6 个；若服务端整页只有明确广告/游戏/直播等非视频卡，则最多无缓存补取一次，
+  仍无普通 AV 时保留空数组而不把原始广告 fail-open 回页面；
 - 播放页推荐是明确例外：`推荐仅普通视频=true` 时采用普通 AV 白名单，无法确认
   为普通视频的推荐卡删除；
 - Story、`/story/cart` 与 `/relate/story` 由一个生成运行时依次执行过滤和 CDN 处理，避免两个
@@ -156,8 +157,9 @@ host 不在当前候选或任一 alias lane 不匹配时原样放行，不执行
 
 播放过程会再次请求旧版与新版 `ViewProgress`。Enhanced 只进入
 `video_guide(1)`，并删除活动类型或有明确商业证据的 Material；对新版
-`dm(4)` 只删除 `OperationCard(3)` 中预约活动、跳转和预约游戏业务，普通 command
-DM、AttentionCard、关注视频/追番卡及未知字段均保留。9.4.0/9.5.0 的
+`dm(4)` 删除 `OperationCard(3)` 中预约活动、跳转和预约游戏业务，并仅删除
+`CommandDm(1)` 中 `extra(9)` 明确携带广告、商业、小程序或游戏结构证据的条目；
+普通 `#UP#` command DM、AttentionCard、关注视频/追番卡及未知字段均保留。9.4.0/9.5.0 的
 `View/PlayPause` 只删除含明确商业
 URL/creative/广告字段证据的 length-delimited 字段；`mall-magic-c` 魔力赏路由族
 属于明确商业 URL 证据，
@@ -179,7 +181,8 @@ wire bytes 和无商业证据的暂停字段不在删除目标中。未知 schem
 `param`、视频 URI 或播放器身份之一也可保留，CID 仅用于第一层宽松 fallback。
 横幅、CM、游戏/应用、PGC/OGV、纪录片、影视、综艺、直播、活动和商业伪装卡仍
 先行排除；普通标题不参与商业判定。若主判定会产生空流，则先保留字段不完整但
-明显为 AV 的卡，再退化到只删明确商业卡；仍为空便原样放行。App 首页保留 1–5 条
+明显为 AV 的卡，再保留无明确商业且无明确非视频证据的未知中性模块；全广告或
+全非视频返回不再原样放行。App 首页保留 0–5 条
 时最多使用原始完整请求 URL 补取一次，补取结果重新过滤并按规范化视频身份去重，
 不合成或跨历史响应补位，也不修改刷新计时；带内部补取标记的请求不会再次补取。
 Story 严格模式仍只保留 `vertical_av`。
@@ -195,6 +198,13 @@ handler 仅进入 `AIRelateAsyncReply.cm(1)`、`module(2) -> AsyncModule.modules
 已确认的 `Module.relates(22)`，复用普通关系卡判定并删除已经为空的关系模块。
 `View v1`、`ViewUnite`、`MainList` 与 `DynAll` 的新增处理同样限定在公开 schema
 确认的字段，未知 wire bytes 不重编码。
+
+PlayerUnite 同时承载媒体 URL 与播放器商业 UI。Enhanced 的 CDN gRPC 脚本额外接收
+`ads` 开关，并只在 `PlayViewUniteReply.view_info(9)` 内删除公开 schema 确认的
+`dialog_map(1)`、`prompt_bar(2)` 与 `toasts(3)`；未知 ViewInfo 字段、VOD/播放配置、
+历史和签名 URL 原样进入随后的 CDN 选路，同一响应只调用一次 `$done()`。CDN-only
+不传 `ads`，因此不获得界面过滤。PlayerUnite 请求另由精确 request guard 清除缓存
+validator 并协商 `gzip,identity`，不改请求正文、签名或鉴权。
 
 `src/bilibili-refresh.js` 依据 endpoint registry 在 splash、Home/Story、View、
 ViewProgress、RelatesFeed、ViewUnite View/Progress/PlayPause/ViewEndPage、Mine 与

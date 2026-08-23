@@ -44,6 +44,7 @@
   var REGISTRY = [
     row("cdn-json-playurl", ["api.bilibili.com", "api.biliapi.net", "app.bilibili.com", "app.biliapi.net", "interface.bilibili.com"], "\\/(?:x\\/(?:player\\/(?:wbi\\/)?playurl(?:v2)?|v2\\/playurl)|pgc\\/player\\/(?:api\\/playurl(?:proj)?|web\\/(?:v2\\/)?playurl(?:\\/html5)?)|pugv\\/player\\/(?:api|web)\\/playurl|v2\\/playurl)", "json", "cdn", ["cdn"], false, false, true, true),
     row("cdn-grpc-playurl", GRPC_HOSTS, "\\/(?:bilibili\\.app\\.playerunite\\.v1\\.Player\\/PlayViewUnite|bilibili\\.app\\.playurl\\.v1\\.PlayURL\\/PlayView|bilibili\\.(?:pgc\\.gateway\\.player\\.(?:v1|v2)|cheese\\.gateway\\.player\\.v1)\\.PlayURL\\/PlayView)", "grpc", "cdn", ["cdn"], false, false, true, true),
+    row("grpc-playerunite-ui-guard", GRPC_HOSTS, "/bilibili.app.playerunite.v1.Player/PlayViewUnite", "grpc", "grpc-playerunite-ui-guard", ["enhance"], true, true, false),
 
     row("vip-materials", APP_HOSTS.concat(API_HOSTS), "/x/vip/ads/materials", "json", "vip-materials", ["enhance"], true, true, true),
     row("vip-material-report", APP_HOSTS.concat(API_HOSTS), "/x/vip/ads/material/report", "json", "vip-material-report", ["enhance"], true, true, true),

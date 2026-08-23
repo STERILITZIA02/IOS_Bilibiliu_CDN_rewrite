@@ -84,6 +84,20 @@ test("registry classifies reviewed JSON, gRPC, and 9.5 log discoveries", () => {
   );
   assert.equal(
     endpoints.classify(
+      "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUnite",
+      { requestGuard: true },
+    )?.id,
+    "grpc-playerunite-ui-guard",
+  );
+  assert.equal(
+    endpoints.classify(
+      "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUniteV2",
+      { requestGuard: true },
+    ),
+    null,
+  );
+  assert.equal(
+    endpoints.classify(
       "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsyncV2",
     )?.id,
     "grpc-metadata-diagnostic",
@@ -112,6 +126,7 @@ test("registry-generated matchers cover exactly their runtime groups", () => {
     "https://app.biliapi.net/bilibili.app.viewunite.v1.View/RelatesFeed",
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
     "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync",
+    "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUnite",
     "https://grpc.bilibili.com/bilibili.app.story.v1.Story/BottomDiversionEntrance",
     "https://api.live.bilibili.com/xlive/app-interface/v2/index/feed",
     "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser",

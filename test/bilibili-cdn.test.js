@@ -314,6 +314,7 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
     "upos-sz-mirrorali.acgvideo.com",
   );
   assert.deepEqual(cdn.parseArgument(""), {
+    ads: false,
     auto: true,
     cdnHost: null,
     debug: false,
@@ -325,6 +326,7 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
     valid: true,
   });
   assert.deepEqual(fixedConfig, {
+    ads: false,
     auto: false,
     cdnHost: targetHost,
     debug: false,
@@ -338,6 +340,7 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
   assert.deepEqual(
     cdn.parseArgument("cdn=auto&profile=Home_WiFi&interval=1&threshold=99"),
     {
+      ads: false,
       auto: true,
       cdnHost: null,
       debug: false,
@@ -350,6 +353,10 @@ test("normalizes arguments, defaults to safe auto, and isolates network profiles
     },
   );
   assert.equal(cdn.parseArgument("cdn=%").valid, false);
+  assert.equal(
+    cdn.parseArgument('{"cdn":"off","ads":true}').ads,
+    true,
+  );
   assert.equal(cdn.normalizeNetworkProfile("../../secret"), "auto");
   assert.deepEqual(cdn.RUNTIME_OPTION_LIMITS, {
     intervalHours: { defaultValue: 2, maximum: 72, minimum: 2 },
@@ -2315,6 +2322,261 @@ test("Shadowrocket gRPC entrypoint prefers bodyBytes and decodes gzip", async ()
   assert.doesNotMatch(
     asciiFromBinary(completion.body),
     /text-body-must-not-win/,
+  );
+});
+
+test("Enhanced player-unite pipeline removes delayed dialogs, prompt bars, and toasts", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "src", "bilibili-cdn.js"),
+    "utf8",
+  );
+  const viewInfo = bytes(
+    messageField(
+      1,
+      bytes(
+        stringField(1, "ad-dialog-key"),
+        messageField(
+          2,
+          bytes(
+            stringField(3, "hongguo-dialog"),
+            varintField(9, 5),
+          ),
+        ),
+      ),
+    ),
+    messageField(2, stringField(1, "wallace-under-player-prompt")),
+    messageField(3, stringField(5, "ad-countdown-toast")),
+    stringField(99, "keep-view-info-unknown"),
+  );
+  const payload = bytes(
+    messageField(1, stringField(99, "keep-vod-info")),
+    messageField(9, viewInfo),
+    stringField(99, "keep-player-reply-unknown"),
+  );
+  const input = grpcFrame(payload);
+
+  function execute(ads, responseBody = input) {
+    let completion;
+    let doneCalls = 0;
+    const context = {
+      $argument: JSON.stringify({ ads, cdn: "off", debug: false }),
+      $done(value) {
+        doneCalls += 1;
+        completion = value;
+      },
+      $request: {
+        headers: { "User-Agent": "bili-universal/90800100" },
+        url: "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUnite",
+      },
+      $response: {
+        bodyBytes: responseBody.buffer.slice(
+          responseBody.byteOffset,
+          responseBody.byteOffset + responseBody.byteLength,
+        ),
+        headers: {
+          "Content-Length": "999",
+          "Content-Type": "application/grpc",
+          ETag: '"stale-player-ui"',
+          "grpc-encoding": "identity",
+        },
+      },
+      ArrayBuffer,
+      Boolean,
+      console,
+      decodeURIComponent,
+      JSON,
+      Math,
+      Number,
+      Object,
+      RegExp,
+      String,
+      Uint8Array,
+    };
+    vm.runInNewContext(source, context, { filename: "bilibili-cdn.js" });
+    return { completion, doneCalls };
+  }
+
+  const enabled = execute(true);
+  assert.equal(enabled.doneCalls, 1);
+  assert.ok(enabled.completion.body instanceof Uint8Array);
+  const text = asciiFromBinary(enabled.completion.body);
+  assert.match(text, /keep-vod-info|keep-view-info-unknown|keep-player-reply-unknown/);
+  assert.doesNotMatch(
+    text,
+    /hongguo-dialog|wallace-under-player-prompt|ad-countdown-toast/,
+  );
+  assert.equal(
+    enabled.completion.headers["Cache-Control"],
+    "no-store, no-cache, must-revalidate",
+  );
+  assert.equal(enabled.completion.headers["Content-Length"], undefined);
+  assert.equal(enabled.completion.headers.ETag, undefined);
+
+  const disabled = execute(false);
+  assert.equal(disabled.doneCalls, 1);
+  assert.equal(disabled.completion.body, undefined);
+
+  const unchanged = execute(
+    true,
+    grpcFrame(
+      bytes(
+        messageField(9, stringField(99, "ordinary-view-info-only")),
+        stringField(99, "ordinary-player-reply"),
+      ),
+    ),
+  );
+  assert.equal(unchanged.doneCalls, 1);
+  assert.equal(unchanged.completion.body, undefined);
+  assert.equal(
+    unchanged.completion.headers["Cache-Control"],
+    "no-store, no-cache, must-revalidate",
+  );
+  assert.equal(unchanged.completion.headers.ETag, undefined);
+});
+
+test("Enhanced player-unite cleanup preserves multi-frame order after gzip decode", async () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "src", "bilibili-cdn.js"),
+    "utf8",
+  );
+  const payload = bytes(
+    messageField(
+      9,
+      bytes(
+        messageField(2, stringField(1, "compressed-under-player-ad")),
+        stringField(99, "keep-compressed-view-info"),
+      ),
+    ),
+    stringField(99, "keep-compressed-reply"),
+  );
+  const input = bytes(
+    grpcFrame(payload),
+    grpcFrame(new Uint8Array(gzipSync(payload)), 1),
+  );
+  let completion;
+  let doneCalls = 0;
+  let resolveDone;
+  const completed = new Promise((resolve) => {
+    resolveDone = resolve;
+  });
+  const context = {
+    $argument: JSON.stringify({ ads: true, cdn: "off", debug: false }),
+    $done(value) {
+      doneCalls += 1;
+      completion = value;
+      resolveDone();
+    },
+    $request: {
+      headers: {
+        "User-Agent": "bili-universal/90800100",
+        "x-bili-moss-engine-type": "1",
+      },
+      url: "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUnite",
+    },
+    $response: {
+      bodyBytes: input.buffer.slice(
+        input.byteOffset,
+        input.byteOffset + input.byteLength,
+      ),
+      headers: {
+        "Content-Type": "application/grpc",
+        "grpc-encoding": "gzip",
+      },
+    },
+    $utils: {
+      ungzip(value) {
+        return new Uint8Array(gunzipSync(new Uint8Array(value)));
+      },
+    },
+    ArrayBuffer,
+    Boolean,
+    console,
+    decodeURIComponent,
+    JSON,
+    Math,
+    Number,
+    Object,
+    Promise,
+    RegExp,
+    String,
+    Uint8Array,
+  };
+  vm.runInNewContext(source, context, { filename: "bilibili-cdn.js" });
+  await completed;
+
+  assert.equal(doneCalls, 1);
+  assert.ok(completion.body instanceof Uint8Array);
+  assert.equal(completion.body[0], 0);
+  const text = asciiFromBinary(completion.body);
+  assert.doesNotMatch(text, /compressed-under-player-ad/);
+  assert.equal(
+    (text.match(/keep-compressed-view-info/g) || []).length,
+    2,
+  );
+  assert.equal(
+    (text.match(/keep-compressed-reply/g) || []).length,
+    2,
+  );
+  assert.equal(completion.headers["grpc-encoding"], undefined);
+  assert.equal(completion.headers["grpc-status"], "0");
+
+  const unchangedPayload = bytes(
+    messageField(9, stringField(99, "ordinary-compressed-view-info")),
+    stringField(99, "ordinary-compressed-reply"),
+  );
+  const unchangedInput = grpcFrame(
+    new Uint8Array(gzipSync(unchangedPayload)),
+    1,
+  );
+  let unchanged;
+  let resolveUnchanged;
+  const unchangedDone = new Promise((resolve) => {
+    resolveUnchanged = resolve;
+  });
+  vm.runInNewContext(source, {
+    $argument: JSON.stringify({ ads: true, cdn: "off", debug: false }),
+    $done(value) {
+      unchanged = value;
+      resolveUnchanged();
+    },
+    $request: {
+      headers: { "User-Agent": "bili-universal/90800100" },
+      url: "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUnite",
+    },
+    $response: {
+      bodyBytes: unchangedInput.buffer.slice(
+        unchangedInput.byteOffset,
+        unchangedInput.byteOffset + unchangedInput.byteLength,
+      ),
+      headers: {
+        "Content-Type": "application/grpc",
+        "grpc-encoding": "gzip",
+      },
+    },
+    $utils: {
+      ungzip(value) {
+        return new Uint8Array(gunzipSync(new Uint8Array(value)));
+      },
+    },
+    ArrayBuffer,
+    Boolean,
+    console,
+    decodeURIComponent,
+    JSON,
+    Math,
+    Number,
+    Object,
+    Promise,
+    RegExp,
+    String,
+    Uint8Array,
+  }, { filename: "bilibili-cdn.js" });
+  await unchangedDone;
+  assert.equal(unchanged.body, undefined);
+  assert.equal(unchanged.headers["grpc-encoding"], "gzip");
+  assert.equal(
+    unchanged.headers["Cache-Control"],
+    "no-store, no-cache, must-revalidate",
   );
 });
 

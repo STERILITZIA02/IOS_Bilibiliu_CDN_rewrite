@@ -1226,6 +1226,7 @@
         for (index = 0; index < source.length; index += 1) {
           if (
             !hasExplicitHomeCommercialEvidence(source[index]) &&
+            !hasExplicitHomeNonVideoEvidence(source[index]) &&
             kept.length < HOME_FEED_VIDEO_LIMIT
           ) {
             kept.push(source[index]);
@@ -1233,10 +1234,14 @@
         }
       }
       if (kept.length === 0) {
-        if (isPlainObject(meta)) {
-          meta.reason = "feed-empty-fail-open";
-        }
-        return 0;
+        data.items = [];
+        recordRemoval(
+          meta,
+          source.length,
+          "data.items",
+          "feed-all-commercial-blocked"
+        );
+        return source.length;
       }
       if (kept.length !== source.length) {
         data.items = kept;
@@ -4476,10 +4481,66 @@
     );
   }
 
+  function commandDmExtraIsCommercial(value) {
+    var parsed;
+    var text;
+    if (!value) {
+      return false;
+    }
+    try {
+      parsed = JSON.parse(value);
+    } catch (error) {
+      return false;
+    }
+    if (!isPlainObject(parsed)) {
+      return false;
+    }
+    try {
+      text = JSON.stringify(parsed);
+    } catch (error) {
+      return false;
+    }
+    return (
+      /"(?:is_ad|is_commercial)"\s*:\s*(?:true|1)/i.test(text) ||
+      /"(?:ad_info|ad_data|cm|commercial|mini_program|miniProgram|small_app|smallApp|applet)"\s*:/i.test(
+        text
+      ) ||
+      /"(?:creative_id|ad_id|commercial_id|game_id|app_id|sales_type)"\s*:\s*(?:"[^"]+"|[1-9]\d*)/i.test(
+        text
+      ) ||
+      /bilibili:\/\/(?:game_center|mall|smallapp|miniapp|applet|nativeact|following\/home_activity_tab)(?:[/?#]|$)/i.test(
+        text
+      )
+    );
+  }
+
+  function isPromotionalCommandDm(input) {
+    var command = shortUtf8Field(input, 4, 64);
+    var extra = shortUtf8Field(input, 9, 8192);
+    return Boolean(
+      /^(?:#(?:AD|ACTIVITY|GAME|MINIAPP|RESERVE|REDIRECT)#)$/i.test(
+        String(command || "")
+      ) ||
+      commandDmExtraIsCommercial(extra) ||
+      bytesContainCommercialEvidence(input)
+    );
+  }
+
   function transformViewProgressDmResource(input) {
-    return filterRepeatedMessage(input, 3, function (card) {
+    var commands = filterRepeatedMessage(input, 1, function (command) {
+      return isPromotionalCommandDm(command);
+    });
+    var cards;
+    if (!commands.valid) {
+      return commands;
+    }
+    cards = filterRepeatedMessage(commands.body, 3, function (card) {
       return isPromotionalOperationCard(card);
     });
+    if (cards.valid) {
+      cards.changed += commands.changed;
+    }
+    return cards;
   }
 
   function transformViewProgressFields(input, includeDmResource) {
@@ -6436,8 +6497,10 @@
         result.valid &&
         endpoint === "feed" &&
         config.homeFeedVideoOnly !== false &&
-        result.reason !== "feed-empty-fail-open" &&
-        filteredFeedLength(result) > 0 &&
+        (
+          filteredFeedLength(result) > 0 ||
+          result.reason === "feed-all-commercial-blocked"
+        ) &&
         filteredFeedLength(result) < HOME_FEED_VIDEO_LIMIT &&
         headerValue(context.requestHeaders, FEED_REFILL_HEADER) !== "1"
       ) {

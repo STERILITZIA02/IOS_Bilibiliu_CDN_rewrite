@@ -18,6 +18,12 @@
 > 组合的真机验收。仓库会明确区分“代码测试通过”和“真机已验证”；发布前后的
 > 检查矩阵见 [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
 >
+> v3.10.1 处理 9.8.0 仍会出现的播放器下 Banner、倒计时提示和延迟底部广告弹窗：
+> Enhanced 在同一 CDN gRPC 流水线内删除公开协议确认的 PlayerUnite
+> `ViewInfo.dialog_map/prompt_bar/toasts`，并过滤携带明确广告、小程序或游戏元数据的
+> `ViewProgress CommandDm`。首页 fallback 也不再放回小游戏、直播或全广告响应。
+> 详情与证据边界见 [v3.10.1 审计](docs/V3_10_1_AUDIT.md)。
+>
 > v3.10.0 针对 Bilibili iOS 9.8.0 增加 `View/AIRelateAsync` 异步相关推荐
 > 过滤，阻止主 View 已过滤后由延迟/恢复请求重新注入 `cm`、商品、游戏、直播和
 > 非普通视频卡；同时补齐公开 schema 已确认的 View、ViewUnite、评论置顶运营卡、
@@ -364,8 +370,8 @@ DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 Shadowrocket 会取得新的远程资源地址，不会继续复用上一版同名脚本缓存。
 
 如果原先安装的是 README 的固定 `main/dist/*.sgmodule` 地址、历史兼容地址或
-BiliFlow 生成的固定 URL，升级到 3.10.0 **不需要重新订阅**，只需执行上述“更新
-模块”。更新后模块详情应显示 `3.10.0`，脚本 URL 应含 `?v=3.10.0`。只有把 Release
+BiliFlow 生成的固定 URL，升级到 3.10.1 **不需要重新订阅**，只需执行上述“更新
+模块”。更新后模块详情应显示 `3.10.1`，脚本 URL 应含 `?v=3.10.1`。只有把 Release
 附件下载成本地文件、或使用不带远程 URL 的旧副本时，才需要重新安装固定地址。
 
 按影响最小顺序回滚：

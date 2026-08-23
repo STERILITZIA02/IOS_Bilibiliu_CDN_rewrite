@@ -41,6 +41,7 @@ test("cache guard is exact to reviewed volatile Bilibili metadata", () => {
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/PlayPause",
     "https://app.biliapi.net/bilibili.app.viewunite.v1.View/RelatesFeed",
     "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync",
+    "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUnite",
     "https://grpc.bilibili.com/bilibili.app.story.v1.Story/BottomDiversionEntrance",
     "https://api.live.bilibili.com/xlive/app-interface/v2/index/feed",
     "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser",
@@ -53,6 +54,7 @@ test("cache guard is exact to reviewed volatile Bilibili metadata", () => {
     "https://app.bilibili.com/x/v2/account/myinfo/extra",
     "https://api.bilibili.com/x/vip/ads/material",
     "https://evil.example/x/v2/account/mine",
+    "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUniteV2",
   ]) {
     assert.equal(refresh.isVolatileMetadataUrl(url), false);
   }
@@ -213,4 +215,25 @@ test("9.8.0 asynchronous metadata guards remove every validator", () => {
     assert.equal(guarded.headers["grpc-accept-encoding"], "br,gzip");
     assert.equal(guarded.headers["Cache-Control"], "no-cache, no-store, max-age=0");
   }
+});
+
+test("player-unite UI metadata is fresh without touching its body or signature", () => {
+  const original = {
+    "If-None-Match": '"stale-player-ui"',
+    "If-Modified-Since": "Sat, 22 Aug 2026 00:00:00 GMT",
+    "grpc-accept-encoding": "br,gzip",
+    Authorization: "Bearer keep-player-token",
+    "X-Bili-Signature": "keep-signature",
+  };
+  const result = refresh.guardRequest(
+    "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUnite",
+    original,
+  );
+  assert.equal(result.endpoint, "grpc-playerunite-ui-guard");
+  assert.equal(result.transport, "grpc");
+  assert.equal(result.removedValidators, 2);
+  assert.equal(result.headers["grpc-accept-encoding"], "gzip,identity");
+  assert.equal(result.headers.Authorization, "Bearer keep-player-token");
+  assert.equal(result.headers["X-Bili-Signature"], "keep-signature");
+  assert.equal(result.headers["Cache-Control"], "no-cache, no-store, max-age=0");
 });

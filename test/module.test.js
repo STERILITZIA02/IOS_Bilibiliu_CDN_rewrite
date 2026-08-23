@@ -147,6 +147,23 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   );
 });
 
+test("only Enhanced enables player-unite promotion cleanup in the CDN pipeline", () => {
+  const enhancedGrpc = enhancedModule
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("Bilibili CDN gRPC = "));
+  const cdnOnlyGrpc = cdnOnlyModule
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("Bilibili CDN gRPC = "));
+  assert.ok(enhancedGrpc);
+  assert.ok(cdnOnlyGrpc);
+  assert.match(enhancedGrpc, /"ads":\{\{\{广告过滤\}\}\}/);
+  assert.doesNotMatch(cdnOnlyGrpc, /"ads":/);
+  assert.match(
+    moduleText,
+    /Bilibili Enhance Fresh UI[^\n]+playerunite\\\.v1\\\.Player\\\/PlayViewUnite/,
+  );
+});
+
 test("every CDN module has exactly one versioned wake-system cron benchmark", () => {
   for (const generatedModule of [enhancedModule, cdnOnlyModule]) {
     const cronLines = generatedModule

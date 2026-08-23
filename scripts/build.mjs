@@ -350,6 +350,10 @@ const enhanceArgumentKeys = [
   "debug",
 ];
 const cdnScriptArgument = scriptArgument(networkArgumentKeys);
+const enhancedCdnGrpcScriptArgument = scriptArgument([
+  ...networkArgumentKeys,
+  "ads",
+]);
 const benchmarkScriptArgument = scriptArgument([
   "cdn",
   "networkProfile",
@@ -659,11 +663,14 @@ function ruleSection() {
   ];
 }
 
-function cdnScriptLines() {
+function cdnScriptLines(includeEnhancements) {
+  const grpcArgument = includeEnhancements
+    ? enhancedCdnGrpcScriptArgument
+    : cdnScriptArgument;
   return [
     `Bilibili CDN Cached Media Route = type=http-request,pattern=${mediaRoutePattern},requires-body=0,timeout=2,engine=jsc,script-path=${versionedRaw("dist/bilibili-cdn-route.js")},argument="${cdnScriptArgument}"`,
     `Bilibili CDN JSON = type=http-response,pattern=${jsonPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${cdnScriptArgument}"`,
-    `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${cdnScriptArgument}"`,
+    `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${grpcArgument}"`,
   ];
 }
 
@@ -727,7 +734,7 @@ function buildModule({
     ...cdnCronLines(),
     ...(includeEnhancements ? enhanceScriptLines() : []),
     ...storyScriptLines(includeEnhancements),
-    ...cdnScriptLines(),
+    ...cdnScriptLines(includeEnhancements),
     "",
     "[MITM]",
     "h2 = true",

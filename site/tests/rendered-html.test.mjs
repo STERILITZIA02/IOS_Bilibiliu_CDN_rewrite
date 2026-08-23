@@ -36,7 +36,7 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /你的 Bilibili/);
   assert.match(html, /CDN \+ Enhanced/);
   assert.match(html, /仅 CDN Switcher/);
-  assert.match(html, /Enhanced 3\.10\.0/);
+  assert.match(html, /Enhanced 3\.10\.1/);
   assert.match(html, /Bilibili iOS 9\.8\.0/);
   assert.match(html, /两阶段 cron、v9 缓存直达与 TTFB 优先评分/);
   assert.match(html, /CDN v10/);
@@ -47,7 +47,7 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /生成重置令牌/);
   assert.match(html, /一键安装到 Shadowrocket/);
   assert.match(html, /明确的安全边界/);
-  assert.doesNotMatch(html, /Enhanced (?:3\.8\.[012]|3\.9\.[01234])|CDN v8|v7 对象级缓存/);
+  assert.doesNotMatch(html, /Enhanced (?:3\.8\.[012]|3\.9\.[01234]|3\.10\.0)|CDN v8|v7 对象级缓存/);
   assert.doesNotMatch(html, /Bilibili iOS 9\.[567]\.\d|9\.5\.0 Story\/搜索广告/);
   assert.doesNotMatch(html, /Your site is taking shape|SkeletonPreview/);
 });

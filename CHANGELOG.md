@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented here.
 
+## [3.10.1] - 2026-08-23
+
+- Filter the confirmed PlayerUnite promotion container used by the new under-player
+  banner, countdown hint and delayed bottom-sheet ad. Enhanced now removes
+  `PlayViewUniteReply.view_info(9) -> ViewInfo.dialog_map(1)`, `prompt_bar(2)` and
+  `toasts(3)` while preserving VOD streams, playback configuration, history,
+  unknown ViewInfo fields and every signed media URL.
+- Run that cleanup inside the existing CDN gRPC response pipeline so PlayerUnite is
+  completed exactly once. The `ads` argument is passed only by Enhanced; CDN-only
+  retains the original PlayerUnite UI. The playback response hot path still performs
+  zero probes and no media body is added to MITM.
+- Add a precise request guard for PlayerUnite UI metadata. It removes validators,
+  negotiates `gzip,identity`, preserves request body/signature/authentication, and
+  normalizes changed responses to no-store so background recovery cannot reuse a
+  stale unfiltered banner when a new request occurs.
+- Filter commercial `ViewProgress.dm(4) -> DmResource.command_dms(1)` entries when
+  their structured `extra(9)` carries ad IDs, commercial flags, mini-program/app IDs,
+  game IDs or reviewed game/mall/applet schemes. Ordinary `#UP#` command DMs,
+  AttentionCard, follow-video/favorite-season cards, Chronos and video snapshots
+  remain unchanged.
+- Close the home-feed fail-open loophole: the relaxed fallback no longer restores
+  explicit live/game/activity/PGC cards, and an all-commercial/non-video response is
+  filtered to empty, given one bounded no-cache refill, then kept empty rather than
+  returning the original advertisements. Ordinary incomplete AV and unknown neutral
+  modules remain eligible, and normal titles are never keyword-filtered.
+- Add screenshot-equivalent PlayerUnite, direct feedback-panel, command-DM,
+  all-commercial feed, gzip/multi-frame, cache-guard, single-completion and
+  Enhanced/CDN-only isolation regressions.
+
 ## [3.10.0] - 2026-08-21
 
 - Add exact Bilibili iOS 9.8.0-era coverage for
