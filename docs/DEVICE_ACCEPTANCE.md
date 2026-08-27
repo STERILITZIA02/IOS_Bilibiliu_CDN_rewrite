@@ -13,7 +13,8 @@
 | iPhone / iPad 型号 |  |
 | iOS 版本与构建号 |  |
 | Shadowrocket 版本 |  |
-| Bilibili App 版本 | 9.8.0 |
+| Bilibili App 版本 | 9.9.0 / 海外版请填写实际版本与商店 ID |
+| App 分支 / UA 前缀 | 国内 / 新海外 / bili-inter / bili-blue；请按实际日志填写 |
 | Bilibili App 请求构建号 / 构建 ID |  /  |
 | 账号状态 | 未登录 / 普通账号 / 大会员 / 已购内容账号 |
 | 网络 | 中国大陆 Wi-Fi / 中国大陆蜂窝 / 海外直连 / 海外回国线路 |
@@ -32,8 +33,8 @@
 - [ ] 历史 `Bilibili.CDN.sgmodule` 与 Enhanced 内容和版本一致。
 - [ ] 模块信息页显示正确名称和版本。
 - [ ] “编辑参数”显示全部参数，中文说明可读。
-- [ ] 更新到 3.10.1 后可见 `首页推荐6个普通视频`、`测速方式` 与 `CDN 学习状态`，
-      模块脚本 URL 含 `?v=3.10.1`，并包含 `Bilibili Enhance Fresh UI`、
+- [ ] 更新到 3.11.0 后可见 `首页推荐6个普通视频`、`测速方式` 与 `CDN 学习状态`，
+      模块脚本 URL 含 `?v=3.11.0`，并包含 `Bilibili Enhance Fresh UI`、
       `Bilibili Story Safe Pipeline` 与唯一一条 `Bilibili CDN Background Benchmark`
       cron（含 `wake-system=1`），以及唯一一条 `Bilibili CDN Cached Media Route`
       请求脚本。
@@ -73,6 +74,16 @@
 
 ## 广告与界面
 
+- [ ] 国内 9.9.0 与实际海外版分别测试动态综合页、视频页、个人动态分页；可以刷新、
+      翻页、进入普通视频，计数、游标、投票与正常关注内容不受影响。
+- [ ] `PlayViewUnite` 只命中 `Bilibili CDN gRPC` 一个响应脚本，调试日志
+      显示 `runtime=3.11.0`；即时 gRPC 脚本均为 `engine=jsc`。
+- [ ] 截图中的“UP主分享好物 / 京东 / 去看看”在主 View 和异步模块到达后均不出现，
+      且没有留下空白高度；普通 UP 视频内容仍保留。
+- [ ] `DmView` 商业指令被删除后等待 5 分钟，不出现红果短剧等延迟弹窗；普通字幕、
+      防挡弹幕蒙版、普通弹幕和进度控制正常。记录失败时实际 RPC，而非推测字段。
+- [ ] 后台 30 秒、5 分钟、30 分钟后，有新请求时仍命中同一 JSC 过滤和 no-store；
+      无请求时按 [9.9.0 抓包指南](BILIBILI_9_9_CAPTURE.md) 记录 App 内存恢复。
 - [ ] 开屏、首页推荐、Story、搜索、相关推荐、评论、PGC/Web 推荐和直播中，
       已知广告位按开关清理。
 - [ ] 完全退出 Bilibili 后第一次打开普通视频，播放器正下方的京东/下载/运营商
@@ -272,6 +283,8 @@
 | iOS 26 当前稳定版 | iPad（如支持） | Enhanced | 任一 | 普通账号 |  |
 | iOS 27 当前可用测试构建 | iPhone | CDN-only + Enhanced | 中国大陆或海外回国 | 普通账号 |  |
 | 任一上述组合 | 任一 | Enhanced | 任一 | 大会员/合法已购内容 |  |
+| iOS 当前稳定版 | iPhone 国内 9.9.0 | Enhanced 3.11.0 | Wi-Fi/蜂窝 | 普通账号 | 未验证 |
+| iOS 当前稳定版 | iPhone 新海外版（实际 build 待填） | Enhanced 3.11.0 | 海外 | 普通账号 | 未验证 |
 
 如果某一系统尚无可用真实设备，应在 Release Notes 中明确写
 “该系统未完成真机验证”，而不是推断为通过。

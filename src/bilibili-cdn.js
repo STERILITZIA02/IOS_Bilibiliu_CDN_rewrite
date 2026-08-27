@@ -12,6 +12,8 @@
 (function (root) {
   "use strict";
 
+  var gzipCodec = root.BiliGzip ||
+    (typeof module !== "undefined" && module.exports ? require("./bilibili-gzip.js") : null);
   var NAME = "BiliCDN";
   var DEFAULT_CDN = "upos-sz-mirrorali.bilivideo.com";
   var AUTO_STATE_KEY = "BiliCDN.safeAuto.v7";
@@ -1420,16 +1422,24 @@
     return false;
   }
 
-  function decompressGzip(input) {
+  function decompressGzip(input, limit) {
     var bytes = toUint8Array(input);
     var output;
     var stream;
     var reader;
     var chunks = [];
     var total = 0;
+    limit = limit === undefined ? MAX_GRPC_DECOMPRESSED_BYTES : limit;
 
     if (!bytes) {
       return Promise.reject(new Error("invalid gzip input"));
+    }
+    if (gzipCodec) {
+      try {
+        return Promise.resolve(gzipCodec.ungzip(bytes, limit));
+      } catch (error) {
+        return Promise.reject(error);
+      }
     }
     if (
       typeof $utils !== "undefined" &&
@@ -1440,7 +1450,7 @@
         output = toUint8Array($utils.ungzip(bytes));
         if (
           !output ||
-          output.length > MAX_GRPC_DECOMPRESSED_BYTES
+          output.length > limit
         ) {
           throw new Error("decompressed gRPC message is too large");
         }
@@ -1480,7 +1490,7 @@
           throw new Error("invalid decompressed gRPC chunk");
         }
         total += chunk.length;
-        if (total > MAX_GRPC_DECOMPRESSED_BYTES) {
+        if (total > limit) {
           try {
             reader.cancel();
           } catch (error) {
@@ -1569,21 +1579,25 @@
         valid: false
       });
     }
-    tasks = parsed.frames.map(function (frame) {
-      var payload = original.slice(frame.payloadStart, frame.end);
-      return (
-        frame.flag === 1
-          ? decompressGzip(payload)
-          : Promise.resolve(payload)
-      ).then(function (decoded) {
-        total += decoded.length;
-        if (total > MAX_GRPC_DECOMPRESSED_BYTES) {
-          throw new Error("decompressed gRPC response is too large");
-        }
-        return decoded;
+    tasks = Promise.resolve([]);
+    parsed.frames.forEach(function (frame) {
+      tasks = tasks.then(function (payloads) {
+        var payload = original.slice(frame.payloadStart, frame.end);
+        return (
+          frame.flag === 1
+            ? decompressGzip(payload, MAX_GRPC_DECOMPRESSED_BYTES - total)
+            : Promise.resolve(payload)
+        ).then(function (decoded) {
+          total += decoded.length;
+          if (total > MAX_GRPC_DECOMPRESSED_BYTES) {
+            throw new Error("decompressed gRPC response is too large");
+          }
+          payloads.push(decoded);
+          return payloads;
+        });
       });
     });
-    return Promise.all(tasks).then(
+    return tasks.then(
       function (payloads) {
         var chunks = [];
         var index;
@@ -5886,15 +5900,20 @@
     var contentType = headerValue(responseHeaders, "content-type");
     var userAgent = headerValue(requestHeaders, "user-agent").toLowerCase();
     var mossEngine = headerValue(requestHeaders, "x-bili-moss-engine-type");
+    var grpcStatus = headerValue(responseHeaders, "grpc-status");
+    var trailerStatus = headerValue(
+      typeof $response !== "undefined" && $response ? $response.h2_trailers : null,
+      "grpc-status"
+    );
     for (index = 0; index < keys.length; index += 1) {
       key = keys[index];
       if (
-        !/^(?:age|cache-control|content-length|content-type|etag|expires|grpc-status|last-modified|pragma)$/i.test(
+        !/^(?:age|cache-control|content-length|content-type|etag|expires|last-modified|pragma)$/i.test(
           key
         ) &&
         !(
           bodyChanged &&
-          /^grpc-encoding$/i.test(key)
+          /^(?:grpc-encoding|content-encoding)$/i.test(key)
         )
       ) {
         output[key] = responseHeaders[key];
@@ -5908,11 +5927,21 @@
     output["Cache-Control"] = "no-store, no-cache, must-revalidate";
     output.Pragma = "no-cache";
     output.Expires = "0";
-    if (
-      (/bili-universal/i.test(userAgent) && mossEngine === "1") ||
-      /bili-blue/i.test(userAgent)
-    ) {
-      output["grpc-status"] = "0";
+    if ((!grpcStatus || grpcStatus === "0") && !trailerStatus && !shadowrocketGrpcError()) {
+      if (/bili-inter\//i.test(userAgent)) {
+        for (index = 0; index < keys.length; index += 1) {
+          if (keys[index].toLowerCase() === "grpc-status") {
+            delete output[keys[index]];
+          }
+        }
+      } else if (mossEngine === "1" || /bili-blue\//i.test(userAgent)) {
+        for (index = 0; index < keys.length; index += 1) {
+          if (keys[index].toLowerCase() === "grpc-status") {
+            delete output[keys[index]];
+          }
+        }
+        output["grpc-status"] = "0";
+      }
     }
     return output;
   }
@@ -5924,6 +5953,16 @@
     }
     if (config && config.playerPromotionGuarded === true) {
       completion.headers = normalizePlayerPromotionHeaders(changed > 0);
+      if (typeof $response !== "undefined" && $response && $response.h2_trailers !== undefined) {
+        completion.h2_trailers = $response.h2_trailers;
+      }
+      if (config.debug) {
+        safeLog("runtime=" + (root.__BILIFLOW_VERSION__ || "source") +
+          " handler=player-unite-ui transport=grpc changed=" + (config.playerPromotionChanges || 0) +
+          " writeBack=" + (changed > 0 ? "body" : "headers-only") +
+          " grpcStatusOut=" + (headerValue(completion.headers, "grpc-status") || "none") +
+          " gzipCodec=" + (gzipCodec ? "bundled" : "host"));
+      }
     }
     $done(completion);
   }
@@ -6075,6 +6114,14 @@
     );
   }
 
+  function shadowrocketGrpcError() {
+    var response = typeof $response !== "undefined" && $response ? $response : {};
+    var status = headerValue(response.headers, "grpc-status");
+    var trailer = headerValue(response.h2_trailers, "grpc-status");
+    var http = String(response.statusCode || response.status || "").match(/(?:^|\s)(\d{3})(?:\s|$)/);
+    return Boolean((status && status !== "0") || (trailer && trailer !== "0") || (http && Number(http[1]) >= 400));
+  }
+
   function runShadowrocket() {
     var config;
     var requestUrl;
@@ -6106,6 +6153,7 @@
       }
       config.grpcAdapter = classifyGrpcAdapter(requestUrl);
       grpcResponse = Boolean(config.grpcAdapter);
+      config.playerPromotionGuarded = config.ads === true && config.grpcAdapter === "playerunite-v1";
       body =
         typeof $response !== "undefined" && $response
           ? (
@@ -6117,6 +6165,14 @@
             )
           : null;
       binary = isByteView(body) || grpcResponse;
+
+      if (grpcResponse && shadowrocketGrpcError()) {
+        if (config.debug) {
+          safeLog("reason=grpc-error-response; body and error status preserved");
+        }
+        completeShadowrocketResponse(config, body, 0);
+        return;
+      }
 
       if (binary && hasCompressedGrpcFrame(body)) {
         grpcEncoding = grpcEncodingFromHeaders(
@@ -6132,7 +6188,7 @@
                   decoded.reason
               );
             }
-            $done({});
+            completeShadowrocketResponse(config, body, 0);
             return;
           }
           processShadowrocketBody(config, decoded.body, true);
@@ -6147,7 +6203,7 @@
                 )
             );
           }
-          $done({});
+          completeShadowrocketResponse(config, body, 0);
         });
         return;
       }

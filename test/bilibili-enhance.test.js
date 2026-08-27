@@ -4810,7 +4810,7 @@ test("gRPC response headers are normalized for Bilibili engine variants", () => 
     ETag: '"stale"',
     Expires: "tomorrow",
     "grpc-encoding": "gzip",
-    "grpc-status": "7",
+    "grpc-status": "0",
     "Last-Modified": "yesterday",
   };
   const universal = enhance.normalizeGrpcResponseHeaders(

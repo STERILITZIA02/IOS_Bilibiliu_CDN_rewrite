@@ -1,11 +1,11 @@
 # v3 架构、数据流与安全边界
 
-> 适用版本：`3.10.1`
+> 适用版本：`3.11.0`
 >
 > 本文描述仓库当前实现，不代表所有 Bilibili App/iOS 组合已完成真机验证。
 > 当前自动化专项覆盖 Bilibili iOS 9.6.1 fixture、9.7.0 结构等价 fixture 与
-> 9.8.0 公开 schema 对应 fixture；现有 PacketTunnel 日志仍是 9.5.0 请求构建号
-> `90500100`，9.8.0 真实流量需按 `BILIBILI_9_8_CAPTURE.md` 与真机清单复核。
+> 9.8.0/9.9.0 公开 schema 对应 fixture；现有 PacketTunnel 日志仍是 9.5.0 请求构建号
+> `90500100`，9.9.0 与海外版真实流量需按 `BILIBILI_9_9_CAPTURE.md` 与真机清单复核。
 
 ## 设计目标
 
@@ -26,6 +26,10 @@ iPhone/iPad 优先的网站生成可持续更新的定制 URL：
 `config/module-options.json` 是模块参数与网站选项的单一配置源。
 `src/bilibili-endpoints.js` 是 JSON/gRPC 主机、路径/RPC、transport、handler、
 缓存敏感度、请求守卫和响应过滤能力的单一 endpoint registry。
+构建响应 matcher 时必须要求 `responseFilter=true`。PlayerUnite 的增强 registry
+row 仅提供请求守卫，响应归现有 CDN/广告合并流水线所有，不得再命中通用增强脚本。
+即时 gRPC 运行时使用 JSC；`src/bilibili-gzip.js` 与固定版本 fflate 在构建时内嵌，
+不在手机上加载 npm 或下载解码器。gzip CRC/长度和合计 4 MiB 解压预算有单独测试。
 `scripts/build.mjs` 在生成前同时校验：
 
 - 分组、键名、中文参数名、类型、默认值、数值范围和适用变体；
@@ -146,8 +150,8 @@ host 不在当前候选或任一 alias lane 不匹配时原样放行，不执行
   会员状态和权益原样保留；
 - gRPC transport 由 content-type 或合法 frame 独立识别；已知 handler 只处理审核过
   的精确字段号，未知 RPC/wire bytes 原样复制并在 debug 输出帧与顶层字段分布；
-- Shadowrocket gRPC 入口优先读取 `bodyBytes`；gzip 帧在 WebView 的
-  `DecompressionStream` 中按 4 MiB 上限解压，修改后输出标准未压缩帧；
+- Shadowrocket gRPC 入口优先读取 `bodyBytes`；gzip 帧在 JSC 的内置解码器中串行
+  处理，合计输出最多 4 MiB，修改后输出标准未压缩帧；
 - 未知压缩格式、解压能力不可用、损坏消息、超大响应和未知方法全部原样返回；
 - `广告过滤=false` 时 gRPC 广告处理也完全停用；
 - `首页推荐6个普通视频` 是 `广告过滤` 下的细分开关；关闭后首页恢复保守的

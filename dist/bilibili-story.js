@@ -65,6 +65,7 @@ this.__BILIFLOW_COMBINED__ = true;
     row("mine", APP_HOSTS, "\\/x\\/v2\\/account\\/mine(?:\\/ipad)?", "json", "mine", ["enhance"], true, true, true, true),
     row("myinfo-diagnostic", APP_HOSTS, "/x/v2/account/myinfo", "json", "myinfo-diagnostic", ["enhance"], true, true, true),
     row("view", APP_HOSTS, "/x/v2/view", "json", "view", ["enhance"], true, true, true),
+    row("dynamic-web-feed", API_HOSTS, "/x/polymer/web-dynamic/v1/feed/all", "json", "dynamic-web-feed", ["enhance"], true, true, true),
     row("pgc", API_HOSTS, "\\/pgc\\/page\\/(?:bangumi|cinema\\/tab)", "json", "pgc", ["enhance"], true, true, true, true),
     row("web-feed", API_HOSTS, "\\/x\\/web-interface\\/(?:wbi\\/)?index\\/top\\/feed\\/rcmd", "json", "web-feed", ["enhance"], true, true, true, true),
     row("reply", API_HOSTS, "/x/v2/reply/main", "json", "reply", ["enhance"], true, true, true),
@@ -93,6 +94,10 @@ this.__BILIFLOW_COMBINED__ = true;
     row("grpc-resource-module-list", GRPC_HOSTS, "/bilibili.app.resource.v1.Module/List", "grpc", "grpc-resource-module-list", ["enhance"], true, true, true),
     row("grpc-popular", GRPC_HOSTS, "/bilibili.app.show.v1.Popular/Index", "grpc", "grpc-popular", ["enhance"], true, true, true),
     row("grpc-dynamic", GRPC_HOSTS, "/bilibili.app.dynamic.v2.Dynamic/DynAll", "grpc", "grpc-dynamic", ["enhance"], true, true, true),
+    row("grpc-dynamic-video", GRPC_HOSTS, "/bilibili.app.dynamic.v2.Dynamic/DynVideo", "grpc", "grpc-dynamic-video", ["enhance"], true, true, true),
+    row("grpc-dynamic-all-personal", GRPC_HOSTS, "/bilibili.app.dynamic.v2.Dynamic/DynAllPersonal", "grpc", "grpc-dynamic-personal", ["enhance"], true, true, true),
+    row("grpc-dynamic-video-personal", GRPC_HOSTS, "/bilibili.app.dynamic.v2.Dynamic/DynVideoPersonal", "grpc", "grpc-dynamic-personal", ["enhance"], true, true, true),
+    row("grpc-dm-view", GRPC_HOSTS, "/bilibili.community.service.dm.v1.DM/DmView", "grpc", "grpc-dm-view", ["enhance"], true, true, true),
     row("grpc-search-all", GRPC_HOSTS, "/bilibili.polymer.app.search.v1.Search/SearchAll", "grpc", "grpc-search-all", ["enhance"], true, true, true),
     row("grpc-search-by-type", GRPC_HOSTS, "/bilibili.polymer.app.search.v1.Search/SearchByType", "grpc", "grpc-search-by-type", ["enhance"], true, true, true),
     row("grpc-search-default-words", GRPC_HOSTS, "/bilibili.app.interface.v1.Search/DefaultWords", "grpc", "grpc-search-default-words", ["enhance"], true, true, true),
@@ -281,6 +286,8 @@ this.__BILIFLOW_COMBINED__ = true;
 
 (function (root) {
   var hasOwn = Object.prototype.hasOwnProperty;
+  var gzipCodec = root.BiliGzip ||
+    (typeof module !== "undefined" && module.exports ? require("./bilibili-gzip.js") : null);
   var endpointRegistry =
     typeof module !== "undefined" && module.exports
       ? require("./bilibili-endpoints.js")
@@ -834,7 +841,8 @@ this.__BILIFLOW_COMBINED__ = true;
     var matched = endpointRegistry && endpointRegistry.classify
       ? endpointRegistry.classify(requestUrl, {
           runtime: "enhance",
-          transport: "json"
+          transport: "json",
+          responseFilter: true
         }) || endpointRegistry.classify(requestUrl, {
           runtime: "story",
           transport: "json"
@@ -849,7 +857,8 @@ this.__BILIFLOW_COMBINED__ = true;
     var matched = endpointRegistry && endpointRegistry.classify
       ? endpointRegistry.classify(requestUrl, {
           runtime: "enhance",
-          transport: "grpc"
+          transport: "grpc",
+          responseFilter: true
         })
       : null;
     return matched && matched.handler !== "grpc-diagnostic"
@@ -3353,7 +3362,7 @@ this.__BILIFLOW_COMBINED__ = true;
     return changes;
   }
 
-  function shouldRemoveViewJsonModule(item, config) {
+  function shouldRemoveViewJsonModule(item, config, isModuleCollection) {
     var moduleType;
     if (!isPlainObject(item)) {
       return false;
@@ -3371,8 +3380,13 @@ this.__BILIFLOW_COMBINED__ = true;
     moduleType = Number(
       item.module_type !== undefined
         ? item.module_type
-        : item.moduleType
+        : item.moduleType !== undefined
+          ? item.moduleType
+          : isModuleCollection ? item.type : undefined
     );
+    if (config.ads !== false && isModuleCollection && item.type === "MERCHANDISE") {
+      return true;
+    }
     return (
       (
         config.ads !== false &&
@@ -3590,7 +3604,8 @@ this.__BILIFLOW_COMBINED__ = true;
           recordObservedTypes(meta, item);
         });
         removed = replaceFilteredArray(node, key, function (item) {
-          var shouldRemove = shouldRemoveViewJsonModule(item, config);
+          var shouldRemove = shouldRemoveViewJsonModule(item, config,
+            includes(["modules", "module_list", "moduleList", "introduction_modules", "introductionModules", "view_modules", "viewModules"], key));
           if (shouldRemove && hasReviewedMarketplaceAction(item, 0)) {
             marketplaceRemoved += 1;
           }
@@ -3875,6 +3890,42 @@ this.__BILIFLOW_COMBINED__ = true;
     return changes;
   }
 
+  function handleDynamicWebFeed(body, meta) {
+    var data = body.data;
+    var changes;
+    if (!isPlainObject(data) || !Array.isArray(data.items)) {
+      return 0;
+    }
+    changes = replaceFilteredArray(data, "items", function (item) {
+      var evidence = {};
+      recordObservedTypes(meta, item);
+      if (!isPlainObject(item)) {
+        return false;
+      }
+      // Empty JSON default objects are not an active advertisement. This
+      // evidence projection never changes the server's ordinary card fields.
+      Object.keys(item).forEach(function (key) {
+        if (!isPlainObject(item[key]) || Object.keys(item[key]).length > 0) {
+          evidence[key] = item[key];
+        }
+      });
+      return hasExplicitAdMarker(evidence);
+    });
+    recordRemoval(meta, changes, "data.items", "ios990-dynamic-commercial-removed");
+    data.items.forEach(function (item) {
+      var dynamic = item && item.modules && item.modules.module_dynamic;
+      var additional = dynamic && dynamic.additional;
+      // Public web-dynamic schema: only the attached commerce card is removed.
+      // A normal title/description (including product names) is never scanned.
+      if (isPlainObject(additional) && additional.type === "ADDITIONAL_TYPE_GOODS") {
+        dynamic.additional = null;
+        changes += 1;
+        recordRemoval(meta, 1, "data.items[].modules.module_dynamic.additional", "ios990-dynamic-goods-removed");
+      }
+    });
+    return changes;
+  }
+
   function transformObject(body, endpoint, config, meta) {
     if (!isPlainObject(body)) {
       return 0;
@@ -3931,6 +3982,8 @@ this.__BILIFLOW_COMBINED__ = true;
         return handleSearchResults(body, meta);
       case "view":
         return handleView(body, config, meta);
+      case "dynamic-web-feed":
+        return handleDynamicWebFeed(body, meta);
       case "reply":
         return handleReply(body);
       case "pgc":
@@ -4763,6 +4816,7 @@ this.__BILIFLOW_COMBINED__ = true;
   function commandDmExtraIsCommercial(value) {
     var parsed;
     var text;
+    var goods;
     if (!value) {
       return false;
     }
@@ -4774,12 +4828,15 @@ this.__BILIFLOW_COMBINED__ = true;
     if (!isPlainObject(parsed)) {
       return false;
     }
+    goods = parsed.goods || parsed.goods_info || parsed.goodsInfo;
     try {
       text = JSON.stringify(parsed);
     } catch (error) {
       return false;
     }
     return (
+      ((isPlainObject(goods) && Object.keys(goods).length > 0) ||
+        (Array.isArray(goods) && goods.length > 0)) ||
       /"(?:is_ad|is_commercial)"\s*:\s*(?:true|1)/i.test(text) ||
       /"(?:ad_info|ad_data|cm|commercial|mini_program|miniProgram|small_app|smallApp|applet)"\s*:/i.test(
         text
@@ -4877,6 +4934,36 @@ this.__BILIFLOW_COMBINED__ = true;
 
   function transformViewUniteProgress(input) {
     return transformViewProgressFields(input, true);
+  }
+
+  function transformDmView(input) {
+    // DmViewReply.activity_meta(18), command(22).command_dms(1).
+    // Do not touch subtitle, mask, ordinary danmaku, config, or qoe fields.
+    var result = rewriteProtoMessage(input, function (field, bytes) {
+      var nested;
+      if (field.wireType !== 2) {
+        return null;
+      }
+      if (field.fieldNumber === 18) {
+        return { changed: 1, remove: true };
+      }
+      if (field.fieldNumber !== 22) {
+        return null;
+      }
+      nested = filterRepeatedMessage(protoPayload(bytes, field), 1, isPromotionalCommandDm);
+      if (!nested.valid) {
+        return { invalid: true };
+      }
+      if (nested.changed > 0) {
+        return nested.body.length === 0
+          ? { changed: nested.changed, remove: true }
+          : { changed: nested.changed, payload: nested.body };
+      }
+      return null;
+    });
+    result.reason = result.changed > 0 ? "ios990-dm-commercial-removed" : "no-ad-fields";
+    result.schema = "dm-view-command-v1";
+    return result;
   }
 
   function contextHeaderText(context) {
@@ -5277,6 +5364,13 @@ this.__BILIFLOW_COMBINED__ = true;
     return result;
   }
 
+  function isExcludedViewModule(moduleType, config) {
+    return (
+      (config.ads !== false && includes([18, 37, 55, 63], moduleType)) ||
+      (moduleType === 29 && config.vipPromotions !== false)
+    );
+  }
+
   function transformViewUniteIntroduction(input, config) {
     var result = rewriteProtoMessage(input, function (field, bytes) {
       var nested;
@@ -5290,13 +5384,7 @@ this.__BILIFLOW_COMBINED__ = true;
       }
       payload = protoPayload(bytes, field);
       moduleType = smallVarintField(payload, 1);
-      if (
-        (
-          config.ads !== false &&
-          includes([18, 37, 55, 63], moduleType)
-        ) ||
-        (moduleType === 29 && config.vipPromotions !== false)
-      ) {
+      if (isExcludedViewModule(moduleType, config)) {
         return { changed: 1, remove: true };
       }
       nested = transformViewUniteModule(
@@ -5446,6 +5534,9 @@ this.__BILIFLOW_COMBINED__ = true;
       if (field.fieldNumber !== 1 || field.wireType !== 2) {
         return null;
       }
+      if (isExcludedViewModule(smallVarintField(protoPayload(bytes, field), 1), config)) {
+        return { changed: 1, remove: true };
+      }
       nested = transformViewUniteModule(
         protoPayload(bytes, field),
         config
@@ -5485,6 +5576,9 @@ this.__BILIFLOW_COMBINED__ = true;
       if (!nested.valid) {
         return { invalid: true };
       }
+      if (nested.changed > 0 && nested.body.length === 0) {
+        return { changed: nested.changed, remove: true };
+      }
       return nested.changed > 0
         ? { changed: nested.changed, payload: nested.body }
         : null;
@@ -5496,14 +5590,79 @@ this.__BILIFLOW_COMBINED__ = true;
     return result;
   }
 
-  function transformDynamicList(input) {
-    return filterRepeatedMessage(input, 1, function (item) {
-      return includes([15, 18], smallVarintField(item, 1));
+  function dynamicItemIsAd(input) {
+    var fields = parseProtoFields(input);
+    var index;
+    var moduleBytes;
+    if (includes([15, 18], smallVarintField(input, 1))) {
+      return true;
+    }
+    if (!fields) {
+      return false;
+    }
+    for (index = 0; index < fields.length; index += 1) {
+      if (fields[index].fieldNumber !== 3 || fields[index].wireType !== 2) {
+        continue;
+      }
+      moduleBytes = protoPayload(input, fields[index]);
+      // Module.module_ad(14) is an ad oneof, even for an AV-shaped card.
+      if (findProtoField(moduleBytes, 14, 2)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function transformDynamicItem(input) {
+    return rewriteProtoMessage(input, function (field, bytes) {
+      var moduleBytes;
+      var additional;
+      var recommendation;
+      if (field.fieldNumber !== 3 || field.wireType !== 2) {
+        return null;
+      }
+      moduleBytes = protoPayload(bytes, field);
+      additional = findProtoField(moduleBytes, 8, 2);
+      if (additional) {
+        additional = protoPayload(moduleBytes, additional);
+        // AdditionalType.GOODS=2 / AdditionGoods oneof(3). Remove the whole
+        // attached module, but keep the UP's video, prose, votes, and stats.
+        if (smallVarintField(additional, 1) === 2 || findProtoField(additional, 3, 2)) {
+          return { changed: 1, remove: true };
+        }
+      }
+      recommendation = findProtoField(moduleBytes, 18, 2);
+      if (recommendation && findProtoField(protoPayload(moduleBytes, recommendation), 6, 2)) {
+        return { changed: 1, remove: true };
+      }
+      return null;
     });
   }
 
-  function transformDynamic(input) {
+  function transformDynamicList(input) {
     return rewriteProtoMessage(input, function (field, bytes) {
+      var item;
+      var nested;
+      if (field.fieldNumber !== 1 || field.wireType !== 2) {
+        return null;
+      }
+      item = protoPayload(bytes, field);
+      if (dynamicItemIsAd(item)) {
+        return { changed: 1, remove: true };
+      }
+      nested = transformDynamicItem(item);
+      if (!nested.valid) {
+        return { invalid: true };
+      }
+      return nested.changed > 0 ? { changed: nested.changed, payload: nested.body } : null;
+    });
+  }
+
+  function transformDynamic(input, personal) {
+    if (personal) {
+      return transformDynamicList(input);
+    }
+    var result = rewriteProtoMessage(input, function (field, bytes) {
       var nested;
       if (
         field.fieldNumber !== 1 ||
@@ -5519,6 +5678,9 @@ this.__BILIFLOW_COMBINED__ = true;
         ? { changed: nested.changed, payload: nested.body }
         : null;
     });
+    result.reason = result.changed > 0 ? "ios990-dynamic-commercial-removed" : "no-ad-fields";
+    result.schema = "dynamic-v2-list";
+    return result;
   }
 
   function hasNestedProtoMessageField(input, outerNumber, innerNumber) {
@@ -5661,7 +5823,12 @@ this.__BILIFLOW_COMBINED__ = true;
       case "grpc-popular":
         return transformPopular(input, config);
       case "grpc-dynamic":
-        return transformDynamic(input);
+      case "grpc-dynamic-video":
+        return transformDynamic(input, false);
+      case "grpc-dynamic-personal":
+        return transformDynamic(input, true);
+      case "grpc-dm-view":
+        return transformDmView(input);
       case "grpc-search-all":
         return transformSearch(input, 4);
       case "grpc-search-by-type":
@@ -5792,6 +5959,14 @@ this.__BILIFLOW_COMBINED__ = true;
       .toLowerCase();
   }
 
+  function grpcResponseHasError(context) {
+    var status = headerValue(context && context.responseHeaders, "grpc-status");
+    var trailerStatus = headerValue(context && context.responseTrailers, "grpc-status");
+    var httpStatus = String(context && context.responseStatus || "").match(/(?:^|\s)(\d{3})(?:\s|$)/);
+    return Boolean((status && status !== "0") || (trailerStatus && trailerStatus !== "0") ||
+      (httpStatus && Number(httpStatus[1]) >= 400));
+  }
+
   function isSupportedGzipPayload(payload, context) {
     var bytes = toUint8Array(payload);
     var encoding = grpcEncodingForContext(context);
@@ -5810,16 +5985,24 @@ this.__BILIFLOW_COMBINED__ = true;
     );
   }
 
-  function decompressGzip(input) {
+  function decompressGzip(input, limit) {
     var bytes = toUint8Array(input);
     var output;
     var stream;
     var reader;
     var chunks = [];
     var total = 0;
+    limit = limit === undefined ? MAX_GRPC_DECOMPRESSED_BYTES : limit;
 
     if (!bytes) {
       return Promise.reject(new Error("invalid gzip input"));
+    }
+    if (gzipCodec) {
+      try {
+        return Promise.resolve(gzipCodec.ungzip(bytes, limit));
+      } catch (error) {
+        return Promise.reject(error);
+      }
     }
     if (
       typeof $utils !== "undefined" &&
@@ -5830,7 +6013,7 @@ this.__BILIFLOW_COMBINED__ = true;
         output = toUint8Array($utils.ungzip(bytes));
         if (
           !output ||
-          output.length > MAX_GRPC_DECOMPRESSED_BYTES
+          output.length > limit
         ) {
           throw new Error("decompressed gRPC message is too large");
         }
@@ -5870,7 +6053,7 @@ this.__BILIFLOW_COMBINED__ = true;
           throw new Error("invalid decompressed gRPC chunk");
         }
         total += chunk.length;
-        if (total > MAX_GRPC_DECOMPRESSED_BYTES) {
+        if (total > limit) {
           try {
             reader.cancel();
           } catch (error) {
@@ -5900,6 +6083,10 @@ this.__BILIFLOW_COMBINED__ = true;
     var result;
     var reasons = {};
     var schemas = {};
+    if (grpcResponseHasError(context)) {
+      return { body: original, changed: 0, endpoint: endpoint, frames: frames.length,
+        reason: "grpc-error-response", valid: true };
+    }
     if (!parsed.valid) {
       return {
         body: original,
@@ -5978,6 +6165,11 @@ this.__BILIFLOW_COMBINED__ = true;
     var endpoint = classifyGrpcEndpoint(requestUrl);
     var effectiveConfig = config || parseArgument("");
     var tasks;
+    var remaining = MAX_GRPC_DECOMPRESSED_BYTES;
+    if (grpcResponseHasError(context)) {
+      return Promise.resolve({ body: original, changed: 0, endpoint: endpoint, frames: frames.length,
+        reason: "grpc-error-response", valid: true });
+    }
 
     if (!parsed.valid) {
       return Promise.resolve({
@@ -6003,35 +6195,44 @@ this.__BILIFLOW_COMBINED__ = true;
       });
     }
 
-    tasks = frames.map(function (frame) {
-      var payload = original.slice(frame.payloadStart, frame.end);
-      if (
-        frame.flag === 1 &&
-        !isSupportedGzipPayload(payload, context)
-      ) {
-        return Promise.reject(
-          new Error("unsupported gRPC compression encoding")
-        );
-      }
-      var payloadPromise =
-        frame.flag === 1
-          ? decompressGzip(payload)
-          : Promise.resolve(payload);
-      return payloadPromise.then(function (decoded) {
-        return {
-          decoded: decoded,
-          frame: frame,
-          result: transformGrpcPayload(
-            decoded,
-            endpoint,
-            effectiveConfig,
-            context
-          )
-        };
+    // Share one output budget and decode serially to bound peak memory in JSC.
+    tasks = Promise.resolve([]);
+    frames.forEach(function (frame) {
+      tasks = tasks.then(function (entries) {
+        var payload = original.slice(frame.payloadStart, frame.end);
+        if (
+          frame.flag === 1 &&
+          !isSupportedGzipPayload(payload, context)
+        ) {
+          return Promise.reject(
+            new Error("unsupported gRPC compression encoding")
+          );
+        }
+        var payloadPromise =
+          frame.flag === 1
+            ? decompressGzip(payload, remaining)
+            : Promise.resolve(payload);
+        return payloadPromise.then(function (decoded) {
+          remaining -= decoded.length;
+          if (remaining < 0) {
+            throw new Error("decompressed gRPC response is too large");
+          }
+          entries.push({
+            decoded: decoded,
+            frame: frame,
+            result: transformGrpcPayload(
+              decoded,
+              endpoint,
+              effectiveConfig,
+              context
+            )
+          });
+          return entries;
+        });
       });
     });
 
-    return Promise.all(tasks).then(
+    return tasks.then(
       function (entries) {
         var chunks = [];
         var changed = 0;
@@ -6094,7 +6295,9 @@ this.__BILIFLOW_COMBINED__ = true;
           reason:
             error && /unsupported/i.test(String(error.message || error))
               ? "unsupported-grpc-compression"
-              : "gzip-decode-failed",
+              : error && /too large/i.test(String(error.message || error))
+                ? "grpc-size-limit"
+                : "gzip-decode-failed",
           valid: false
         };
       }
@@ -6113,10 +6316,26 @@ this.__BILIFLOW_COMBINED__ = true;
 
   function bodyLengthForLog(body) {
     var bytes = toUint8Array(body);
+    var length = 0;
+    var index;
+    var code;
     if (bytes) {
       return bytes.length;
     }
-    return typeof body === "string" ? body.length : 0;
+    if (typeof body !== "string") {
+      return 0;
+    }
+    for (index = 0; index < body.length; index += 1) {
+      code = body.charCodeAt(index);
+      if (code >= 0xd800 && code <= 0xdbff && index + 1 < body.length &&
+          body.charCodeAt(index + 1) >= 0xdc00 && body.charCodeAt(index + 1) <= 0xdfff) {
+        length += 4;
+        index += 1;
+      } else {
+        length += code < 0x80 ? 1 : code < 0x800 ? 2 : 3;
+      }
+    }
+    return length;
   }
 
   function grpcFrameSummaryForLog(body) {
@@ -6205,8 +6424,12 @@ this.__BILIFLOW_COMBINED__ = true;
     var build = headerValue(headers, "x-bili-build");
     var match;
     if (!version) {
-      match = /(?:bili(?:bili)?|bili-universal)[^\d]{0,8}(\d{3,9})/i.exec(userAgent);
+      match = /(?:bili(?:bili)?|bili-(?:universal|inter|blue|hd))[^\d]{0,8}(\d{1,2}\.\d{1,2}\.\d{1,2}|\d{3,9})/i.exec(userAgent);
       version = match ? match[1] : "unknown";
+    }
+    if (!build) {
+      match = /\bbuild[/: ]+(\d{3,12})/i.exec(userAgent);
+      build = match ? match[1] : "unknown";
     }
     return "version=" + String(version || "unknown").slice(0, 32) +
       " build=" + String(build || "unknown").slice(0, 32);
@@ -6244,6 +6467,13 @@ this.__BILIFLOW_COMBINED__ = true;
       typeof $response !== "undefined" && $response
         ? String($response.statusCode || $response.status || "unknown").slice(0, 24)
         : "unknown";
+    var responseTrailers = typeof $response !== "undefined" && $response ? $response.h2_trailers : null;
+    var outputHeaders = transport === "grpc" ? normalizeGrpcResponseHeaders(
+      responseHeaders,
+      result.valid && result.changed > 0 ? result.body : body,
+      result.valid && result.reason !== "grpc-error-response" ? requestHeaders : {},
+      { bodyChanged: Boolean(result.valid && result.changed > 0), responseTrailers: responseTrailers }
+    ) : null;
     safeLog(
       "host=" + (parsedUrl ? parsedUrl.host : "unknown") +
         " path=" + (parsedUrl ? parsedUrl.path : "unknown") +
@@ -6266,8 +6496,16 @@ this.__BILIFLOW_COMBINED__ = true;
         (headerValue(responseHeaders, "grpc-encoding") || "identity") +
         " grpcStatus=" +
         (headerValue(responseHeaders, "grpc-status") || "none") +
+        " grpcStatusOut=" + (headerValue(outputHeaders, "grpc-status") || "none") +
+        " trailersStatus=" + (headerValue(responseTrailers, "grpc-status") || "none") +
+        " requestNoStore=" + (/\bno-store\b/i.test(headerValue(requestHeaders, "cache-control")) ? 1 : 0) +
+        " mossEngine=" + (headerValue(requestHeaders, "x-bili-moss-engine-type") || "none").slice(0, 8) +
+        " runtime=" + (root.__BILIFLOW_VERSION__ || "source") +
+        " gzipCodec=" + (gzipCodec ? "bundled" : "host") +
+        " writeBack=" + (result.valid && result.changed > 0 ? "body" : "headers-only") +
         " bodyBytes=" +
         bodyLengthForLog(body) +
+        " outputBytes=" + bodyLengthForLog(result.valid && result.changed > 0 ? result.body : body) +
         " frames=" +
         (result.frames || 0) +
         (
@@ -6397,7 +6635,7 @@ this.__BILIFLOW_COMBINED__ = true;
     headers[name] = value;
   }
 
-  function normalizeGrpcResponseHeaders(headers, body, requestHeaders) {
+  function normalizeGrpcResponseHeaders(headers, body, requestHeaders, options) {
     var output = {};
     var keys = isPlainObject(headers) ? Object.keys(headers) : [];
     var index;
@@ -6408,6 +6646,8 @@ this.__BILIFLOW_COMBINED__ = true;
       requestHeaders,
       "x-bili-moss-engine-type"
     );
+    var grpcStatus = headerValue(headers, "grpc-status");
+    var trailerStatus = headerValue(options && options.responseTrailers, "grpc-status");
     for (index = 0; index < keys.length; index += 1) {
       key = keys[index];
       if (!/^(?:age|cache-control|content-length|etag|expires|last-modified|pragma)$/i.test(key)) {
@@ -6423,17 +6663,20 @@ this.__BILIFLOW_COMBINED__ = true;
     );
     setHeaderOn(output, "Cache-Control", "no-store, no-cache, must-revalidate");
     setHeaderOn(output, "Pragma", "no-cache");
-    if (!hasCompressedGrpcFrame(body)) {
+    if (parseGrpcFrames(body).valid && !hasCompressedGrpcFrame(body)) {
       deleteHeaderFrom(output, "grpc-encoding");
     }
-    deleteHeaderFrom(output, "grpc-status");
-    if (
-      /bili-universal/i.test(userAgent) &&
-      mossEngine === "1"
-    ) {
-      setHeaderOn(output, "grpc-status", "0");
-    } else if (/bili-blue/i.test(userAgent)) {
-      setHeaderOn(output, "grpc-status", "0");
+    if (options && options.bodyChanged) {
+      deleteHeaderFrom(output, "content-encoding");
+    }
+    // Never replace a real RPC error with success. New overseas branding can
+    // change the UA; use the engine with the reviewed legacy white-client exception.
+    if ((!grpcStatus || grpcStatus === "0") && !trailerStatus) {
+      if (/bili-inter\//i.test(userAgent)) {
+        deleteHeaderFrom(output, "grpc-status");
+      } else if (mossEngine === "1" || /bili-blue\//i.test(userAgent)) {
+        setHeaderOn(output, "grpc-status", "0");
+      }
     }
     return output;
   }
@@ -6461,8 +6704,15 @@ this.__BILIFLOW_COMBINED__ = true;
     completion.headers = normalizeGrpcResponseHeaders(
       responseHeaders,
       outputBody,
-      requestHeaders
+      result && result.valid && result.reason !== "grpc-error-response" ? requestHeaders : {},
+      {
+        bodyChanged: Boolean(result && result.valid && result.changed > 0),
+        responseTrailers: typeof $response !== "undefined" && $response ? $response.h2_trailers : null
+      }
     );
+    if (typeof $response !== "undefined" && $response && $response.h2_trailers !== undefined) {
+      completion.h2_trailers = $response.h2_trailers;
+    }
     return completion;
   }
 
@@ -6625,7 +6875,9 @@ this.__BILIFLOW_COMBINED__ = true;
         responseHeaders:
           typeof $response !== "undefined" && $response
             ? $response.headers
-            : null
+            : null,
+        responseTrailers: typeof $response !== "undefined" && $response ? $response.h2_trailers : null,
+        responseStatus: typeof $response !== "undefined" && $response ? $response.statusCode || $response.status : null
       };
       response = typeof $response !== "undefined" ? $response : null;
       rawBody = rawResponseBody(response);
@@ -6949,6 +7201,8 @@ this.__BILIFLOW_COMBINED__ = true;
 (function (root) {
   "use strict";
 
+  var gzipCodec = root.BiliGzip ||
+    (typeof module !== "undefined" && module.exports ? require("./bilibili-gzip.js") : null);
   var NAME = "BiliCDN";
   var DEFAULT_CDN = "upos-sz-mirrorali.bilivideo.com";
   var AUTO_STATE_KEY = "BiliCDN.safeAuto.v7";
@@ -8357,16 +8611,24 @@ this.__BILIFLOW_COMBINED__ = true;
     return false;
   }
 
-  function decompressGzip(input) {
+  function decompressGzip(input, limit) {
     var bytes = toUint8Array(input);
     var output;
     var stream;
     var reader;
     var chunks = [];
     var total = 0;
+    limit = limit === undefined ? MAX_GRPC_DECOMPRESSED_BYTES : limit;
 
     if (!bytes) {
       return Promise.reject(new Error("invalid gzip input"));
+    }
+    if (gzipCodec) {
+      try {
+        return Promise.resolve(gzipCodec.ungzip(bytes, limit));
+      } catch (error) {
+        return Promise.reject(error);
+      }
     }
     if (
       typeof $utils !== "undefined" &&
@@ -8377,7 +8639,7 @@ this.__BILIFLOW_COMBINED__ = true;
         output = toUint8Array($utils.ungzip(bytes));
         if (
           !output ||
-          output.length > MAX_GRPC_DECOMPRESSED_BYTES
+          output.length > limit
         ) {
           throw new Error("decompressed gRPC message is too large");
         }
@@ -8417,7 +8679,7 @@ this.__BILIFLOW_COMBINED__ = true;
           throw new Error("invalid decompressed gRPC chunk");
         }
         total += chunk.length;
-        if (total > MAX_GRPC_DECOMPRESSED_BYTES) {
+        if (total > limit) {
           try {
             reader.cancel();
           } catch (error) {
@@ -8506,21 +8768,25 @@ this.__BILIFLOW_COMBINED__ = true;
         valid: false
       });
     }
-    tasks = parsed.frames.map(function (frame) {
-      var payload = original.slice(frame.payloadStart, frame.end);
-      return (
-        frame.flag === 1
-          ? decompressGzip(payload)
-          : Promise.resolve(payload)
-      ).then(function (decoded) {
-        total += decoded.length;
-        if (total > MAX_GRPC_DECOMPRESSED_BYTES) {
-          throw new Error("decompressed gRPC response is too large");
-        }
-        return decoded;
+    tasks = Promise.resolve([]);
+    parsed.frames.forEach(function (frame) {
+      tasks = tasks.then(function (payloads) {
+        var payload = original.slice(frame.payloadStart, frame.end);
+        return (
+          frame.flag === 1
+            ? decompressGzip(payload, MAX_GRPC_DECOMPRESSED_BYTES - total)
+            : Promise.resolve(payload)
+        ).then(function (decoded) {
+          total += decoded.length;
+          if (total > MAX_GRPC_DECOMPRESSED_BYTES) {
+            throw new Error("decompressed gRPC response is too large");
+          }
+          payloads.push(decoded);
+          return payloads;
+        });
       });
     });
-    return Promise.all(tasks).then(
+    return tasks.then(
       function (payloads) {
         var chunks = [];
         var index;
@@ -12823,15 +13089,20 @@ this.__BILIFLOW_COMBINED__ = true;
     var contentType = headerValue(responseHeaders, "content-type");
     var userAgent = headerValue(requestHeaders, "user-agent").toLowerCase();
     var mossEngine = headerValue(requestHeaders, "x-bili-moss-engine-type");
+    var grpcStatus = headerValue(responseHeaders, "grpc-status");
+    var trailerStatus = headerValue(
+      typeof $response !== "undefined" && $response ? $response.h2_trailers : null,
+      "grpc-status"
+    );
     for (index = 0; index < keys.length; index += 1) {
       key = keys[index];
       if (
-        !/^(?:age|cache-control|content-length|content-type|etag|expires|grpc-status|last-modified|pragma)$/i.test(
+        !/^(?:age|cache-control|content-length|content-type|etag|expires|last-modified|pragma)$/i.test(
           key
         ) &&
         !(
           bodyChanged &&
-          /^grpc-encoding$/i.test(key)
+          /^(?:grpc-encoding|content-encoding)$/i.test(key)
         )
       ) {
         output[key] = responseHeaders[key];
@@ -12845,11 +13116,21 @@ this.__BILIFLOW_COMBINED__ = true;
     output["Cache-Control"] = "no-store, no-cache, must-revalidate";
     output.Pragma = "no-cache";
     output.Expires = "0";
-    if (
-      (/bili-universal/i.test(userAgent) && mossEngine === "1") ||
-      /bili-blue/i.test(userAgent)
-    ) {
-      output["grpc-status"] = "0";
+    if ((!grpcStatus || grpcStatus === "0") && !trailerStatus && !shadowrocketGrpcError()) {
+      if (/bili-inter\//i.test(userAgent)) {
+        for (index = 0; index < keys.length; index += 1) {
+          if (keys[index].toLowerCase() === "grpc-status") {
+            delete output[keys[index]];
+          }
+        }
+      } else if (mossEngine === "1" || /bili-blue\//i.test(userAgent)) {
+        for (index = 0; index < keys.length; index += 1) {
+          if (keys[index].toLowerCase() === "grpc-status") {
+            delete output[keys[index]];
+          }
+        }
+        output["grpc-status"] = "0";
+      }
     }
     return output;
   }
@@ -12861,6 +13142,16 @@ this.__BILIFLOW_COMBINED__ = true;
     }
     if (config && config.playerPromotionGuarded === true) {
       completion.headers = normalizePlayerPromotionHeaders(changed > 0);
+      if (typeof $response !== "undefined" && $response && $response.h2_trailers !== undefined) {
+        completion.h2_trailers = $response.h2_trailers;
+      }
+      if (config.debug) {
+        safeLog("runtime=" + (root.__BILIFLOW_VERSION__ || "source") +
+          " handler=player-unite-ui transport=grpc changed=" + (config.playerPromotionChanges || 0) +
+          " writeBack=" + (changed > 0 ? "body" : "headers-only") +
+          " grpcStatusOut=" + (headerValue(completion.headers, "grpc-status") || "none") +
+          " gzipCodec=" + (gzipCodec ? "bundled" : "host"));
+      }
     }
     $done(completion);
   }
@@ -13012,6 +13303,14 @@ this.__BILIFLOW_COMBINED__ = true;
     );
   }
 
+  function shadowrocketGrpcError() {
+    var response = typeof $response !== "undefined" && $response ? $response : {};
+    var status = headerValue(response.headers, "grpc-status");
+    var trailer = headerValue(response.h2_trailers, "grpc-status");
+    var http = String(response.statusCode || response.status || "").match(/(?:^|\s)(\d{3})(?:\s|$)/);
+    return Boolean((status && status !== "0") || (trailer && trailer !== "0") || (http && Number(http[1]) >= 400));
+  }
+
   function runShadowrocket() {
     var config;
     var requestUrl;
@@ -13043,6 +13342,7 @@ this.__BILIFLOW_COMBINED__ = true;
       }
       config.grpcAdapter = classifyGrpcAdapter(requestUrl);
       grpcResponse = Boolean(config.grpcAdapter);
+      config.playerPromotionGuarded = config.ads === true && config.grpcAdapter === "playerunite-v1";
       body =
         typeof $response !== "undefined" && $response
           ? (
@@ -13054,6 +13354,14 @@ this.__BILIFLOW_COMBINED__ = true;
             )
           : null;
       binary = isByteView(body) || grpcResponse;
+
+      if (grpcResponse && shadowrocketGrpcError()) {
+        if (config.debug) {
+          safeLog("reason=grpc-error-response; body and error status preserved");
+        }
+        completeShadowrocketResponse(config, body, 0);
+        return;
+      }
 
       if (binary && hasCompressedGrpcFrame(body)) {
         grpcEncoding = grpcEncodingFromHeaders(
@@ -13069,7 +13377,7 @@ this.__BILIFLOW_COMBINED__ = true;
                   decoded.reason
               );
             }
-            $done({});
+            completeShadowrocketResponse(config, body, 0);
             return;
           }
           processShadowrocketBody(config, decoded.body, true);
@@ -13084,7 +13392,7 @@ this.__BILIFLOW_COMBINED__ = true;
                 )
             );
           }
-          $done({});
+          completeShadowrocketResponse(config, body, 0);
         });
         return;
       }

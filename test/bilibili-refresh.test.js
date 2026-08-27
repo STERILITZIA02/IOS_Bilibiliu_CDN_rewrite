@@ -158,7 +158,7 @@ test("Shadowrocket request entrypoint returns guarded headers only", () => {
   assert.equal("url" in completion, false);
   assert.equal("body" in completion, false);
   assert.deepEqual(logs, [
-    "[BiliRefresh] host=app.bilibili.com path=/x/v2/feed/index method=GET endpoint=feed handler=feed transport=json changed=1 validatorsRemoved=1 validators=if-none-match reason=resume-fresh-response",
+    "[BiliRefresh] host=app.bilibili.com path=/x/v2/feed/index method=GET endpoint=feed handler=feed transport=json changed=1 validatorsRemoved=1 validators=if-none-match reason=resume-fresh-response runtime=source",
   ]);
 });
 

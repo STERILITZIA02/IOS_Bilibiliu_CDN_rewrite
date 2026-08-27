@@ -1,0 +1,44 @@
+{
+  "code": 0,
+  "message": "0",
+  "ttl": 1,
+  "data": {
+    "has_more": true,
+    "offset": "CURSOR_FIXTURE",
+    "update_baseline": "BASELINE_FIXTURE",
+    "items": [
+      {
+        "id_str": "1001",
+        "type": "DYNAMIC_TYPE_AV",
+        "ad_info": {},
+        "business_info": {},
+        "modules": {
+          "module_author": { "mid": 101, "name": "普通UP" },
+          "module_dynamic": {
+            "desc": { "text": "广告、推广、闲鱼、商品和魔力赏都可以是正常讨论" },
+            "major": { "type": "MAJOR_TYPE_ARCHIVE", "archive": { "aid": "123456", "bvid": "BV1a23BC4d56", "title": "正常视频" } },
+            "additional": { "type": "ADDITIONAL_TYPE_GOODS", "goods": { "head_text": "UP主分享好物", "items": [{ "id": 1, "name": "散热底座", "price": "799", "jump_url": "https://item.jd.com/FIXTURE.html" }] } }
+          },
+          "module_stat": { "like": { "count": 20, "status": false } }
+        }
+      },
+      {
+        "id_str": "1002",
+        "type": "DYNAMIC_TYPE_AV",
+        "ad_info": { "creative_id": "CREATIVE_FIXTURE" },
+        "modules": { "module_dynamic": { "major": { "type": "MAJOR_TYPE_ARCHIVE", "archive": { "aid": "999999", "title": "原生推广" } } } }
+      },
+      {
+        "id_str": "1003",
+        "type": "DYNAMIC_TYPE_WORD",
+        "modules": {
+          "module_dynamic": {
+            "desc": { "text": "游戏和商品讨论，不是广告" },
+            "major": null,
+            "additional": { "type": "ADDITIONAL_TYPE_VOTE", "vote": { "vote_id": 77, "title": "普通投票" } }
+          }
+        }
+      }
+    ]
+  }
+}

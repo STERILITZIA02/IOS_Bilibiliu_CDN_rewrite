@@ -176,7 +176,8 @@
               : "none"
           ) +
           " reason=" +
-          (result.changed ? "resume-fresh-response" : "endpoint-unmatched")
+          (result.changed ? "resume-fresh-response" : "endpoint-unmatched") +
+          " runtime=" + (root.__BILIFLOW_VERSION__ || "source")
       );
     }
     if (result.changed) {

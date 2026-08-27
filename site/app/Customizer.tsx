@@ -469,9 +469,10 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.10.1 为 Bilibili iOS 9.8.0
-              增加播放器下 Banner/倒计时弹窗、小程序游戏卡、异步相关推荐、首页推广/魔力赏、评论和直播商业容器的有界结构
-              过滤与恢复态诊断，同时保留首页非空保护、TTFB 优先 CDN v10 与 v9 缓存媒体直达。
+              使用本站同版本的已审核快照。Enhanced 3.11.0 面向 Bilibili iOS 9.9.0，
+              补齐动态视频流、UP 主商品和播放中商业指令过滤，修正播放器重复匹配与海外客户端响应头，
+              并用内置 gzip 的 JSC 脚本处理恢复请求。保留首页非空保护、TTFB 优先 CDN v10 与 v9 缓存媒体直达；真机效果仍需核验，
+              不声称能够修改无网络请求的 App 内存页面。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
@@ -517,7 +518,7 @@ export function Customizer({
                 </strong>
                 <small>
                   {variant === "enhanced"
-                    ? "CDN、9.8.0 异步/首页/搜索/播放页广告、六条 AV 与界面过滤"
+                    ? "CDN、9.9.0 动态/商品/播放页广告、六条 AV 与界面过滤"
                     : "仅 CDN 与流量分流"}
                 </small>
               </div>
@@ -594,7 +595,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>CDN + Enhanced</strong>
-                    <small>推荐 · 9.8.0 有界去广告、六条 AV 与 CDN v10 + v9 缓存直达</small>
+                    <small>推荐 · 9.9.0 有界去广告、JSC 解压与 CDN v10 + v9 缓存直达</small>
                   </span>
                   <span className="radio-dot">
                     {variant === "enhanced" && <span />}

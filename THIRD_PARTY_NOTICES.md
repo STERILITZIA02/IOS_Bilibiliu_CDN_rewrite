@@ -1,7 +1,40 @@
 # Third-Party Research Notices
 
-The runtime and build have no third-party package dependencies. The project
-implementation was written independently in this repository.
+The filtering and CDN logic was written independently in this repository.
+Starting with v3.11.0, the build uses pinned fflate 0.8.3 for gzip decoding and
+embeds its JavaScript and license into the two gRPC runtime artifacts. There is
+no runtime dependency download on the device.
+
+## fflate 0.8.3 (incorporated)
+
+- Repository: https://github.com/101arrowz/fflate
+- Package: `fflate@0.8.3`, pinned by the root `package-lock.json`.
+- Use: synchronous streaming Gunzip in JSC, wrapped by the project's output-limit,
+  header, CRC32 and length checks. No worker or network-based decoding is used.
+
+```text
+MIT License
+
+Copyright (c) 2026 Arjun Barrett
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 The following public projects were inspected to cross-check endpoint coverage,
 interoperability field meanings, Shadowrocket module syntax, conservative
@@ -100,12 +133,21 @@ their source code is not incorporated into this repository.
 
 - Repository: https://github.com/kokoryh/Sparkle
 - Reviewed commit: `a26c3412a760fb8d7d4d1bcc124d126e19d630e5`
+- Rechecked on 2026-08-27: `110029696d66a3f3aef8f6546de9d494513c2901`.
 - License: GNU General Public License v3.0
 - Use: current Bilibili response-route coverage and ViewProgress, PlayPause,
   ViewEndPage, Mine/PubModule, Popular, activity, shopping, and game-material
   endpoint behavior were cross-checked. No source or generated Protobuf code
   was copied; the byte-preserving implementation in this repository remains
   independent.
+
+## yllhwa/RSSWorker protobuf reference
+
+- Repository: https://github.com/yllhwa/RSSWorker
+- Reviewed commit: `b4057baefdbc8ecab951cd51d6e0f5e72109b8c9`.
+- Use: Dynamic, DmView and PlayerUnite field meanings and layouts only. No
+  upstream schema, generated protobuf code, comments or example payloads are
+  redistributed. Local fixtures are independently constructed wire equivalents.
 
 ## fmz200/wool_scripts
 

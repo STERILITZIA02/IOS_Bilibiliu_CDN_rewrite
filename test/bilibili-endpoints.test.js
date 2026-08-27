@@ -113,7 +113,7 @@ test("registry classifies reviewed JSON, gRPC, and 9.5 log discoveries", () => {
 test("registry-generated matchers cover exactly their runtime groups", () => {
   const refresh = new RegExp(endpoints.matcherPattern({ requestGuard: true }));
   const enhanceGrpc = new RegExp(
-    endpoints.matcherPattern({ runtime: "enhance", transport: "grpc" }),
+    endpoints.matcherPattern({ runtime: "enhance", transport: "grpc", responseFilter: true }),
   );
   const story = new RegExp(
     endpoints.matcherPattern({ runtime: "story", transport: "json" }),
@@ -139,6 +139,10 @@ test("registry-generated matchers cover exactly their runtime groups", () => {
   );
   assert.doesNotMatch(
     "https://grpc.biliapi.net/bilibili.app.playurl.v1.PlayURL/PlayView",
+    enhanceGrpc,
+  );
+  assert.doesNotMatch(
+    "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUnite",
     enhanceGrpc,
   );
   assert.match("https://app.bilibili.com/x/v2/feed/index/story", story);

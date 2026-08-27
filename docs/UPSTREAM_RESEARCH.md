@@ -3,6 +3,20 @@
 > 调研日期：2026-07-30
 > 用途：记录 v3 升级采用的来源、许可证和安全边界。本文不是功能完成声明。
 
+## 2026-08-27：9.9.0 与海外新版复核
+
+本轮重新获取 `main` 并核对 Sparkle `110029696d66a3f3aef8f6546de9d494513c2901`、
+BiliUniverse/ADBlock main `43b07841fa55ba77e29d478cab0be44c8b49a3c2` 及 dev，
+RSSWorker `b4057baefdbc8ecab951cd51d6e0f5e72109b8c9` 中的完整公开协议，另核对
+app2smile 与 Maasea 的当前模块。Sparkle 明确不支持 Shadowrocket，BiliUniverse
+仅列部分兼容，因此没有直接叠加整套模块。旧 blackmatrix Bilibili 脚本地址返回 404，
+不把它作为可直接安装的修复方案。
+
+确认本仓库 PlayerUnite 的请求-only registry row 被误生成为响应 matcher；修复
+生成层后补齐 DynVideo/个人分页、DmView 与异步 merchandise 模块。状态头保留真实
+错误与旧 bili-inter 例外；使用内置小型 gzip 使即时处理可在 JSC 中独立完成。
+详细字段事实、方案取舍与未确认现场原因见 [v3.11 审计](V3_11_AUDIT.md)。
+
 ## 调研结论
 
 本项目不会直接拼接多个第三方脚本，也不会复制许可证不兼容的实现。升级代码以当前仓库为基础独立实现，只参考下列项目公开的接口覆盖范围、字段语义和已知故障。

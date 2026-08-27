@@ -1,0 +1,15 @@
+{
+  "code": 0,
+  "message": "0",
+  "data": {
+    "aid": 123456,
+    "title": "普通UP讨论商品与广告",
+    "owner": { "mid": 101, "name": "普通UP" },
+    "modules": [
+      { "type": 55, "title": "UP主分享好物" },
+      { "type": "MERCHANDISE", "title": "UP主推荐商品" },
+      { "type": 190, "title": "未知正常模块", "opaque": { "value": 55 } }
+    ],
+    "relates": [{ "aid": 234567, "goto": "av", "title": "正常广告赏析" }]
+  }
+}

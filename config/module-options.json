@@ -33,7 +33,7 @@
       "argument": "广告过滤",
       "group": "features",
       "label": "广告过滤",
-      "description": "仅移除具有明确广告字段或已审核商业结构的卡片；覆盖首页推广/魔力赏、播放器下 Banner、倒计时 Toast/底部 Dialog、小程序/游戏弹窗、异步相关推荐、评论和直播商业容器，普通标题关键词不参与判定",
+      "description": "移除明确广告与已审核商品模块；覆盖首页推广/魔力赏、动态综合/视频流、UP主分享好物、播放器下 Banner、倒计时/底部弹窗、DmView 商业指令、异步相关推荐、评论和直播商业容器；普通标题不参与判定，无网络请求的 App 内存恢复不在脚本控制范围内",
       "type": "boolean",
       "default": true,
       "variants": ["enhanced"]

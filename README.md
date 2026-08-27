@@ -18,6 +18,13 @@
 > 组合的真机验收。仓库会明确区分“代码测试通过”和“真机已验证”；发布前后的
 > 检查矩阵见 [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
 >
+> v3.11.0 面向 iOS 9.9.0 / 新海外客户端：修复 v3.10.1 的 PlayerUnite
+> 重复响应 matcher，补齐动态视频流与个人分页、`DmView` 商业指令、异步 UP 商品
+> 模块，并修正 gRPC 状态头。即时 gRPC 脚本改为 JSC + 内置有界 gzip，减少对
+> WebView 的依赖。公开协议与自动测试已核对；新海外版实际 UA/失败响应和长期后台
+> 真机结果仍需抓包确认，见 [v3.11 审计](docs/V3_11_AUDIT.md) 与
+> [9.9.0 抓包指南](docs/BILIBILI_9_9_CAPTURE.md)。
+>
 > v3.10.1 处理 9.8.0 仍会出现的播放器下 Banner、倒计时提示和延迟底部广告弹窗：
 > Enhanced 在同一 CDN gRPC 流水线内删除公开协议确认的 PlayerUnite
 > `ViewInfo.dialog_map/prompt_bar/toasts`，并过滤携带明确广告、小程序或游戏元数据的
@@ -178,9 +185,10 @@ CID 只作 fallback 辅助。已知卡型是正向证据而非硬白名单，未
 AV 类型和视频身份也会保留。第一份结果为 1–5 条时，Enhanced 最多使用原始完整
 请求 URL 和原请求身份做 **1 次** 2.2 秒有界、禁止条件缓存的补取；补取响应经过
 相同判定，并按 AVID/BVID/`param`/视频 URI 规范化去重。若严格过滤会把服务端非空
-响应变空，则依次启用“字段不完整但明显是 AV”和“只删明确商业卡”两级 fallback；
-仍为空时原样返回并记录 `feed-empty-fail-open`，绝不主动写出空首页。补取失败保留
-首份结果，不伪造、不复用旧卡片，也不递归请求。普通视频标题即使含“广告”、
+响应变空，则依次启用“字段不完整但明显是 AV”和“中性未知卡”两级 fallback；
+两层都不会放回明确商业、直播、游戏或活动。只有全广告/全非视频页才记录
+`feed-all-commercial-blocked` 并补取一次，失败保持空而不恢复广告；服务端原本为空时不补取。
+普通视频不足 6 条且补取失败时保留首份结果，不伪造、不复用旧卡片，也不递归请求。普通视频标题即使含“广告”、
 “闲鱼”“魔力赏”或“推广”也不会仅凭标题误删。
 
 `推荐仅普通视频=true` 是播放页推荐列表的有意严格边界：JSON 必须有
@@ -194,9 +202,17 @@ ViewUnite 必须同时是关系卡类型 `1 (AV)` 且实际 oneof 为 `av(2)`。
 商品分享模块仍会清理。
 
 播放页 gRPC 脚本优先读取 Shadowrocket 的 `bodyBytes`，逐帧处理未压缩或 gzip
-消息，并在 WebView 引擎内设置 4 MiB 解压上限；因此播放器下广告和关系卡会在
-第一次渲染前完成过滤。损坏帧、未知压缩格式、未知 schema、超限响应或解压能力
-不可用时整份响应原样放行，避免破坏播放。
+消息；即时脚本使用 JSC 与构建时打包的 gzip 解码器，不依赖 WebView、浏览器流式
+API 或下载外部脚本。逐帧串行解压，合计输出最多 4 MiB，并核对 gzip CRC32/长度。
+损坏帧、未知压缩格式、未知 schema 或超限响应时整份原样放行并输出有界诊断。
+
+动态 `DynAll/DynVideo` 与个人分页不套用首页六条白名单：仅清理明确广告卡、
+广告推荐模块及商品附加卡，保留普通 UP 视频、文字、投票、计数和分页游标。
+UP 主分享好物在主 View 和 `AIRelateAsync` 使用相同的模块类型 55 判据；
+`DmView` 的商业 CommandDm 与活动元数据一并清理，不匹配普通分段弹幕接口。
+
+海外新版不能仅凭商店名称等同于旧白版：响应头按 moss engine 与已确认的
+`bili-inter` 例外处理，保留真实 RPC 错误和 HTTP/2 trailers，不伪造刷新成功。
 
 针对 Bilibili iOS 9.4.0 与 9.5.0（9.5.0 请求构建号 `90500100`），App 从后台
 恢复或暂停时可能重新请求 `ViewProgress`、`PlayPause` 与 `ViewEndPage`。
@@ -370,8 +386,8 @@ DOMAIN-WILDCARD,*pcdn*.biliapi.net,{{{PCDN策略}}}
 Shadowrocket 会取得新的远程资源地址，不会继续复用上一版同名脚本缓存。
 
 如果原先安装的是 README 的固定 `main/dist/*.sgmodule` 地址、历史兼容地址或
-BiliFlow 生成的固定 URL，升级到 3.10.1 **不需要重新订阅**，只需执行上述“更新
-模块”。更新后模块详情应显示 `3.10.1`，脚本 URL 应含 `?v=3.10.1`。只有把 Release
+BiliFlow 生成的固定 URL，升级到 3.11.0 **不需要重新订阅**，只需执行上述“更新
+模块”。更新后模块详情应显示 `3.11.0`，脚本 URL 应含 `?v=3.11.0`。只有把 Release
 附件下载成本地文件、或使用不带远程 URL 的旧副本时，才需要重新安装固定地址。
 
 按影响最小顺序回滚：
@@ -420,6 +436,7 @@ HTTPS 解密会让 Shadowrocket 在设备本地读取列出的 Bilibili API 明�
 需要 Node.js 22 或更高版本：
 
 ```bash
+npm ci --ignore-scripts --no-audit --no-fund
 npm run build
 npm run check
 npm --prefix site ci --ignore-scripts --no-audit --no-fund

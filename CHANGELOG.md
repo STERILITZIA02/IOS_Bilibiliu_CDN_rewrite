@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented here.
 
+## [3.11.0] - 2026-08-27
+
+- Fix a confirmed v3.10.1 distribution regression: response matchers now honor
+  `responseFilter`. The request-only PlayerUnite guard no longer competes with
+  the CDN/advertising response pipeline. Tests check the generated modules, not
+  just source handlers, for a single response owner.
+- Add exact `DynVideo`, `DynAllPersonal`, `DynVideoPersonal`, `DM/DmView` and
+  web-dynamic `feed/all` coverage, with the same request and response cache guards.
+  Dynamic filters remove native `ModuleAd` cards, commerce attachments and
+  commercial recommendation modules while preserving ordinary posts, votes,
+  videos, pagination cursors and unknown wire fields.
+- Apply main ViewUnite module exclusions to `AIRelateAsync` as well, including
+  merchandise type 55. JSON View recognizes that type only in reviewed module
+  collections. UP creator goods are filtered without using ordinary titles.
+- Filter timed commercial/product/mini-program CommandDm entries in `DmView`,
+  and remove its dedicated activity metadata. Keep ordinary commands, subtitles,
+  masks, quality feedback, player state and standard danmaku endpoints.
+- Bundle pinned MIT-licensed fflate 0.8.3 for offline, CRC/length-checked gzip
+  decoding in JSC. Instant gRPC filters no longer depend on WebView or browser
+  decompression APIs; frames decode serially within one 4 MiB output budget.
+- Preserve error statuses and trailers. New/unknown UA branding no longer loses
+  valid `grpc-status`; engine type 1 can receive success status while the legacy
+  `bili-inter` exception remains. Changed bodies clear stale content encoding;
+  unchanged compressed bodies retain their encoding and receive no-store headers.
+- Add runtime-version/codec/writeback diagnostics, wire-equivalent fixtures and
+  generated-runtime regressions. CDN selection, signed URLs, media Range routing
+  and the media MITM boundary are unchanged. Actual 9.9.0/overseas captures and
+  no-network App-memory restoration remain explicitly unverified.
+
 ## [3.10.1] - 2026-08-23
 
 - Filter the confirmed PlayerUnite promotion container used by the new under-player

@@ -1,6 +1,6 @@
 # Protobuf/gRPC 兼容性记录
 
-> 字段核对日期：2026-07-30
+> 字段核对日期：2026-08-27（9.9.0 真机载荷仍待提供）
 > 过滤器实现：`src/bilibili-enhance.js`
 >
 > 播放地址实现：`src/bilibili-cdn.js`
@@ -8,7 +8,7 @@
 本项目不打包完整 Bilibili Protobuf schema，也不使用“猜测式递归删除”。过滤器
 只在精确的 gRPC 方法上读取少量广告或推荐类型判别字段，删除目标字段或重复项时
 原样复制其余 wire bytes。未知字段和无法解析的消息全部保留；受支持的 gzip
-压缩帧先在有界 WebView 流中解压，播放页关系卡的未知类型在
+压缩帧由构建时内置的 gzip 解码器在 JSC 中串行解压，合计输出上限 4 MiB，播放页关系卡的未知类型在
 `推荐仅普通视频=true` 时删除。
 
 字段语义主要与 [BiliUniverse/ADBlock](https://github.com/BiliUniverse/ADBlock)
@@ -35,7 +35,11 @@
 | `bilibili.app.mine.v1.Mine/DeviceFeature` | 验证 `DeviceFeatureResp.actionData(1)` 为严格 UTF-8 JSON；当前没有能证明具体广告 action 的脱敏 fixture，因此只输出诊断原因并逐字节透传 |
 | `bilibili.app.resource.v1.Module/List` | 公开 schema 确认 `ListReply.env(1)`、`pools(2)`、`list_version(3)`；该资源更新入口仅做结构诊断，永不清空、拒绝或阻断 |
 | `bilibili.app.show.v1.Popular/Index` | 重复 `Card(1)` 最多保留前 6 个明确普通 AV；仅接受 `smallCoverV5(1)`/`largeCoverV1(2)`，拒绝 `rcmdOneItem(10)`、`smallCoverV5Ad(11)`、`ad_info(12)` 和非 AV/无视频身份卡 |
-| `bilibili.app.dynamic.v2.Dynamic/DynAll` | 仅移除 `DynamicItem.card_type == 15 (ad)` |
+| `bilibili.app.dynamic.v2.Dynamic/DynAll`、`DynVideo` | `dynamic_list(1).list(1)` 中移除类型 15/18 或 `modules(3).module_ad(14)` 的广告/直播推荐卡；仅移除 `module_additional(8).goods(3)` 商品附加模块与 `module_recommend(18).ad(6)` 商业推荐模块，保留游标、计数和普通视频 |
+| `bilibili.app.dynamic.v2.Dynamic/DynAllPersonal`、`DynVideoPersonal` | 同样过滤顶层 `list(1)`，不套用 DynAll 的两级 list 结构，不修改 offset/read_offset/relation |
+| `bilibili.community.service.dm.v1.DM/DmView` | 移除 `activity_meta(18)`，过滤 `command(22).command_dms(1)` 中明确商业/商品/小程序指令；普通命令、字幕、蒙版、配置、QoE 和未知字段保留 |
+| `bilibili.app.viewunite.v1.View/AIRelateAsync` | 移除 `cm(1)`，`module(2).modules(1)` 复用主 View 的模块类型（含商品 55）与关系卡判据，不猜商品载荷 oneof 字段号 |
+| `bilibili.app.playerunite.v1.Player/PlayViewUnite` | Enhanced 由 CDN 合并流水线过滤 `view_info(9)` 的 `dialog_map(1)/prompt_bar(2)/toasts(3)`；通用增强响应 matcher 不再匹配该方法，CDN-only 不启用广告过滤 |
 | `bilibili.polymer.app.search.v1.Search/SearchAll` | 在重复 `item(4)` 中移除商业 oneof `banner(9)`、`game(11)`、`purchase(12)`、`cm(25)`、`top_game(29)`；另仅在 `special(7).card_business_badge(4)`、`pedia_card(26).card_business_badge(7)`、`pedia_card_inline(31).card_business_badge(3)` 或 `av(37).card_business_badge(7)` 存在时移除该卡。其他 oneof 与未知字段保留 |
 | `bilibili.polymer.app.search.v1.Search/SearchByType` | 对重复 `items(6)` 使用与 `SearchAll` 相同的商业 oneof/商业角标判据；普通分类结果与未知字段保留 |
 | `bilibili.main.community.reply.v1.Reply/MainList` | 删除顶层 `cm(11)`；仅移除正文或 URL map 明确含 `b23.tv/cm`、`b23.tv/mall` 的置顶评论 |
@@ -86,7 +90,9 @@ v7 只读取上述已经确认的 bandwidth field，并要求备用线路的文�
 - 多帧响应逐帧处理并重算被修改帧的长度；整份响应无需修改时保持原字节。
 - 任一帧损坏、长度越界或嵌套消息无法解析时，整份响应原样返回。
 - 只有目标关系卡被清理后确实为空的嵌套容器才随之移除；其他字段与模块保留。
-- 不处理播放地址、弹幕会员效果、青少年模式、后台播放、真实会员状态或付费权益字段。
+- 广告过滤不处理播放地址、弹幕会员效果、青少年模式、后台播放、真实会员状态或付费权益字段。
+- `grpc-status` 的非零错误与 HTTP/2 trailers 保留；已确认旧 `bili-inter` 例外仍生效，
+  其他新品牌 UA 按 moss engine 补足成功状态，不再无条件删除原有状态头。
 - 模块把压缩前 gRPC 响应体上限限制为 4 MiB；更大的响应不进入脚本；脚本另有
   4 MiB 解压输出上限。
 

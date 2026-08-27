@@ -264,6 +264,8 @@ test("fresh UI request guard covers every reviewed cache-sensitive metadata API"
     "https://app.biliapi.net/bilibili.app.viewunite.v1.View/RelatesFeed",
     "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync",
     "https://grpc.bilibili.com/bilibili.app.story.v1.Story/BottomDiversionEntrance",
+    "https://grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmView",
+    "https://grpc.biliapi.net/bilibili.app.dynamic.v2.Dynamic/DynVideo",
     "https://api.live.bilibili.com/xlive/app-interface/v2/index/feed",
     "https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser",
   ]) {
@@ -272,7 +274,7 @@ test("fresh UI request guard covers every reviewed cache-sensitive metadata API"
   for (const url of [
     "https://api.bilibili.com/x/v2/feed/index",
     "https://app.bilibili.com/x/v2/view/extra",
-    "https://grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmView",
+    "https://grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmSegMobile",
   ]) {
     assert.doesNotMatch(url, pattern);
   }
@@ -306,6 +308,8 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
     "https://app.bilibili.com/bilibili.app.resource.v1.Module/List",
     "https://grpc.biliapi.net/bilibili.app.show.v1.Popular/Index",
     "https://grpc.biliapi.net/bilibili.app.dynamic.v2.Dynamic/DynAll",
+    "https://grpc.biliapi.net/bilibili.app.dynamic.v2.Dynamic/DynVideo",
+    "https://grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmView",
     "https://grpc.biliapi.net/bilibili.polymer.app.search.v1.Search/SearchAll",
     "https://grpc.biliapi.net/bilibili.polymer.app.search.v1.Search/SearchByType",
     "https://grpc.biliapi.net/bilibili.app.interface.v1.Search/DefaultWords",
@@ -316,14 +320,15 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
 
   for (const url of [
     "https://grpc.biliapi.net/bilibili.app.playurl.v1.PlayURL/PlayView",
-    "https://grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmView",
+    "https://grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmSegMobile",
+    "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUnite",
     "https://grpc.biliapi.net/bilibili.app.interface.v1.Teenagers/ModeStatus",
   ]) {
     assert.doesNotMatch(url, pattern);
   }
   assert.match(scriptLine, /max-size=4194304/);
   assert.match(scriptLine, /timeout=10/);
-  assert.match(scriptLine, /engine=webview/);
+  assert.match(scriptLine, /engine=jsc/);
   assert.match(
     scriptLine,
     new RegExp(
@@ -783,7 +788,8 @@ test("CI validates core and website from a clean checkout", () => {
       workflow,
       /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7\.0\.0/,
     );
-    assert.match(workflow, /cache-dependency-path: site\/package-lock\.json/);
+    assert.match(workflow, /cache-dependency-path: \|\s+package-lock\.json\s+site\/package-lock\.json/);
+    assert.match(workflow, /run: npm ci --ignore-scripts --no-audit --no-fund/);
     assert.match(
       workflow,
       /npm --prefix site ci --ignore-scripts --no-audit --no-fund/,

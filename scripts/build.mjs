@@ -48,6 +48,12 @@ const refreshScript = await readFile(
   path.join(rootDirectory, "src", "bilibili-refresh.js"),
   "utf8",
 );
+const fflateDirectory = path.resolve(path.dirname(require.resolve("fflate")), "..");
+const gzipRuntime = [
+  `/* fflate ${packageJson.devDependencies.fflate}\n${await readFile(path.join(fflateDirectory, "LICENSE"), "utf8")}*/`,
+  await readFile(path.join(fflateDirectory, "umd", "index.js"), "utf8"),
+  await readFile(path.join(rootDirectory, "src", "bilibili-gzip.js"), "utf8"),
+].join("\n");
 
 function validateDomainList(name, values, requireSorted = true) {
   if (!Array.isArray(values) || values.length === 0) {
@@ -626,24 +632,29 @@ const ruleList = [
 const jsonPattern = endpointApi.matcherPattern({
   runtime: "cdn",
   transport: "json",
+  responseFilter: true,
 });
 const grpcPattern = endpointApi.matcherPattern({
   runtime: "cdn",
   transport: "grpc",
+  responseFilter: true,
 });
 const mediaRoutePattern =
   String.raw`^https?:\/\/(?:(?:[a-z0-9-]+\.)+(?:acgvideo\.com|bilivideo\.com|bilivideo\.cn|bilivideo\.net|bilibilivideo\.com|ourdvsss\.com|ksyungslb\.com|00cdn\.com)|upos-[a-z0-9-]+\.akamaized\.net|uposdash-[a-z0-9-]+\.yfcdn\.net)(?::\d+)?\/upgcxcode\/`;
 const enhancePattern = endpointApi.matcherPattern({
   runtime: "enhance",
   transport: "json",
+  responseFilter: true,
 });
 const storyPattern = endpointApi.matcherPattern({
   runtime: "story",
   transport: "json",
+  responseFilter: true,
 });
 const enhanceGrpcPattern = endpointApi.matcherPattern({
   runtime: "enhance",
   transport: "grpc",
+  responseFilter: true,
 });
 const refreshPattern = endpointApi.matcherPattern({ requestGuard: true });
 
@@ -670,7 +681,7 @@ function cdnScriptLines(includeEnhancements) {
   return [
     `Bilibili CDN Cached Media Route = type=http-request,pattern=${mediaRoutePattern},requires-body=0,timeout=2,engine=jsc,script-path=${versionedRaw("dist/bilibili-cdn-route.js")},argument="${cdnScriptArgument}"`,
     `Bilibili CDN JSON = type=http-response,pattern=${jsonPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${cdnScriptArgument}"`,
-    `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${grpcArgument}"`,
+    `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=jsc,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${grpcArgument}"`,
   ];
 }
 
@@ -684,7 +695,7 @@ function enhanceScriptLines() {
   return [
     `Bilibili Enhance Fresh UI = type=http-request,pattern=${refreshPattern},timeout=3,engine=jsc,script-path=${versionedRaw("dist/bilibili-refresh.js")},argument="{"debug":{{{调试日志}}}}"`,
     `Bilibili Enhance JSON = type=http-response,pattern=${enhancePattern},requires-body=1,max-size=4194304,timeout=8,engine=jsc,script-path=${versionedRaw("dist/bilibili-enhance.js")},argument="${enhanceScriptArgument}"`,
-    `Bilibili Enhance gRPC = type=http-response,pattern=${enhanceGrpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=webview,script-path=${versionedRaw("dist/bilibili-enhance.js")},argument="${enhanceScriptArgument}"`,
+    `Bilibili Enhance gRPC = type=http-response,pattern=${enhanceGrpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=jsc,script-path=${versionedRaw("dist/bilibili-enhance.js")},argument="${enhanceScriptArgument}"`,
   ];
 }
 
@@ -780,16 +791,19 @@ const outputs = new Map([
   // Keep the v1/v2 URL updating in place; it intentionally tracks Enhanced.
   ["dist/Bilibili.CDN.sgmodule", enhancedModule],
   ["dist/Bilibili.list", ruleList],
-  ["dist/bilibili-cdn.js", sourceScript],
+  ["dist/bilibili-cdn.js", [gzipRuntime, sourceScript].join("\n")],
   ["dist/bilibili-cdn-route.js", routeScript],
   ["dist/bilibili-cdn-benchmark.js", combinedBenchmarkScript],
-  ["dist/bilibili-enhance.js", [endpointScript, enhanceScript].join("\n")],
+  ["dist/bilibili-enhance.js", [gzipRuntime, endpointScript, enhanceScript].join("\n")],
   ["dist/bilibili-refresh.js", [endpointScript, refreshScript].join("\n")],
   ["dist/bilibili-story.js", combinedStoryScript],
   ["dist/bilibili-story-cdn.js", cdnOnlyStoryScript],
   ["dist/module-options.json", publishedCatalog],
   ["dist/modules.list", modulesList],
 ]);
+for (const relativePath of ["dist/bilibili-cdn.js", "dist/bilibili-enhance.js", "dist/bilibili-refresh.js"]) {
+  outputs.set(relativePath, `this.__BILIFLOW_VERSION__ = ${JSON.stringify(packageJson.version)};\n${outputs.get(relativePath)}`);
+}
 
 const checksums = [...outputs.entries()]
   .map(([relativePath, content]) => {
