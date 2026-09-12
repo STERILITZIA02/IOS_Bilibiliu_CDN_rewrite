@@ -3,6 +3,16 @@
 > 调研日期：2026-07-30
 > 用途：记录 v3 升级采用的来源、许可证和安全边界。本文不是功能完成声明。
 
+## 2026-09-11：9.11.0 / 海外 6.5.0 复核
+
+核对 App Store 两个独立应用、Sparkle
+`a4e25fb8befb8e91d20b131e92b5396507fc6b7a`、Biliverse/ADBlock main
+`43b07841fa55ba77e29d478cab0be44c8b49a3c2`、Biliverse/Redirect main
+`7e446284790953ad690fee5fa21afe78f00232f5`。BiliUniverse 地址现在重定向至
+Biliverse，ADBlock main 实现与上轮一致。新增番剧频道商业横幅覆盖；改进首页等待、
+高 RTT 评分、证据过期、测速参考回退和缓存路由撤销。公开链接、实现取舍、匿名网络
+样本及不能确认的真机行为见 [v3.12 审计](V3_12_AUDIT.md)。
+
 ## 2026-08-27：9.9.0 与海外新版复核
 
 本轮重新获取 `main` 并核对 Sparkle `110029696d66a3f3aef8f6546de9d494513c2901`、

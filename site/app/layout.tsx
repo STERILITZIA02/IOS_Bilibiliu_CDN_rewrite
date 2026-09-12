@@ -10,7 +10,7 @@ export const metadata: Metadata = {
     template: "%s · BiliFlow",
   },
   description:
-    "按需选择 Bilibili CDN、iOS 9.9.0 动态/播放页广告与UP主商品过滤、JSC 恢复态兼容、首页六条普通视频流及首页/我的页模块，一键生成可持续更新的 Shadowrocket 模块。",
+    "按需选择 Bilibili CDN、iOS 9.11.0 与海外版 6.5.0 广告过滤、首页即显和可选补取、故障节点回退及首页/我的页模块，一键生成可持续更新的 Shadowrocket 模块。",
   applicationName: "BiliFlow",
   authors: [{ name: "STERILITZIA02" }],
   icons: {

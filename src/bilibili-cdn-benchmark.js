@@ -388,6 +388,28 @@
     var sustainedReference;
     var startupRows = [];
     var shortlist = [];
+    var referenceRetried = false;
+
+    function retryReference() {
+      var health = profile.hosts && profile.hosts[media.primaryHost];
+      if (referenceRetried || candidatePlan[0].hostname === media.primaryHost ||
+        !media.exactByHost[media.primaryHost] || (health && health.openUntil > now) ||
+        !budgetAllowsProbe()) {
+        return false;
+      }
+      referenceRetried = true;
+      candidatePlan = [{ hostname: media.primaryHost, source: "reference-fallback", url: media.primaryUrl }]
+        .concat(candidatePlan.slice(1).filter(function (candidate) {
+          return candidate.hostname !== media.primaryHost;
+        }));
+      startupRows = [];
+      shortlist = [];
+      successfulHosts = [];
+      startupReference = null;
+      sustainedReference = null;
+      probeStartupAt(0);
+      return true;
+    }
 
     function finish(result) {
       if (completed) {
@@ -578,6 +600,9 @@
           sustainedReference = result;
           if (!sustainedReference.ok) {
             record(candidate, result, false, "sustained");
+            if (retryReference()) {
+              return;
+            }
             persistAndFinish("reference-range-failed", now + RETRY_MS);
             return;
           }
@@ -629,6 +654,9 @@
           equivalent = Boolean(result.ok && result.totalLength > 0);
           if (!equivalent) {
             record(candidate, result, false, "startup");
+            if (retryReference()) {
+              return;
+            }
             persistAndFinish("reference-prefix-failed", now + RETRY_MS);
             return;
           }

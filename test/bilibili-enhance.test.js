@@ -142,6 +142,7 @@ test("parses independent enhancement switches and rejects malformed arguments", 
     ads: true,
     debug: false,
     homeFeedVideoOnly: true,
+    homeFeedRefill: false,
     liveShopping: true,
     searchPromotions: true,
     ui: true,
@@ -158,6 +159,7 @@ test("parses independent enhancement switches and rejects malformed arguments", 
       ads: false,
       debug: true,
       homeFeedVideoOnly: false,
+      homeFeedRefill: false,
       liveShopping: false,
       searchPromotions: false,
       ui: false,
@@ -4372,7 +4374,7 @@ test("unknown endpoints, malformed JSON, and disabled UI fail open", () => {
   assert.equal(disabled.changed, 0);
 });
 
-test("9.6.1 feed entrypoint performs one bounded no-cache refill to reach six AVs", () => {
+test("opt-in feed refill performs one bounded no-cache request to reach six AVs", () => {
   const source = shadowrocketRuntimeSource("bilibili-enhance.js");
   const ordinary = (id) => ({
     aid: id,
@@ -4406,7 +4408,7 @@ test("9.6.1 feed entrypoint performs one bounded no-cache refill to reach six AV
   let refillRequest;
   let refillCalls = 0;
   const context = {
-    $argument: "",
+    $argument: '{"homeFeedRefill":true}',
     $done(value) {
       doneCalls += 1;
       completion = value;
@@ -4500,7 +4502,7 @@ test("feed refill failure preserves existing videos, refills blocked zero-video 
     let timeoutDelay = 0;
     let lateCallback;
     const context = {
-      $argument: "",
+      $argument: '{"homeFeedRefill":true}',
       $done(value) {
         doneCalls += 1;
         completion = value;

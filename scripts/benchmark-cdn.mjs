@@ -48,6 +48,7 @@ async function defaultFetchJson(url) {
       "User-Agent": "BiliCDN-Desktop-Benchmark/10",
     },
     redirect: "error",
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(`API HTTP ${response.status}`);
@@ -202,18 +203,27 @@ export async function runCdnBenchmark({
     candidates = [...config.maintained, ...config.supplemental];
   }
   const { media, sample } = await resolveAnonymousMedia(samples, fetchJson);
-  const referenceUrl = media.exactByHost[AKAMAI_HOST] || media.primaryUrl;
+  let referenceUrl;
   const prefixRange = { start: 0, end: 65_535 };
-  const prefixRaw = await requestRange(referenceUrl, prefixRange, timeoutMs);
-  const prefix = validate(prefixRaw, referenceUrl, prefixRange);
-  if (!prefix.ok || !prefix.totalLength) {
-    throw new Error(`reference prefix failed: ${prefix.reason || "invalid"}`);
+  let range;
+  let reference;
+  let failureReason = "invalid";
+  for (const candidate of new Set([media.exactByHost[AKAMAI_HOST], media.primaryUrl].filter(Boolean))) {
+    const prefix = validate(await requestRange(candidate, prefixRange, timeoutMs), candidate, prefixRange);
+    if (!prefix.ok || !prefix.totalLength) {
+      failureReason = prefix.reason || "invalid-prefix";
+      continue;
+    }
+    range = cronCore.internalRangeForTotal(prefix.totalLength, 1);
+    reference = validate(await requestRange(candidate, range, timeoutMs), candidate, range);
+    if (reference.ok) {
+      referenceUrl = candidate;
+      break;
+    }
+    failureReason = reference.reason || "invalid-range";
   }
-  const range = cronCore.internalRangeForTotal(prefix.totalLength, 1);
-  const referenceRaw = await requestRange(referenceUrl, range, timeoutMs);
-  const reference = validate(referenceRaw, referenceUrl, range);
-  if (!reference.ok) {
-    throw new Error(`reference range failed: ${reference.reason || "invalid"}`);
+  if (!referenceUrl) {
+    throw new Error(`reference validation failed: ${failureReason}`);
   }
 
   const rows = [];

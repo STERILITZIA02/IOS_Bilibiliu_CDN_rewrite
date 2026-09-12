@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented here.
 
+## [3.12.0] - 2026-09-11
+
+- Target Bilibili iOS 9.11.0 and the renewed overseas app 6.5.0 (App Store
+  1517062289). App identity is verified; device traffic and playback improvements
+  remain unverified. Semantic-version `bili-inter/6.x` and later no longer inherit
+  the legacy success-header removal; genuine RPC errors and trailers stay intact.
+- Return filtered home videos immediately by default. Add opt-in `homeFeedRefill`
+  (`首页补齐6条`) for the existing single bounded refill; do not replay POSTs,
+  disabled ad filtering, or nonzero API error responses.
+- Gate CDN eligibility on sustained throughput instead of the RTT-dominated
+  64 KiB burst. Require fresh evidence from two objects in each phase; a new
+  startup result cannot revive old sustained samples. Rank only usable URLs.
+- Honor known failure and bandwidth evidence during cold Akamai fallback. Cached
+  media requests consult the newest circuit state, and a new primary decision
+  revokes the old exact-object redirect.
+- Retry a failed benchmark reference once using the server primary, validating
+  both ranges under the original budget. The desktop benchmark also falls back
+  and now bounds anonymous API fetches.
+- Cover `/pgc/page/channel` commercial banner items and empty banner containers;
+  preserve ordinary episodes, tips, titles, pagination and unknown data. Preserve
+  nonzero JSON API errors verbatim.
+- Refresh generated modules, customizer options and version guidance. See
+  `docs/V3_12_AUDIT.md` for evidence, tradeoffs, tests and an anonymous network sample.
+
 ## [3.11.0] - 2026-08-27
 
 - Fix a confirmed v3.10.1 distribution regression: response matchers now honor

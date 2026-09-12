@@ -43,9 +43,19 @@
       "argument": "首页推荐6个普通视频",
       "group": "features",
       "label": "首页推荐仅 6 个普通视频",
-      "description": "广告过滤开启时，每次首页、推荐页和短视频流刷新都只接受明确的普通 AV 视频；不足 6 条时最多无缓存补取一次，不复制旧卡；全广告或全非视频返回不会再由 fail-open 放回",
+      "description": "广告过滤开启时，每次首页、推荐页和短视频流刷新最多保留 6 条普通 AV；默认立即显示已有视频，不为凑数等待网络补取；全广告或全非视频响应不会放回广告",
       "type": "boolean",
       "default": true,
+      "variants": ["enhanced"]
+    },
+    {
+      "key": "homeFeedRefill",
+      "argument": "首页补齐6条",
+      "group": "features",
+      "label": "首页不足 6 条时补取",
+      "description": "默认关闭以减少首页等待；开启后，在广告过滤和首页普通视频过滤均开启时，最多额外请求一次尝试补齐 6 条，可能增加约 2.45 秒等待；失败保留已有视频，不递归补取",
+      "type": "boolean",
+      "default": false,
       "variants": ["enhanced"]
     },
     {

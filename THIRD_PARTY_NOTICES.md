@@ -5,6 +5,14 @@ Starting with v3.11.0, the build uses pinned fflate 0.8.3 for gzip decoding and
 embeds its JavaScript and license into the two gRPC runtime artifacts. There is
 no runtime dependency download on the device.
 
+The September 11, 2026 review additionally inspected Sparkle commit
+`a4e25fb8befb8e91d20b131e92b5396507fc6b7a`, Biliverse/ADBlock commit
+`43b07841fa55ba77e29d478cab0be44c8b49a3c2`, and Biliverse/Redirect commit
+`7e446284790953ad690fee5fa21afe78f00232f5`. Only endpoint/field interoperability
+facts informed the independently implemented PGC channel filter. No additional
+third-party runtime code or dependency was incorporated; see
+[v3.12 research and audit](docs/V3_12_AUDIT.md).
+
 ## fflate 0.8.3 (incorporated)
 
 - Repository: https://github.com/101arrowz/fflate

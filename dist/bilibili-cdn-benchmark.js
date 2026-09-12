@@ -3,7 +3,8 @@
  *
  * Default auto mode performs no network probes on playback responses. It reads
  * bounded host-level state produced by the background cron benchmark and falls
- * back to a complete, server-provided Akamai URL when learning is unavailable.
+ * back to a complete, server-provided Akamai URL when learning is unavailable
+ * and no recent failure or insufficient-throughput evidence rules it out.
  *
  * Fixed-host mode remains available as an explicit compatibility option.
  * Live URLs are never rewritten because their signatures are bound to
@@ -81,8 +82,8 @@
   var HIGH_BITRATE_REQUIRED_KBPS = 8000;
 
   /*
-   * This list is documentation and fixed-mode input guidance only. Safe auto
-   * mode never injects these hosts into a server-provided candidate set.
+   * Maintained hosts for fixed mode and independently validated standard aliases.
+   * Akamai always requires a complete URL from the current server response.
    */
   var FIXED_CDN_CANDIDATES = [
     "upos-sz-mirrorali.bilivideo.com",
@@ -2104,6 +2105,9 @@
   function persistPreparedMediaRoutes(services, descriptors, config, now) {
     var state;
     var routes = [];
+    var revoked = [];
+    var binding;
+    var changed = false;
     var index;
     var route;
     if (
@@ -2118,16 +2122,27 @@
       route = mediaRouteForDescriptor(descriptors[index], config, now);
       if (route) {
         routes.push(route);
+      } else {
+        binding = mediaRouteKeyForUrl(descriptors[index].primaryUrl, config.networkProfile);
+        if (binding) {
+          revoked.push(binding.key);
+        }
       }
     }
-    if (routes.length === 0) {
+    if (routes.length === 0 && revoked.length === 0) {
       return 0;
     }
     state = loadMediaRouteState(services, now);
+    for (index = 0; index < revoked.length; index += 1) {
+      if (state.entries[revoked[index]]) {
+        delete state.entries[revoked[index]];
+        changed = true;
+      }
+    }
     for (index = 0; index < routes.length; index += 1) {
       state.entries[routes[index].key] = routes[index].entry;
     }
-    return saveMediaRouteState(services, state, now) ? routes.length : 0;
+    return (changed || routes.length > 0) && saveMediaRouteState(services, state, now) ? routes.length : 0;
   }
 
   function queryFreeCandidateFingerprint(url) {
@@ -2440,13 +2455,53 @@
     exactUrl = descriptorCandidateForHost(descriptor, AKAMAI_COLD_HOST);
     if (
       exactUrl &&
-      candidateIdForUrl(exactUrl) !== descriptor.primaryId
+      candidateIdForUrl(exactUrl) !== descriptor.primaryId &&
+      coldHostAllowed(config, descriptor, AKAMAI_COLD_HOST, now)
     ) {
       descriptor.selectedHost = AKAMAI_COLD_HOST;
       descriptor.selectionSource = "cold-akamai";
       return exactUrl;
     }
     return null;
+  }
+
+  function coldHostAllowed(config, descriptor, hostname, now) {
+    var profiles = config && config.hostAutoState && config.hostAutoState.profiles;
+    var profile = profiles && profiles[normalizeNetworkProfile(config.networkProfile)];
+    var health = profile && profile.hosts && profile.hosts[hostname];
+    var bucket;
+    var metrics;
+    if (!health) {
+      return true;
+    }
+    if (health.openUntil > now || (
+      health.failureStreak > 0 && health.lastFailureAt + HOST_CIRCUIT_OPEN_MS > now
+    )) {
+      return false;
+    }
+    bucket = hostBucketHealth(health, descriptor, now);
+    metrics = bucket && bucket.metrics;
+    // A cold fallback is only for missing evidence, never a bypass of known bad evidence.
+    return !metrics || metrics.sampleCount === 0 || (
+      metrics.failureRate <= HOST_MAX_FAILURE_RATE &&
+      metrics.jitterRatio <= HOST_MAX_JITTER_RATIO &&
+      (metrics.sustainedSuccessCount === 0 ||
+        metrics.p25SustainedThroughputKbps >= requiredHostThroughputKbps(descriptor))
+    );
+  }
+
+  function hostUsableForDescriptor(hostname, descriptor) {
+    // Benchmark descriptors rank hosts before a playback candidate set exists.
+    if (!descriptor || !descriptor.primaryUrl) {
+      return true;
+    }
+    var primary = parseHttpUrl(descriptor.primaryUrl);
+    return Boolean(
+      (primary && primary.hostname === hostname) ||
+      descriptorCandidateForHost(descriptor, hostname) ||
+      (hostname !== AKAMAI_COLD_HOST && descriptor.family === "standard" &&
+        FIXED_CDN_CANDIDATES.indexOf(hostname) !== -1)
+    );
   }
 
   function selectedUrlForDescriptor(descriptor, config, state, now) {
@@ -2823,7 +2878,7 @@
     };
   }
 
-  function summarizeHostSamples(samples, objects) {
+  function summarizeHostSamples(samples) {
     var successful = samples.filter(function (sample) {
       return sample.ok;
     });
@@ -2833,6 +2888,15 @@
     var sustained = successful.filter(function (sample) {
       return sample.phase === "sustained" || sample.phase === "combined";
     });
+    function distinctObjects(rows) {
+      var seen = {};
+      rows.forEach(function (sample) {
+        if (sample.objectId) {
+          seen[sample.objectId] = true;
+        }
+      });
+      return Object.keys(seen).length;
+    }
     var startupThroughput = startup.map(function (sample) {
       return sample.throughputKbps;
     });
@@ -2871,13 +2935,15 @@
       medianSustainedThroughputKbps: medianSustained,
       medianThroughputKbps: medianSustained,
       medianTtfbMs: medianTtfbMs,
-      objectCount: Array.isArray(objects) ? objects.length : 0,
+      objectCount: distinctObjects(sustained),
       p25StartupThroughputKbps: percentile25(startupThroughput),
       p25SustainedThroughputKbps: p25Sustained,
       p25ThroughputKbps: p25Sustained,
       sampleCount: samples.length,
       startupSuccessCount: startup.length,
+      startupObjectCount: distinctObjects(startup),
       successCount: successful.length,
+      sustainedObjectCount: distinctObjects(sustained),
       sustainedSuccessCount: sustained.length
     };
   }
@@ -2885,7 +2951,7 @@
   function createEmptyHostBucket() {
     return {
       lastSuccessAt: 0,
-      metrics: summarizeHostSamples([], []),
+      metrics: summarizeHostSamples([]),
       objects: [],
       samples: []
     };
@@ -2945,7 +3011,7 @@
       }, 0)
     );
     bucket.objects = bucket.objects.slice(-HOST_OBJECT_CAPACITY);
-    bucket.metrics = summarizeHostSamples(bucket.samples, bucket.objects);
+    bucket.metrics = summarizeHostSamples(bucket.samples);
     return bucket;
   }
 
@@ -2956,7 +3022,7 @@
       lastFailureAt: 0,
       lastSuccessAt: 0,
       lastUsedAt: 0,
-      metrics: summarizeHostSamples([], []),
+      metrics: summarizeHostSamples([]),
       objects: [],
       openUntil: 0,
       samples: []
@@ -3273,7 +3339,7 @@
         );
       }
     }
-    bucket.metrics = summarizeHostSamples(bucket.samples, bucket.objects);
+    bucket.metrics = summarizeHostSamples(bucket.samples);
     health.buckets[sample.bucket] = bucket;
     health.samples = health.buckets["normal-video"].samples;
     health.objects = health.buckets["normal-video"].objects;
@@ -3282,9 +3348,22 @@
     return health;
   }
 
-  function hostBucketHealth(health, descriptor) {
-    var bucket = mediaBucketForDescriptor(descriptor);
-    return health && health.buckets ? health.buckets[bucket] : null;
+  function hostBucketHealth(health, descriptor, now) {
+    var name = mediaBucketForDescriptor(descriptor);
+    var bucket = health && health.buckets ? health.buckets[name] : null;
+    var samples;
+    var metrics;
+    if (!bucket || !Number.isFinite(now) || !Array.isArray(bucket.samples)) {
+      return bucket;
+    }
+    samples = bucket.samples.filter(function (sample) {
+      return sample.at > 0 && sample.at <= now && sample.at + HOST_ALIAS_FRESH_MS >= now;
+    });
+    if (samples.length === bucket.samples.length) {
+      return bucket;
+    }
+    metrics = summarizeHostSamples(samples);
+    return { samples: samples, metrics: metrics, lastSuccessAt: metrics.lastSuccessAt };
   }
 
   function requiredHostThroughputKbps(descriptor) {
@@ -3302,8 +3381,8 @@
     return Math.max(3000, representation);
   }
 
-  function stableHostScore(health, descriptor) {
-    var bucket = hostBucketHealth(health, descriptor);
+  function stableHostScore(health, descriptor, now) {
+    var bucket = hostBucketHealth(health, descriptor, now);
     var metrics = bucket && bucket.metrics;
     var required = requiredHostThroughputKbps(descriptor);
     var startupMargin;
@@ -3332,7 +3411,7 @@
   }
 
   function hostEligibleForDescriptor(health, descriptor, now) {
-    var bucket = hostBucketHealth(health, descriptor);
+    var bucket = hostBucketHealth(health, descriptor, now);
     var metrics = bucket && bucket.metrics;
     var required = requiredHostThroughputKbps(descriptor);
     return Boolean(
@@ -3343,11 +3422,13 @@
       bucket.lastSuccessAt > 0 &&
       bucket.lastSuccessAt + HOST_ALIAS_FRESH_MS >= now &&
       metrics.objectCount >= HOST_MIN_OBJECTS &&
+      metrics.startupObjectCount >= HOST_MIN_OBJECTS &&
+      metrics.sustainedObjectCount >= HOST_MIN_OBJECTS &&
       metrics.startupSuccessCount >= HOST_MIN_OBJECTS &&
       metrics.sustainedSuccessCount >= HOST_MIN_OBJECTS &&
       metrics.failureRate <= HOST_MAX_FAILURE_RATE &&
       metrics.jitterRatio <= HOST_MAX_JITTER_RATIO &&
-      metrics.p25StartupThroughputKbps >= required &&
+      // A 64 KiB burst includes handshake/RTT; only sustained ranges gate bitrate.
       metrics.p25SustainedThroughputKbps >= required
     );
   }
@@ -3382,21 +3463,23 @@
     selected = String(profile.selectedHost || "").toLowerCase();
     selectedEligible = Boolean(
       FIXED_CDN_CANDIDATES.indexOf(selected) !== -1 &&
+      hostUsableForDescriptor(selected, descriptor) &&
       hostEligibleForDescriptor(profile.hosts[selected], descriptor, now)
     );
     if (selectedEligible) {
-      selectedScore = stableHostScore(profile.hosts[selected], descriptor);
+      selectedScore = stableHostScore(profile.hosts[selected], descriptor, now);
     }
     keys = Object.keys(profile.hosts || {});
     for (index = 0; index < keys.length; index += 1) {
       hostname = keys[index];
       if (
         FIXED_CDN_CANDIDATES.indexOf(hostname) === -1 ||
+        !hostUsableForDescriptor(hostname, descriptor) ||
         !hostEligibleForDescriptor(profile.hosts[hostname], descriptor, now)
       ) {
         continue;
       }
-      score = stableHostScore(profile.hosts[hostname], descriptor);
+      score = stableHostScore(profile.hosts[hostname], descriptor, now);
       if (score > bestScore) {
         bestScore = score;
         bestHost = hostname;
@@ -5928,7 +6011,7 @@
     output.Pragma = "no-cache";
     output.Expires = "0";
     if ((!grpcStatus || grpcStatus === "0") && !trailerStatus && !shadowrocketGrpcError()) {
-      if (/bili-inter\//i.test(userAgent)) {
+      if (/bili-inter\//i.test(userAgent) && !/bili-inter\/(?:[6-9]|\d{2,})\.\d+/i.test(userAgent)) {
         for (index = 0; index < keys.length; index += 1) {
           if (keys[index].toLowerCase() === "grpc-status") {
             delete output[keys[index]];
@@ -6697,6 +6780,28 @@
     var sustainedReference;
     var startupRows = [];
     var shortlist = [];
+    var referenceRetried = false;
+
+    function retryReference() {
+      var health = profile.hosts && profile.hosts[media.primaryHost];
+      if (referenceRetried || candidatePlan[0].hostname === media.primaryHost ||
+        !media.exactByHost[media.primaryHost] || (health && health.openUntil > now) ||
+        !budgetAllowsProbe()) {
+        return false;
+      }
+      referenceRetried = true;
+      candidatePlan = [{ hostname: media.primaryHost, source: "reference-fallback", url: media.primaryUrl }]
+        .concat(candidatePlan.slice(1).filter(function (candidate) {
+          return candidate.hostname !== media.primaryHost;
+        }));
+      startupRows = [];
+      shortlist = [];
+      successfulHosts = [];
+      startupReference = null;
+      sustainedReference = null;
+      probeStartupAt(0);
+      return true;
+    }
 
     function finish(result) {
       if (completed) {
@@ -6887,6 +6992,9 @@
           sustainedReference = result;
           if (!sustainedReference.ok) {
             record(candidate, result, false, "sustained");
+            if (retryReference()) {
+              return;
+            }
             persistAndFinish("reference-range-failed", now + RETRY_MS);
             return;
           }
@@ -6938,6 +7046,9 @@
           equivalent = Boolean(result.ok && result.totalLength > 0);
           if (!equivalent) {
             record(candidate, result, false, "startup");
+            if (retryReference()) {
+              return;
+            }
             persistAndFinish("reference-prefix-failed", now + RETRY_MS);
             return;
           }

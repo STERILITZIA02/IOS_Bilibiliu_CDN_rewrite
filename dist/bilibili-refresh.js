@@ -1,4 +1,4 @@
-this.__BILIFLOW_VERSION__ = "3.11.0";
+this.__BILIFLOW_VERSION__ = "3.12.0";
 "use strict";
 
 (function (root) {
@@ -66,6 +66,7 @@ this.__BILIFLOW_VERSION__ = "3.11.0";
     row("view", APP_HOSTS, "/x/v2/view", "json", "view", ["enhance"], true, true, true),
     row("dynamic-web-feed", API_HOSTS, "/x/polymer/web-dynamic/v1/feed/all", "json", "dynamic-web-feed", ["enhance"], true, true, true),
     row("pgc", API_HOSTS, "\\/pgc\\/page\\/(?:bangumi|cinema\\/tab)", "json", "pgc", ["enhance"], true, true, true, true),
+    row("pgc-channel", API_HOSTS, "/pgc/page/channel", "json", "pgc-channel", ["enhance"], true, true, true),
     row("web-feed", API_HOSTS, "\\/x\\/web-interface\\/(?:wbi\\/)?index\\/top\\/feed\\/rcmd", "json", "web-feed", ["enhance"], true, true, true, true),
     row("reply", API_HOSTS, "/x/v2/reply/main", "json", "reply", ["enhance"], true, true, true),
     row("vip-center", API_HOSTS, "/x/vip/web/vip_center/combine", "json", "vip-center", ["enhance"], true, true, true),

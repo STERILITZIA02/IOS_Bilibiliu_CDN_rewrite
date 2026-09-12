@@ -1,4 +1,4 @@
-this.__BILIFLOW_VERSION__ = "3.11.0";
+this.__BILIFLOW_VERSION__ = "3.12.0";
 /* fflate 0.8.3
 MIT License
 
@@ -214,6 +214,7 @@ SOFTWARE.*/
     row("view", APP_HOSTS, "/x/v2/view", "json", "view", ["enhance"], true, true, true),
     row("dynamic-web-feed", API_HOSTS, "/x/polymer/web-dynamic/v1/feed/all", "json", "dynamic-web-feed", ["enhance"], true, true, true),
     row("pgc", API_HOSTS, "\\/pgc\\/page\\/(?:bangumi|cinema\\/tab)", "json", "pgc", ["enhance"], true, true, true, true),
+    row("pgc-channel", API_HOSTS, "/pgc/page/channel", "json", "pgc-channel", ["enhance"], true, true, true),
     row("web-feed", API_HOSTS, "\\/x\\/web-interface\\/(?:wbi\\/)?index\\/top\\/feed\\/rcmd", "json", "web-feed", ["enhance"], true, true, true, true),
     row("reply", API_HOSTS, "/x/v2/reply/main", "json", "reply", ["enhance"], true, true, true),
     row("vip-center", API_HOSTS, "/x/vip/web/vip_center/combine", "json", "vip-center", ["enhance"], true, true, true),
@@ -915,6 +916,7 @@ SOFTWARE.*/
       ads: true,
       debug: false,
       homeFeedVideoOnly: true,
+      homeFeedRefill: false,
       liveShopping: true,
       searchPromotions: true,
       ui: true,
@@ -951,6 +953,7 @@ SOFTWARE.*/
     }
 
     config.ads = parseBoolean(parsed.ads, config.ads);
+    config.homeFeedRefill = parseBoolean(parsed.homeFeedRefill, config.homeFeedRefill);
     config.homeFeedVideoOnly = parseBoolean(
       parsed.homeFeedVideoOnly,
       config.homeFeedVideoOnly
@@ -3880,6 +3883,34 @@ SOFTWARE.*/
     return changes;
   }
 
+  function handlePgcChannel(body, meta) {
+    var data = body.data;
+    var changes = 0;
+    var removedModules;
+    if (!isPlainObject(data) || !Array.isArray(data.modules)) {
+      return 0;
+    }
+    removedModules = replaceFilteredArray(data, "modules", function (moduleItem) {
+      var removed;
+      if (!isPlainObject(moduleItem) || moduleItem.type !== "BANNER" ||
+        !isPlainObject(moduleItem.module_data)) {
+        return false;
+      }
+      removed = replaceFilteredArray(moduleItem.module_data, "items", function (item) {
+        return isPlainObject(item) && (
+          isHighConfidencePromotion(item) || isCommercialUri(objectLink(item)) ||
+          /^https?:\/\/www\.bilibili\.com\/blackboard\/era\//i.test(String(item.url || ""))
+        );
+      });
+      changes += removed;
+      if (removed) {
+        recordRemoval(meta, removed, "data.modules[].module_data.items", "pgc-channel-commercial-banner");
+      }
+      return removed > 0 && moduleItem.module_data.items.length === 0;
+    });
+    return changes + removedModules;
+  }
+
   function handleWebFeed(body, config) {
     var data = body.data;
     var source;
@@ -4135,6 +4166,8 @@ SOFTWARE.*/
         return handleReply(body);
       case "pgc":
         return handlePgc(body);
+      case "pgc-channel":
+        return handlePgcChannel(body, meta);
       case "web-feed":
         return handleWebFeed(body, config);
       case "live":
@@ -4188,6 +4221,10 @@ SOFTWARE.*/
           transport: "json"
         })
       : null;
+
+    if (isPlainObject(parsed) && hasOwn.call(parsed, "code") && Number(parsed.code) !== 0) {
+      return { body: original, changed: 0, endpoint: endpoint, reason: "api-error-response", valid: true };
+    }
 
     try {
       changes = transformObject(parsed, endpoint, effectiveConfig, meta);
@@ -6819,7 +6856,7 @@ SOFTWARE.*/
     // Never replace a real RPC error with success. New overseas branding can
     // change the UA; use the engine with the reviewed legacy white-client exception.
     if ((!grpcStatus || grpcStatus === "0") && !trailerStatus) {
-      if (/bili-inter\//i.test(userAgent)) {
+      if (/bili-inter\//i.test(userAgent) && !/bili-inter\/(?:[6-9]|\d{2,})\.\d+/i.test(userAgent)) {
         deleteHeaderFrom(output, "grpc-status");
       } else if (mossEngine === "1" || /bili-blue\//i.test(userAgent)) {
         setHeaderOn(output, "grpc-status", "0");
@@ -7173,6 +7210,10 @@ SOFTWARE.*/
       result = transformJsonText(body, requestUrl, config);
       if (
         result.valid &&
+        config.ads &&
+        config.homeFeedRefill &&
+        String(typeof $request !== "undefined" && $request && $request.method || "GET").toUpperCase() === "GET" &&
+        result.reason !== "api-error-response" &&
         endpoint === "feed" &&
         config.homeFeedVideoOnly !== false &&
         (

@@ -12,6 +12,7 @@
   var NAME = "BiliRoute";
   var MEDIA_ROUTE_STATE_KEY = "BiliCDN.mediaRoutes.v9";
   var MEDIA_ROUTE_STATE_VERSION = 9;
+  var HOST_AUTO_STATE_KEY = "BiliCDN.hostAuto.v10";
   var MEDIA_ROUTE_EXPIRY_SAFETY_MS = 30 * 1000;
   var MEDIA_ROUTE_MAX_TTL_MS = 2 * 60 * 60 * 1000;
   var MEDIA_ROUTE_MAX_URL_BYTES = 8192;
@@ -440,6 +441,9 @@
     var target;
     var targetBinding;
     var expiresAt;
+    var hostState;
+    var profile;
+    var health;
     method = String(method || "GET").toUpperCase();
     if (!config.auto) {
       return unchangedResult(requestUrl, "mode-disabled");
@@ -511,6 +515,19 @@
       entry.targetUrl === requestUrl
     ) {
       return unchangedResult(requestUrl, "route-ineligible");
+    }
+    // A saved exact URL must not override a newer background failure verdict.
+    try {
+      raw = services.read(HOST_AUTO_STATE_KEY);
+      hostState = raw ? JSON.parse(raw) : null;
+      profile = hostState && hostState.version === 10 && hostState.profiles &&
+        hostState.profiles[config.networkProfile];
+      health = profile && profile.hosts && profile.hosts[target.hostname];
+      if (health && Number(health.openUntil) > now) {
+        return unchangedResult(requestUrl, "target-circuit-open");
+      }
+    } catch (error) {
+      return unchangedResult(requestUrl, "health-state-invalid");
     }
     return {
       changed: true,

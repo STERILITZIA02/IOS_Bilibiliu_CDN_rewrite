@@ -36,11 +36,13 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /你的 Bilibili/);
   assert.match(html, /CDN \+ Enhanced/);
   assert.match(html, /仅 CDN Switcher/);
-  assert.match(html, /Enhanced 3\.11\.0/);
-  assert.match(html, /Bilibili iOS 9\.9\.0/);
+  assert.match(html, /Enhanced 3\.12\.0/);
+  assert.match(html, /Bilibili iOS 9\.11\.0 和海外版 6\.5\.0/);
   assert.match(html, /动态视频流、UP 主商品和播放中商业指令过滤/);
   assert.match(html, /内置 gzip 的 JSC 脚本/);
-  assert.match(html, /两阶段 cron、v9 缓存直达与 TTFB 优先评分/);
+  assert.match(html, /后台测速、起播延迟评分与故障节点回退/);
+  assert.match(html, /首页默认立即显示已有视频/);
+  assert.match(html, /首页不足 6 条时补取/);
   assert.match(html, /CDN v10/);
   assert.match(html, /v9 缓存媒体直达/);
   assert.match(html, /播放页只保留普通视频/);
@@ -49,8 +51,8 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /生成重置令牌/);
   assert.match(html, /一键安装到 Shadowrocket/);
   assert.match(html, /明确的安全边界/);
-  assert.doesNotMatch(html, /Enhanced (?:3\.8\.[012]|3\.9\.[01234]|3\.10\.[01])|CDN v8|v7 对象级缓存/);
-  assert.doesNotMatch(html, /Bilibili iOS 9\.[5678]\.\d|9\.5\.0 Story\/搜索广告/);
+  assert.doesNotMatch(html, /Enhanced (?:3\.8\.[012]|3\.9\.[01234]|3\.10\.[01]|3\.11\.0)|CDN v8|v7 对象级缓存/);
+  assert.doesNotMatch(html, /Bilibili iOS 9\.[56789]\.\d|9\.5\.0 Story\/搜索广告/);
   assert.doesNotMatch(html, /Your site is taking shape|SkeletonPreview/);
 });
 
@@ -93,9 +95,10 @@ test("catalog and custom module routes use only fixed repository sources", async
     const catalogPayload = await catalogResponse.json();
     assert.equal(catalogPayload.source, "repository");
     assert.equal(catalogPayload.catalog.schemaVersion, 1);
+    assert.equal(catalogPayload.catalog.options.find((option) => option.key === "homeFeedRefill").default, false);
 
     const enhancedResponse = await request(
-      "/module.sgmodule?variant=enhanced&homeFeedVideoOnly=true&videoOnlyRecommendations=true&hideMineWallet=true&hideMoreSettings=true&intervalHours=24",
+      "/module.sgmodule?variant=enhanced&homeFeedVideoOnly=true&homeFeedRefill=true&videoOnlyRecommendations=true&hideMineWallet=true&hideMoreSettings=true&intervalHours=24",
     );
     assert.equal(enhancedResponse.status, 200);
     assert.match(

@@ -201,6 +201,7 @@ function validateModuleOptions(schema, enhanceApi) {
   const requiredKeys = [
     "ads",
     "homeFeedVideoOnly",
+    "homeFeedRefill",
     "videoOnlyRecommendations",
     "ui",
     "searchPromotions",
@@ -347,6 +348,7 @@ const networkArgumentKeys = [
 const enhanceArgumentKeys = [
   "ads",
   "homeFeedVideoOnly",
+  "homeFeedRefill",
   "videoOnlyRecommendations",
   "ui",
   "searchPromotions",

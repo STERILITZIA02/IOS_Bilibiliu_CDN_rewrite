@@ -96,3 +96,27 @@ test("desktop benchmark validates hosts serially and returns redacted measuremen
     /https?:|upgcxcode|deadline=|token=/,
   );
 });
+
+test("desktop benchmark can validate candidates when Akamai is unavailable", async () => {
+  const tool = await import("../scripts/benchmark-cdn.mjs");
+  const calls = [];
+  const result = await tool.runCdnBenchmark({
+    candidates: [aliasHost],
+    samples: [{ bvid: "BV1xx411c7mD" }],
+    fetchJson: async (url) => url.includes("/pagelist")
+      ? { code: 0, data: [{ cid: 62131 }] }
+      : { code: 0, data: { dash: { video: [{ base_url: primaryUrl, backup_url: [akamaiUrl] }] } } },
+    requestRange: async (url, range) => {
+      calls.push(url);
+      if (url === akamaiUrl) return { status: 403, elapsedMs: 50 };
+      const length = range.end - range.start + 1;
+      return { url, body: Buffer.alloc(length, 7), status: 206, elapsedMs: 100,
+        headers: { "content-type": "video/mp4", "content-range": `bytes ${range.start}-${range.end}/9999999` },
+      };
+    },
+  });
+  assert.equal(calls[0], akamaiUrl);
+  assert.equal(calls[1], primaryUrl);
+  assert.equal(result.referenceHost, primaryHost);
+  assert.equal(result.rows[0].ok, true);
+});

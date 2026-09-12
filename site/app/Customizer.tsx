@@ -469,10 +469,11 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.11.0 面向 Bilibili iOS 9.9.0，
-              补齐动态视频流、UP 主商品和播放中商业指令过滤，修正播放器重复匹配与海外客户端响应头，
-              并用内置 gzip 的 JSC 脚本处理恢复请求。保留首页非空保护、TTFB 优先 CDN v10 与 v9 缓存媒体直达；真机效果仍需核验，
-              不声称能够修改无网络请求的 App 内存页面。
+              使用本站同版本的已审核快照。Enhanced 3.12.0 面向 Bilibili iOS 9.11.0 和海外版 6.5.0，
+              覆盖动态视频流、UP 主商品和播放中商业指令过滤，补齐番剧频道商业横幅。
+              首页默认立即显示已有视频，可选择额外补取；保留首页非空保护。
+              CDN v10 按持续带宽和起播延迟选路，v9 缓存媒体直达会避开已熔断节点。
+              内置 gzip 的 JSC 脚本继续处理恢复请求；两个新版本的真机效果仍需核验。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
@@ -518,7 +519,7 @@ export function Customizer({
                 </strong>
                 <small>
                   {variant === "enhanced"
-                    ? "CDN、9.9.0 动态/商品/播放页广告、六条 AV 与界面过滤"
+                    ? "9.11.0 / 海外 6.5.0 · 去广告、首页即显与 CDN 优选"
                     : "仅 CDN 与流量分流"}
                 </small>
               </div>
@@ -565,7 +566,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>播放热路径零测速</strong>
-                    <small>两阶段 cron、v9 缓存直达与 TTFB 优先评分</small>
+                    <small>后台测速、起播延迟评分与故障节点回退</small>
                   </span>
                   <span className="status-text">开启</span>
                 </div>
@@ -595,7 +596,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>CDN + Enhanced</strong>
-                    <small>推荐 · 9.9.0 有界去广告、JSC 解压与 CDN v10 + v9 缓存直达</small>
+                    <small>推荐 · 9.11.0 / 海外 6.5.0 去广告、首页即显与 CDN 优选</small>
                   </span>
                   <span className="radio-dot">
                     {variant === "enhanced" && <span />}
