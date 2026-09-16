@@ -641,8 +641,6 @@ const grpcPattern = endpointApi.matcherPattern({
   transport: "grpc",
   responseFilter: true,
 });
-const mediaRoutePattern =
-  String.raw`^https?:\/\/(?:(?:[a-z0-9-]+\.)+(?:acgvideo\.com|bilivideo\.com|bilivideo\.cn|bilivideo\.net|bilibilivideo\.com|ourdvsss\.com|ksyungslb\.com|00cdn\.com)|upos-[a-z0-9-]+\.akamaized\.net|uposdash-[a-z0-9-]+\.yfcdn\.net)(?::\d+)?\/upgcxcode\/`;
 const enhancePattern = endpointApi.matcherPattern({
   runtime: "enhance",
   transport: "json",
@@ -681,7 +679,6 @@ function cdnScriptLines(includeEnhancements) {
     ? enhancedCdnGrpcScriptArgument
     : cdnScriptArgument;
   return [
-    `Bilibili CDN Cached Media Route = type=http-request,pattern=${mediaRoutePattern},requires-body=0,timeout=2,engine=jsc,script-path=${versionedRaw("dist/bilibili-cdn-route.js")},argument="${cdnScriptArgument}"`,
     `Bilibili CDN JSON = type=http-response,pattern=${jsonPattern},requires-body=1,max-size=4194304,timeout=10,engine=jsc,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${cdnScriptArgument}"`,
     `Bilibili CDN gRPC = type=http-response,pattern=${grpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=jsc,script-path=${versionedRaw("dist/bilibili-cdn.js")},argument="${grpcArgument}"`,
   ];
@@ -689,7 +686,7 @@ function cdnScriptLines(includeEnhancements) {
 
 function cdnCronLines() {
   return [
-    `Bilibili CDN Background Benchmark = type=cron,cronexp=0 17 */2 * * *,wake-system=1,timeout=45,engine=webview,script-path=${versionedRaw("dist/bilibili-cdn-benchmark.js")},argument="${benchmarkScriptArgument}"`,
+    `Bilibili CDN Background Benchmark = type=cron,cronexp=0 */10 * * * *,wake-system=1,timeout=45,engine=webview,script-path=${versionedRaw("dist/bilibili-cdn-benchmark.js")},argument="${benchmarkScriptArgument}"`,
   ];
 }
 

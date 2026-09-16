@@ -2,9 +2,9 @@
  * Bilibili CDN Switcher v10 for Shadowrocket
  *
  * Default auto mode performs no network probes on playback responses. It reads
- * bounded host-level state produced by the background cron benchmark and falls
- * back to a complete, server-provided Akamai URL when learning is unavailable
- * and no recent failure or insufficient-throughput evidence rules it out.
+ * bounded host-level state produced by the background cron benchmark. It only
+ * promotes complete URLs supplied for the same media path. Without evidence,
+ * the server primary and the player's own retry/seek decisions are preserved.
  *
  * Fixed-host mode remains available as an explicit compatibility option.
  * Live URLs are never rewritten because their signatures are bound to
@@ -22,7 +22,8 @@
   var HOST_AUTO_STATE_VERSION = 10;
   var MEDIA_ROUTE_STATE_KEY = "BiliCDN.mediaRoutes.v9";
   var MEDIA_ROUTE_STATE_VERSION = 9;
-  var AKAMAI_COLD_HOST = "upos-hz-mirrorakam.akamaized.net";
+  var PLAYBACK_ACTIVITY_KEY = "BiliCDN.playbackActivity.v1";
+  var PLAYBACK_PROBE_PAUSE_MS = 3 * 60 * 1000;
   var DEFAULT_AUTO_INTERVAL_HOURS = 2;
   var DEFAULT_SWITCH_THRESHOLD = 20;
   var RUNTIME_OPTION_LIMITS = {
@@ -82,8 +83,8 @@
   var HIGH_BITRATE_REQUIRED_KBPS = 8000;
 
   /*
-   * Maintained hosts for fixed mode and independently validated standard aliases.
-   * Akamai always requires a complete URL from the current server response.
+   * Maintained examples for fixed-mode configuration. Automatic selection and
+   * background benchmarking only use complete URLs from the current response.
    */
   var FIXED_CDN_CANDIDATES = [
     "upos-sz-mirrorali.bilivideo.com",
@@ -867,7 +868,8 @@
       candidateId = "";
       for (inner = 0; inner < lanes[index].backups.length; inner += 1) {
         parsed = parseHttpUrl(lanes[index].backups[inner]);
-        if (parsed && parsed.hostname === cdnHost) {
+        if (parsed && parsed.hostname === cdnHost &&
+          sameMediaObject(lanes[index].primaryUrl, lanes[index].backups[inner])) {
           candidateId = candidateIdForUrl(lanes[index].backups[inner]);
           break;
         }
@@ -1250,7 +1252,7 @@
       }
       for (inner = 0; inner < backupUrls.length; inner += 1) {
         parsed = parseHttpUrl(backupUrls[inner]);
-        if (parsed && parsed.hostname === cdnHost) {
+        if (parsed && parsed.hostname === cdnHost && sameMediaObject(primaryUrls[0], backupUrls[inner])) {
           return {
             backupField: layout.backupField,
             primaryField: layout.primaryField,
@@ -2285,6 +2287,13 @@
     return 0;
   }
 
+  function sameMediaObject(primaryUrl, candidateUrl) {
+    var primary = parseHttpUrl(primaryUrl);
+    var candidate = parseHttpUrl(candidateUrl);
+    return Boolean(primary && candidate && isVodMediaUrl(primaryUrl) &&
+      isVodMediaUrl(candidateUrl) && primary.path === candidate.path);
+  }
+
   function buildMediaDescriptor(
     format,
     kind,
@@ -2318,6 +2327,7 @@
       candidateId = candidateIdForUrl(url);
       if (
         candidateId &&
+        sameMediaObject(primaryUrl, url) &&
         candidateFamilyForUrl(url) === primaryFamily &&
         !candidateById[candidateId]
       ) {
@@ -2417,9 +2427,7 @@
     );
     var primary = parseHttpUrl(descriptor.primaryUrl);
     var exactUrl;
-    var aliasUrl;
 
-    descriptor.selectedAlias = false;
     descriptor.selectedHost = "";
     descriptor.selectionSource = "server-primary";
     if (stableHost) {
@@ -2433,61 +2441,8 @@
         descriptor.selectionSource = "host-state";
         return exactUrl;
       }
-      if (
-        stableHost !== AKAMAI_COLD_HOST &&
-        FIXED_CDN_CANDIDATES.indexOf(stableHost) !== -1 &&
-        descriptor.family === "standard"
-      ) {
-        aliasUrl = replaceVodHostname(descriptor.primaryUrl, stableHost);
-        if (aliasUrl) {
-          descriptor.selectedAlias = true;
-          descriptor.selectionSource = "host-state";
-          return aliasUrl;
-        }
-      }
-      /* Never synthesize an Akamai URL: its query may be host-bound. */
-      if (stableHost === AKAMAI_COLD_HOST) {
-        descriptor.selectionSource = "server-primary";
-        return null;
-      }
-    }
-
-    exactUrl = descriptorCandidateForHost(descriptor, AKAMAI_COLD_HOST);
-    if (
-      exactUrl &&
-      candidateIdForUrl(exactUrl) !== descriptor.primaryId &&
-      coldHostAllowed(config, descriptor, AKAMAI_COLD_HOST, now)
-    ) {
-      descriptor.selectedHost = AKAMAI_COLD_HOST;
-      descriptor.selectionSource = "cold-akamai";
-      return exactUrl;
     }
     return null;
-  }
-
-  function coldHostAllowed(config, descriptor, hostname, now) {
-    var profiles = config && config.hostAutoState && config.hostAutoState.profiles;
-    var profile = profiles && profiles[normalizeNetworkProfile(config.networkProfile)];
-    var health = profile && profile.hosts && profile.hosts[hostname];
-    var bucket;
-    var metrics;
-    if (!health) {
-      return true;
-    }
-    if (health.openUntil > now || (
-      health.failureStreak > 0 && health.lastFailureAt + HOST_CIRCUIT_OPEN_MS > now
-    )) {
-      return false;
-    }
-    bucket = hostBucketHealth(health, descriptor, now);
-    metrics = bucket && bucket.metrics;
-    // A cold fallback is only for missing evidence, never a bypass of known bad evidence.
-    return !metrics || metrics.sampleCount === 0 || (
-      metrics.failureRate <= HOST_MAX_FAILURE_RATE &&
-      metrics.jitterRatio <= HOST_MAX_JITTER_RATIO &&
-      (metrics.sustainedSuccessCount === 0 ||
-        metrics.p25SustainedThroughputKbps >= requiredHostThroughputKbps(descriptor))
-    );
   }
 
   function hostUsableForDescriptor(hostname, descriptor) {
@@ -2498,9 +2453,7 @@
     var primary = parseHttpUrl(descriptor.primaryUrl);
     return Boolean(
       (primary && primary.hostname === hostname) ||
-      descriptorCandidateForHost(descriptor, hostname) ||
-      (hostname !== AKAMAI_COLD_HOST && descriptor.family === "standard" &&
-        FIXED_CDN_CANDIDATES.indexOf(hostname) !== -1)
+      descriptorCandidateForHost(descriptor, hostname)
     );
   }
 
@@ -2620,24 +2573,12 @@
     selectedId = candidateIdForUrl(selectedUrl);
     for (index = 0; index < lanes.length; index += 1) {
       laneSelectedUrl = laneUrlForCandidate(lanes[index], selectedId);
-      if (!laneSelectedUrl && descriptor.selectedAlias) {
-        laneSelectedUrl = replaceVodHostname(
-          lanes[index].primaryUrl,
-          descriptor.selectedHost
-        );
-      }
       if (!laneSelectedUrl) {
         return { changed: 0, descriptor: descriptor };
       }
     }
     for (index = 0; index < lanes.length; index += 1) {
       laneSelectedUrl = laneUrlForCandidate(lanes[index], selectedId);
-      if (!laneSelectedUrl && descriptor.selectedAlias) {
-        laneSelectedUrl = replaceVodHostname(
-          lanes[index].primaryUrl,
-          descriptor.selectedHost
-        );
-      }
       changed += rotateJsonAliasLaneToUrl(
         value,
         lanes[index],
@@ -3088,6 +3029,7 @@
   function sanitizeHostProfile(value) {
     var profile = {
       challengerCursor: 0,
+      learningRuns: 0,
       hosts: {},
       lastRunAt: 0,
       nextRunAt: 0,
@@ -3113,16 +3055,17 @@
       1000000
     );
     profile.lastRunAt = boundedNumber(value.lastRunAt, 0, 0, 9e15);
+    profile.learningRuns = boundedInteger(value.learningRuns, 0, 0, 6);
     profile.nextRunAt = boundedNumber(value.nextRunAt, 0, 0, 9e15);
     hostname = String(value.pendingHost || "").toLowerCase();
-    if (FIXED_CDN_CANDIDATES.indexOf(hostname) !== -1) {
+    if (isValidHostname(hostname) && isBilibiliMediaHost(hostname)) {
       profile.pendingHost = hostname;
     }
     profile.rangeCursor = boundedInteger(value.rangeCursor, 0, 0, 1000000);
     profile.sampleCursor = boundedInteger(value.sampleCursor, 0, 0, 1000000);
     profile.selectedAt = boundedNumber(value.selectedAt, 0, 0, 9e15);
     hostname = String(value.selectedHost || "").toLowerCase();
-    if (FIXED_CDN_CANDIDATES.indexOf(hostname) !== -1) {
+    if (isValidHostname(hostname) && isBilibiliMediaHost(hostname)) {
       profile.selectedHost = hostname;
     }
     if (isObject(value.hosts) && !Array.isArray(value.hosts)) {
@@ -3461,8 +3404,11 @@
       return "";
     }
     selected = String(profile.selectedHost || "").toLowerCase();
+    if (descriptor && descriptor.primaryUrl) {
+      selected = parseHttpUrl(descriptor.primaryUrl).hostname;
+    }
     selectedEligible = Boolean(
-      FIXED_CDN_CANDIDATES.indexOf(selected) !== -1 &&
+      isBilibiliMediaHost(selected) &&
       hostUsableForDescriptor(selected, descriptor) &&
       hostEligibleForDescriptor(profile.hosts[selected], descriptor, now)
     );
@@ -3473,7 +3419,7 @@
     for (index = 0; index < keys.length; index += 1) {
       hostname = keys[index];
       if (
-        FIXED_CDN_CANDIDATES.indexOf(hostname) === -1 ||
+        !isBilibiliMediaHost(hostname) ||
         !hostUsableForDescriptor(hostname, descriptor) ||
         !hostEligibleForDescriptor(profile.hosts[hostname], descriptor, now)
       ) {
@@ -4454,7 +4400,6 @@
     var nextChanges;
     var childPath;
     var pathState;
-    var originalAlreadyBackedUp = false;
     path = Array.isArray(path) ? path : [];
 
     if (!bytes || depth > MAX_PROTO_DEPTH) {
@@ -4481,14 +4426,6 @@
       nextChanges = 0;
 
       if (field.wireType === 2) {
-        if (
-          descriptor &&
-          field.fieldNumber === descriptor.backupField &&
-          field.text &&
-          candidateIdForUrl(field.text) === descriptor.primaryId
-        ) {
-          originalAlreadyBackedUp = true;
-        }
         directPayload = transformDirectProtoField(field, descriptor);
         if (directPayload) {
           nextPayload = directPayload;
@@ -4527,19 +4464,6 @@
       } else {
         chunks.push(bytes.subarray(field.rawStart, field.end));
       }
-    }
-    if (
-      descriptor &&
-      descriptor.selectedAlias &&
-      descriptor.selectedUrl &&
-      changed > 0 &&
-      !originalAlreadyBackedUp
-    ) {
-      directPayload = asciiStringToBytes(descriptor.primaryUrl);
-      chunks.push(encodeVarint(descriptor.backupField * 8 + 2));
-      chunks.push(encodeVarint(directPayload.length));
-      chunks.push(directPayload);
-      changed += 1;
     }
     return {
       bytes: changed > 0 ? concatBytes(chunks) : bytes,
@@ -5178,6 +5102,34 @@
     return reset;
   }
 
+  function playbackActivityAt(services, profile, now) {
+    try {
+      var raw = services && typeof services.read === "function" ? services.read(PLAYBACK_ACTIVITY_KEY) : null;
+      var activity = raw && raw.length <= 256 ? JSON.parse(raw) : null;
+      return activity && activity.profile === profile && Number.isFinite(activity.at) &&
+        activity.at > 0 && activity.at <= now ? activity.at : 0;
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  function playbackRecentlyActive(services, profile, now) {
+    var at = playbackActivityAt(services, profile, now);
+    return at > 0 && now - at < PLAYBACK_PROBE_PAUSE_MS;
+  }
+
+  function markPlaybackActivity(services, profile, now) {
+    var previous = playbackActivityAt(services, profile, now);
+    if (!hasStateServices(services) || (previous > 0 && now - previous < 30000)) {
+      return;
+    }
+    try {
+      services.write(JSON.stringify({ at: now, profile: profile }), PLAYBACK_ACTIVITY_KEY);
+    } catch (error) {
+      // Activity recording is optional and never holds a playback response.
+    }
+  }
+
   function processHostAutoResponse(
     input,
     binary,
@@ -5266,19 +5218,13 @@
       families[prepared.descriptors[index].family] = true;
       if (/^host-state/.test(prepared.descriptors[index].selectionSource || "")) {
         reason = "host-auto-selected";
-      } else if (
-        reason !== "host-auto-selected" &&
-        prepared.descriptors[index].selectionSource === "cold-akamai"
-      ) {
-        reason = "cold-akamai";
       }
     }
-    routesStored = persistPreparedMediaRoutes(
-      services,
-      prepared.descriptors,
-      hotConfig,
-      now
-    );
+    // Never route media requests from a saved URL. Player fallback/Range requests
+    // must remain independent, including when a recent background winner stalls.
+    if (prepared.descriptors.length > 0) {
+      markPlaybackActivity(services, hotConfig.networkProfile, now);
+    }
     callback({
       body: prepared.body,
       candidateCount: candidateCount,
@@ -6319,6 +6265,7 @@
     MEDIA_ROUTE_EXPIRY_SAFETY_MS: MEDIA_ROUTE_EXPIRY_SAFETY_MS,
     MEDIA_ROUTE_MAX_TTL_MS: MEDIA_ROUTE_MAX_TTL_MS,
     MEDIA_ROUTE_STATE_KEY: MEDIA_ROUTE_STATE_KEY,
+    PLAYBACK_ACTIVITY_KEY: PLAYBACK_ACTIVITY_KEY,
     DEFAULT_CDN: DEFAULT_CDN,
     RUNTIME_OPTION_LIMITS: RUNTIME_OPTION_LIMITS,
     asciiBytesToString: asciiBytesToString,
@@ -6355,6 +6302,7 @@
     probeBodyHash: probeBodyHash,
     processSafeAutoResponse: processSafeAutoResponse,
     persistPreparedMediaRoutes: persistPreparedMediaRoutes,
+    playbackRecentlyActive: playbackRecentlyActive,
     recordHostSample: recordHostSample,
     queryFreeCandidateFingerprint: queryFreeCandidateFingerprint,
     readVarint: readVarint,
@@ -6366,6 +6314,7 @@
     stableHash: stableHash,
     sanitizeHostAutoState: sanitizeHostAutoState,
     sanitizeMediaRouteState: sanitizeMediaRouteState,
+    sameMediaObject: sameMediaObject,
     saveHostAutoState: saveHostAutoState,
     selectStableHost: selectStableHost,
     transformGrpcBody: transformGrpcBody,

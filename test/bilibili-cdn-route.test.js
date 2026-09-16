@@ -89,25 +89,17 @@ function process(body, environment) {
   });
 }
 
-test("fresh PlayView persists an exact signed route that catches a cached cosov request", async () => {
+test("fresh PlayView leaves media routing to the player and never stores a signed redirect", async () => {
   const environment = makeEnvironment();
   const result = await process(JSON.stringify(playurlFixture()), environment);
   const output = JSON.parse(result.body).data.dash.video[0];
 
-  assert.equal(result.reason, "cold-akamai");
-  assert.equal(output.base_url, exactTargetUrl);
-  assert.equal(result.routesStored, 1);
+  assert.equal(result.reason, "server-primary");
+  assert.equal(output.base_url, primaryUrl);
+  assert.equal(result.routesStored, 0);
   assert.equal(environment.writes.length, 1);
-  assert.equal(environment.writes[0].key, cdn.MEDIA_ROUTE_STATE_KEY);
-
-  const persisted = JSON.parse(environment.storage[cdn.MEDIA_ROUTE_STATE_KEY]);
-  const entries = Object.values(persisted.entries);
-  assert.equal(persisted.version, 9);
-  assert.equal(entries.length, 1);
-  assert.equal(entries[0].targetUrl, exactTargetUrl);
-  assert.deepEqual(entries[0].sourceHosts, [sourceHost, targetHost]);
-  assert.ok(entries[0].expiresAt > now);
-  assert.ok(entries[0].expiresAt <= deadline * 1000 - 30_000);
+  assert.equal(environment.writes[0].key, cdn.PLAYBACK_ACTIVITY_KEY);
+  assert.equal(environment.storage[cdn.MEDIA_ROUTE_STATE_KEY], undefined);
 
   const selected = route.selectMediaRequest(
     primaryUrl,
@@ -121,15 +113,8 @@ test("fresh PlayView persists an exact signed route that catches a cached cosov 
     environment.services,
   );
 
-  assert.equal(selected.changed, true);
-  assert.equal(selected.reason, "exact-signed-route");
-  assert.equal(selected.url, exactTargetUrl);
-  assert.equal(selected.headers.Host, targetHost);
-  assert.equal(selected.headers.Range, "bytes=1048576-2097151");
-  assert.equal(selected.headers["User-Agent"], "Bilibili Freedoooooom/MarkII");
-  assert.doesNotMatch(selected.url, /primary-signature/);
-  assert.match(selected.url, /target-signature/);
-  assert.match(selected.url, /hdnts=exp=/);
+  assert.equal(selected.changed, false);
+  assert.equal(selected.url, primaryUrl);
 });
 
 test("response and request runtimes derive the same object-and-binding route key", () => {
@@ -153,10 +138,8 @@ test("automatic network profile hashing remains identical across response and re
   });
   await process(JSON.stringify(playurlFixture()), environment);
   const expectedProfile = cdn.resolveRuntimeNetworkProfile("auto", environment.services);
-  const persisted = JSON.parse(environment.storage[cdn.MEDIA_ROUTE_STATE_KEY]);
-  const entry = Object.values(persisted.entries)[0];
-
-  assert.equal(entry.networkProfile, expectedProfile);
+  const activity = JSON.parse(environment.storage[cdn.PLAYBACK_ACTIVITY_KEY]);
+  assert.equal(activity.profile, expectedProfile);
   assert.equal(
     route.resolveRuntimeNetworkProfile("auto", environment.services),
     expectedProfile,
@@ -169,7 +152,7 @@ test("automatic network profile hashing remains identical across response and re
       "cdn=auto&profile=auto",
       environment.services,
     ).changed,
-    true,
+    false,
   );
   assert.equal(
     route.selectMediaRequest(
@@ -189,6 +172,12 @@ test("automatic network profile hashing remains identical across response and re
 test("request routing fails open outside the exact signed object binding", async () => {
   const environment = makeEnvironment();
   await process(JSON.stringify(playurlFixture()), environment);
+  // Retained pure utilities can inspect old v9 state; no shipped entrypoint uses it.
+  const binding = cdn.mediaRouteKeyForUrl(primaryUrl, "auto");
+  environment.storage[cdn.MEDIA_ROUTE_STATE_KEY] = JSON.stringify({ version: 9, entries: {
+    [binding.key]: { expiresAt: binding.expiresAt, observedAt: now, networkProfile: "auto",
+      sourceHosts: [sourceHost, targetHost], targetHost, targetUrl: exactTargetUrl },
+  } });
   const cases = [
     {
       label: "different transaction",
@@ -311,7 +300,7 @@ test("v9 route state is expiry-pruned and bounded to the newest 64 exact URLs", 
   assert.equal(sanitized.entries[expiredBinding.key], undefined);
 });
 
-test("Shadowrocket request entrypoint returns only an exact URL and preserved headers", async () => {
+test("retired Shadowrocket request entrypoint returns no URL or header overrides", async () => {
   const environment = makeEnvironment();
   await process(JSON.stringify(playurlFixture()), environment);
   const source = fs.readFileSync(
@@ -355,13 +344,9 @@ test("Shadowrocket request entrypoint returns only an exact URL and preserved he
   };
 
   vm.runInNewContext(source, context, { filename: "bilibili-cdn-route.js" });
-  assert.equal(completion.url, exactTargetUrl);
-  assert.equal(completion.headers[":authority"], targetHost);
-  assert.equal(completion.headers.Range, "bytes=0-1048575");
+  assert.equal(completion.url, undefined);
+  assert.equal(completion.headers, undefined);
   assert.equal("body" in completion, false);
   assert.equal("response" in completion, false);
-  assert.equal(logs.length, 1);
-  assert.match(logs[0], /changed=1 source=upos-sz-mirrorcosov/);
-  assert.match(logs[0], /target=upos-hz-mirrorakam/);
-  assert.doesNotMatch(logs[0], /upsig|hdnts|route-transaction|device-binding/);
+  assert.equal(logs.length, 0);
 });

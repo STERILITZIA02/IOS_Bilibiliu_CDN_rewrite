@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here.
 
+## [3.13.0] - 2026-09-16
+
+- Stop request-time media redirection. New modules no longer intercept media
+  requests; the legacy route asset is a no-op so player retries, seeks and
+  If-Range validators cannot be redirected back to a failing target.
+- Remove automatic hostname synthesis and unmeasured Akamai promotion. Rank only
+  complete same-path server candidates, preserve all independent fallback URLs,
+  and keep video/audio representation metadata and timing intact. Compare a
+  healthy server primary with the switching threshold before promoting a backup.
+- Benchmark the server primary alongside actual backups rather than invented
+  aliases. Learn audio, normal and high-bitrate video separately when available.
+- Allow at most six initial learning runs per network with ten-minute checks;
+  then honor the configured interval. Defer probes for three minutes after a
+  playback-info response using only a bounded, throttled activity timestamp.
+- Retain existing ad/UI filtering. Synthetic regressions reproduce the unsafe
+  old selection assumptions; actual overseas-device visual/sync recovery still
+  needs a before/after check. See `docs/V3_13_AUDIT.md`.
+
 ## [3.12.0] - 2026-09-11
 
 - Target Bilibili iOS 9.11.0 and the renewed overseas app 6.5.0 (App Store

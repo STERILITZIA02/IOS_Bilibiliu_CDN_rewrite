@@ -5,6 +5,14 @@ Starting with v3.11.0, the build uses pinned fflate 0.8.3 for gzip decoding and
 embeds its JavaScript and license into the two gRPC runtime artifacts. There is
 no runtime dependency download on the device.
 
+For v3.13.0, the user supplied Bilibili Video CDN Switcher 0.1.4 (Greasy Fork
+script 500213). It was inspected for its response-level DASH video/audio handling
+and default preservation of backup URLs. Its source declares no license; no code
+from that script is distributed here. The stricter candidate selection, retired
+media-request redirect and background-learning changes are independent work.
+Protocol rationale and device-test limits are recorded in
+[the v3.13 audit](docs/V3_13_AUDIT.md).
+
 The September 11, 2026 review additionally inspected Sparkle commit
 `a4e25fb8befb8e91d20b131e92b5396507fc6b7a`, Biliverse/ADBlock commit
 `43b07841fa55ba77e29d478cab0be44c8b49a3c2`, and Biliverse/Redirect commit

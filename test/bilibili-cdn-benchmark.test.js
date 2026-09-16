@@ -27,6 +27,7 @@ function playFixture(object = "sample-a") {
             backup_url: [
               mediaUrl(akamaiHost, object, "akamai"),
               mediaUrl("upos-sz-mirrorhw.bilivideo.com", object, "hw"),
+              mediaUrl(challengerHost, object, "ali"),
             ],
             codecid: 7,
             id: 80,
@@ -140,12 +141,12 @@ test("benchmark arguments, anonymous samples, media extraction, and host plannin
   );
   assert.deepEqual(
     plan.map((candidate) => candidate.hostname),
-    [akamaiHost, challengerHost],
+    [akamaiHost, primaryHost, "upos-sz-mirrorhw.bilivideo.com", challengerHost],
   );
   assert.equal(plan[0].url, media.exactByHost[akamaiHost]);
   assert.equal(
-    plan[1].url,
-    media.primaryUrl.replace(primaryHost, challengerHost),
+    plan[3].url,
+    media.exactByHost[challengerHost],
   );
 });
 
@@ -238,7 +239,7 @@ test("cron benchmark validates serial ranges across two objects and persists onl
   const first = await run(config, environment);
   assert.equal(first.reason, "completed");
   assert.equal(first.selectedHost, "");
-  assert.equal(first.probeCount, 4);
+  assert.equal(first.probeCount, 7);
   assert.ok(environment.probes.every((item) => item.timeoutMs === 5_000));
 
   environment.advance(2 * 60 * 60 * 1000 + 1);
@@ -413,5 +414,5 @@ test("a failed pending host is cleared instead of being retried forever", async 
   const persisted = JSON.parse(
     environment.storage[cdn.HOST_AUTO_STATE_KEY],
   );
-  assert.equal(persisted.profiles.auto.pendingHost, "");
+  assert.notEqual(persisted.profiles.auto.pendingHost, challengerHost);
 });

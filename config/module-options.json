@@ -353,7 +353,7 @@
       "argument": "CDN",
       "group": "network",
       "label": "CDN 模式",
-      "description": "auto 播放热路径零测速：优先后台验证的稳定主机，无状态时直接提升服务端完整 Akamai URL；off 关闭 CDN 改写；固定主机仍只提升本次响应已有的完整 URL",
+      "description": "auto 只提升同一媒体路径、由服务器提供且后台验证合格的完整地址；无可靠证据时保留原主地址；不接管媒体重试或快进请求、不拼接主机；off 关闭 CDN 改写，固定主机也只使用本次响应已有候选",
       "type": "string",
       "default": "auto",
       "variants": ["cdn", "enhanced"]
@@ -393,7 +393,7 @@
       "argument": "测速方式",
       "group": "network",
       "label": "测速执行方式",
-      "description": "cron 默认每两小时在独立后台脚本中匿名测速，播放、拖动与倍速响应不发测速请求；旧 nonblocking 自动映射为 cron；blocking 仅用于显式诊断；off 停止后台学习但保留完整 Akamai 冷启动回退",
+      "description": "cron 在后台匿名比较原主线路与实际备用线路，分别学习音视频；收到播放信息后的三分钟暂停测速；旧 nonblocking 映射为 cron，blocking 仅诊断，off 停止学习并只使用仍有效的既有测速结果",
       "type": "string",
       "default": "cron",
       "variants": ["cdn", "enhanced"]
@@ -413,7 +413,7 @@
       "argument": "测速间隔",
       "group": "network",
       "label": "后台测速间隔",
-      "description": "2 到 72 小时；cron 每两小时唤醒并仅在达到此间隔时测速，主机 alias 成功样本 6 小时有效，超过 24 小时只使用冷启动规则",
+      "description": "稳定后每 2–72 小时测速；每十分钟检查一次是否到期，新网络首次最多六轮加快学习，之后遵守此间隔；近期播放时延后测速，初期测速会额外消耗流量；样本六小时有效",
       "type": "number",
       "default": 2,
       "minimum": 2,

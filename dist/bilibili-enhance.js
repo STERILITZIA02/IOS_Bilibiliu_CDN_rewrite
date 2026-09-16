@@ -1,4 +1,4 @@
-this.__BILIFLOW_VERSION__ = "3.12.0";
+this.__BILIFLOW_VERSION__ = "3.13.0";
 /* fflate 0.8.3
 MIT License
 

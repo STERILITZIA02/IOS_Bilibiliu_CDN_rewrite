@@ -3,13 +3,11 @@
 /*
  * BiliFlow cached-media route for Shadowrocket.
  *
- * The playback response runtime stores a bounded table of complete signed URLs
- * that Bilibili returned for the same media object. This request runtime only
- * performs a synchronous lookup and exact URL replacement. It never probes a
- * CDN, edits a signature, or constructs an Akamai URL.
+ * Deprecated v9 state utilities are retained for compatibility and diagnostics.
+ * The Shadowrocket entrypoint is intentionally a no-op from v3.13 onward; new
+ * modules do not reference this asset. Media retries and seeks stay with the app.
  */
 (function (root) {
-  var NAME = "BiliRoute";
   var MEDIA_ROUTE_STATE_KEY = "BiliCDN.mediaRoutes.v9";
   var MEDIA_ROUTE_STATE_VERSION = 9;
   var HOST_AUTO_STATE_KEY = "BiliCDN.hostAuto.v10";
@@ -539,108 +537,11 @@
     };
   }
 
-  function createShadowrocketServices() {
-    var readable =
-      typeof $persistentStore !== "undefined" &&
-      $persistentStore &&
-      typeof $persistentStore.read === "function";
-    return {
-      networkInfo: function () {
-        var network = typeof $network !== "undefined" ? $network : null;
-        var wifi;
-        var cellular;
-        if (!network || typeof network !== "object") {
-          return null;
-        }
-        wifi = network.wifi;
-        if (wifi && typeof wifi === "object") {
-          return {
-            identifier: String(wifi.ssid || wifi.bssid || ""),
-            type: "wifi"
-          };
-        }
-        cellular = network.cellular;
-        if (cellular && typeof cellular === "object") {
-          return {
-            identifier: String(
-              cellular.carrier || cellular.radio || cellular.network || ""
-            ),
-            type: "cellular"
-          };
-        }
-        return null;
-      },
-      now: function () {
-        return Date.now();
-      },
-      read: function (key) {
-        return readable ? $persistentStore.read(key) : null;
-      }
-    };
-  }
-
-  function safeLog(message) {
-    if (
-      typeof console !== "undefined" &&
-      console &&
-      typeof console.log === "function"
-    ) {
-      console.log("[" + NAME + "] " + String(message));
-    }
-  }
-
   function runShadowrocket() {
-    var requestUrl =
-      typeof $request !== "undefined" && $request
-        ? String($request.url || "")
-        : "";
-    var method =
-      typeof $request !== "undefined" && $request
-        ? String($request.method || "GET")
-        : "GET";
-    var headers =
-      typeof $request !== "undefined" && $request
-        ? $request.headers
-        : null;
-    var argument = typeof $argument === "string" ? $argument : "";
-    var config = parseRuntimeArgument(argument);
-    var result;
-    var completion;
-    try {
-      result = selectMediaRequest(
-        requestUrl,
-        method,
-        headers,
-        argument,
-        createShadowrocketServices()
-      );
-      if (config.debug) {
-        safeLog(
-          "changed=" +
-            (result.changed ? 1 : 0) +
-            " source=" +
-            (result.sourceHost || "none") +
-            " target=" +
-            (result.targetHost || "none") +
-            " reason=" +
-            result.reason
-        );
-      }
-      if (!result.changed) {
-        $done({});
-        return;
-      }
-      completion = { url: result.url };
-      if (result.headers) {
-        completion.headers = result.headers;
-      }
-      $done(completion);
-    } catch (error) {
-      if (config.debug) {
-        safeLog("changed=0 source=none target=none reason=exception");
-      }
-      $done({});
-    }
+    // v3.13 compatibility asset for old installed modules. Request-time redirects
+    // can send player retries back to the failed CDN and move seeks across hosts.
+    // New modules only rank URLs in the playback response; never intercept media.
+    $done({});
   }
 
   var api = {

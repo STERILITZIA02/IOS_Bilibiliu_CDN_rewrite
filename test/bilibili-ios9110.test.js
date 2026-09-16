@@ -89,20 +89,20 @@ test("old sustained samples cannot be refreshed by a new startup sample alone", 
   assert.equal(cdn.selectStableHost(state, {}, { kind: "video", requiredKbps: 2500 }, now), "");
 });
 
-test("cached media routing honors a circuit opened after the playback response", async () => {
+test("a circuit opened after playback never creates a request-time redirect", async () => {
   const env = environment();
   await process(playback(), env);
-  assert.equal(route.selectMediaRequest(url(primary), "GET", {}, "", env.services).changed, true);
+  assert.equal(route.selectMediaRequest(url(primary), "GET", {}, "", env.services).changed, false);
   const state = cdn.createEmptyHostAutoState();
   record(state, akamai, { startup: 24000 });
   state.profiles.auto.hosts[akamai].openUntil = now + 60000;
   env.storage[cdn.HOST_AUTO_STATE_KEY] = JSON.stringify(state);
   const result = route.selectMediaRequest(url(primary), "GET", {}, "", env.services);
   assert.equal(result.changed, false);
-  assert.equal(result.reason, "target-circuit-open");
+  assert.equal(env.storage[cdn.MEDIA_ROUTE_STATE_KEY], undefined);
 });
 
-test("a new server-primary decision revokes the old cached redirect for the same object", async () => {
+test("a server-primary decision does not persist complete signed URLs", async () => {
   const env = environment();
   await process(playback(), env);
   const state = cdn.createEmptyHostAutoState();
@@ -110,13 +110,13 @@ test("a new server-primary decision revokes the old cached redirect for the same
   env.storage[cdn.HOST_AUTO_STATE_KEY] = JSON.stringify(state);
   await process(playback(), env);
   assert.equal(route.selectMediaRequest(url(primary), "GET", {}, "", env.services).changed, false);
-  assert.deepEqual(JSON.parse(env.storage[cdn.MEDIA_ROUTE_STATE_KEY]).entries, {});
+  assert.equal(env.storage[cdn.MEDIA_ROUTE_STATE_KEY], undefined);
 });
 
 test("background benchmark falls back to the server primary when the reference CDN fails", async () => {
   const env = environment();
   const probes = [];
-  env.services.fetchPlayInfo = (_sample, done) => done(null, playback());
+  env.services.fetchPlayInfo = (_sample, done) => done(null, playback([akamai, alternate]));
   env.services.probe = (candidate, _timeout, done) => {
     probes.push(candidate);
     if (candidate.hostname === akamai) return done({ status: 403, elapsedMs: 40 });
@@ -151,7 +151,7 @@ test("reference fallback remains bounded when both reference hosts fail", async 
 test("an internal-range failure restarts reference validation against the server primary", async () => {
   const env = environment();
   const calls = [];
-  env.services.fetchPlayInfo = (_sample, done) => done(null, playback());
+  env.services.fetchPlayInfo = (_sample, done) => done(null, playback([akamai, alternate]));
   env.services.probe = (candidate, _timeout, done) => {
     calls.push(`${candidate.hostname}:${candidate.phase}`);
     if (candidate.hostname === akamai && candidate.phase === "sustained") {
@@ -164,7 +164,8 @@ test("an internal-range failure restarts reference validation against the server
   };
   const result = await new Promise((resolve) => benchmark.runBenchmark({ ...benchmark.parseArgument(""), candidates: [alternate] }, env.services, resolve));
   assert.equal(result.reason, "completed");
-  assert.ok(calls.indexOf(`${primary}:startup`) > calls.indexOf(`${akamai}:sustained`));
+  assert.ok(calls.lastIndexOf(`${primary}:startup`) > calls.indexOf(`${akamai}:sustained`));
+  assert.equal(calls.filter(call => call === `${primary}:startup`).length, 2);
   assert.ok(calls.includes(`${primary}:sustained`));
 });
 

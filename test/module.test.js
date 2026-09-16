@@ -68,7 +68,7 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(moduleText, /Bilibili Enhance JSON = type=http-response/);
   assert.match(moduleText, /Bilibili Enhance gRPC = type=http-response/);
   assert.match(moduleText, /Bilibili Story Safe Pipeline = type=http-response/);
-  assert.match(moduleText, /Bilibili CDN Cached Media Route = type=http-request/);
+  assert.doesNotMatch(moduleText, /Bilibili CDN Cached Media Route/);
   assert.match(moduleText, /Bilibili CDN JSON = type=http-response/);
   assert.match(moduleText, /Bilibili CDN gRPC = type=http-response/);
   assert.match(moduleText, /binary-body-mode=1/);
@@ -127,7 +127,7 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(cdnOnlyModule, /\[Rule\]/);
   assert.match(cdnOnlyModule, /Bilibili CDN JSON = type=http-response/);
   assert.match(cdnOnlyModule, /Bilibili CDN gRPC = type=http-response/);
-  assert.match(cdnOnlyModule, /Bilibili CDN Cached Media Route = type=http-request/);
+  assert.doesNotMatch(cdnOnlyModule, /Bilibili CDN Cached Media Route/);
   assert.match(
     cdnOnlyModule,
     /Bilibili Story Safe Pipeline = type=http-response/,
@@ -171,7 +171,7 @@ test("every CDN module has exactly one versioned wake-system cron benchmark", ()
       .filter((line) => line.includes("type=cron"));
     assert.equal(cronLines.length, 1);
     assert.match(cronLines[0], /^Bilibili CDN Background Benchmark = type=cron,/);
-    assert.match(cronLines[0], /cronexp=0 17 \*\/2 \* \* \*/);
+    assert.match(cronLines[0], /cronexp=0 \*\/10 \* \* \* \*/);
     assert.match(cronLines[0], /wake-system=1/);
     assert.match(cronLines[0], /timeout=45/);
     assert.match(cronLines[0], /engine=webview/);
@@ -193,39 +193,20 @@ test("every CDN module has exactly one versioned wake-system cron benchmark", ()
   assert.match(benchmarkDist, /var PROBE_TIMEOUT_MS = 5000;/);
 });
 
-test("every CDN module has one lightweight exact-object media request route", () => {
+test("CDN modules leave all media requests to the player", () => {
   for (const generatedModule of [enhancedModule, cdnOnlyModule]) {
     const routeLines = generatedModule
       .split(/\r?\n/)
       .filter((line) => line.startsWith("Bilibili CDN Cached Media Route = "));
-    assert.equal(routeLines.length, 1);
-    const line = routeLines[0];
-    assert.match(line, /type=http-request/);
-    assert.match(line, /requires-body=0/);
-    assert.match(line, /timeout=2/);
-    assert.match(line, /engine=jsc/);
-    assert.match(
-      line,
-      new RegExp(
-        `script-path=https://raw\\.githubusercontent\\.com/.+/bilibili-cdn-route\\.js\\?v=${packageJson.version.replaceAll(".", "\\.")}`,
-      ),
-    );
-    const match = line.match(/,pattern=(.+?),requires-body=0,/);
-    assert.ok(match);
-    const pattern = new RegExp(match[1]);
+    assert.equal(routeLines.length, 0);
+    const patterns = generatedModule.split("\n").filter(line => /type=http-request/.test(line))
+      .map(line => new RegExp(line.match(/,pattern=(.+?),/)[1]));
     for (const url of [
       "http://upos-sz-mirrorcosov.bilivideo.com/upgcxcode/77/26/video.m4s?bvc=vod",
       "http://upos-hz-mirrorakam.akamaized.net/upgcxcode/77/26/video.m4s?bvc=vod",
       "https://xy1.mcdn.bilivideo.cn/upgcxcode/77/26/video.m4s?bvc=vod",
     ]) {
-      assert.match(url, pattern);
-    }
-    for (const url of [
-      "https://api.bilibili.com/x/player/playurl",
-      "http://d1--ov-gotcha105.bilivideo.com/live-bvc/1/live.m3u8",
-      "https://example.com/upgcxcode/77/26/video.m4s",
-    ]) {
-      assert.doesNotMatch(url, pattern);
+      assert.ok(patterns.every(pattern => !pattern.test(url)));
     }
   }
 });
@@ -387,7 +368,7 @@ test("Story uses one exact filter-then-CDN response pipeline", () => {
   assert.match(storySource, /processSafeAutoResponse/);
 });
 
-test("combined Story runtime filters ads once and cold-promotes complete Akamai", () => {
+test("combined Story runtime filters ads once and preserves unmeasured media URLs", () => {
   const primary =
     "https://upos-sz-mirrorcosov.bilivideo.com/upgcxcode/1/2/story.m4s?token=current-primary";
   const backup =
@@ -469,11 +450,11 @@ test("combined Story runtime filters ads once and cold-promotes complete Akamai"
   assert.equal(output.data.items.length, 1);
   assert.equal(
     output.data.items[0].player_args.dash.video[0].base_url,
-    backup,
+    primary,
   );
   assert.deepEqual(
     Array.from(output.data.items[0].player_args.dash.video[0].backup_url),
-    [primary],
+    [backup],
   );
   assert.equal(completions[0].headers.ETag, undefined);
   assert.equal(

@@ -436,7 +436,7 @@ test("stable host selection uses p25 throughput, two objects, freshness, and cir
     "json",
     "video",
     originalUrl,
-    [backupUrl],
+    [backupUrl, originalUrl.replace(originalHost, targetHost), secondBackupUrl],
     "id=80",
     1_800_000,
   );
@@ -500,7 +500,7 @@ test("hostAuto v10 prefers lower startup TTFB after bandwidth eligibility", () =
     "json",
     "video",
     originalUrl,
-    [backupUrl],
+    [backupUrl, originalUrl.replace(originalHost, targetHost), secondBackupUrl],
     "id=80&codecid=7&bandwidth=1800000",
     1_800_000,
   );
@@ -538,7 +538,7 @@ test("hostAuto v10 rejects fast hosts with excessive failures or jitter", () => 
     "json",
     "video",
     originalUrl,
-    [backupUrl],
+    [backupUrl, originalUrl.replace(originalHost, targetHost), secondBackupUrl],
     "id=80",
     1_800_000,
   );
@@ -576,7 +576,7 @@ test("switchThreshold prevents flapping but unhealthy selected hosts switch imme
     "json",
     "video",
     originalUrl,
-    [backupUrl],
+    [backupUrl, originalUrl.replace(originalHost, targetHost), secondBackupUrl],
     "id=80",
     1_800_000,
   );
@@ -655,19 +655,20 @@ test("audio, normal video, and high bitrate video select only their own performa
   assert.equal(cdn.selectStableHost(state, config, high, now), originalHost);
 });
 
-test("default hot path performs zero probes and cold-promotes only a complete Akamai URL", async () => {
+test("default hot path performs zero probes and preserves unmeasured server primaries", async () => {
   const input = JSON.stringify(videoFixture());
   const environment = makeEnvironment();
   const config = cdn.parseArgument("");
   const result = await processAuto(input, false, config, environment);
   const output = JSON.parse(result.body).data.dash.video[0];
 
-  assert.equal(result.reason, "cold-akamai");
+  assert.equal(result.reason, "server-primary");
   assert.equal(result.probeCount, 0);
   assert.equal(environment.calls.length, 0);
-  assert.equal(environment.writes.length, 0);
-  assert.equal(output.base_url, backupUrl);
-  assert.deepEqual(output.backup_url, [originalUrl]);
+  assert.equal(environment.writes.length, 1);
+  assert.equal(environment.writes[0].key, cdn.PLAYBACK_ACTIVITY_KEY);
+  assert.equal(output.base_url, originalUrl);
+  assert.deepEqual(output.backup_url, [backupUrl]);
 
   const withoutAkamai = JSON.stringify(videoFixture({ backup: secondBackupUrl }));
   const secondEnvironment = makeEnvironment();
@@ -680,10 +681,10 @@ test("default hot path performs zero probes and cold-promotes only a complete Ak
   assert.equal(unchanged.reason, "server-primary");
   assert.equal(unchanged.body, withoutAkamai);
   assert.equal(secondEnvironment.calls.length, 0);
-  assert.equal(secondEnvironment.writes.length, 0);
+  assert.equal(secondEnvironment.writes[0].key, cdn.PLAYBACK_ACTIVITY_KEY);
 });
 
-test("a fresh two-object non-Akamai winner aliases a new signed object and preserves backups", async () => {
+test("a fresh non-Akamai winner absent from a new object never gets an invented signed URL", async () => {
   const now = Date.UTC(2026, 7, 2, 12, 0, 0);
   const state = cdn.createEmptyHostAutoState();
   ["object-a", "object-b"].forEach((object, index) => {
@@ -713,13 +714,11 @@ test("a fresh two-object non-Akamai winner aliases a new signed object and prese
   const environment = makeEnvironment({ hostState: state, now });
   const result = await processAuto(input, false, cdn.parseArgument(""), environment);
   const output = JSON.parse(result.body).data.dash.video[0];
-  const expected = newPrimary.replace(originalHost, targetHost);
-
-  assert.equal(result.reason, "host-auto-selected");
+  assert.equal(result.reason, "server-primary");
   assert.equal(environment.calls.length, 0);
-  assert.equal(environment.writes.length, 0);
-  assert.equal(output.base_url, expected);
-  assert.deepEqual(output.backup_url, [newPrimary, newAkamai, secondBackupUrl]);
+  assert.equal(environment.writes[0].key, cdn.PLAYBACK_ACTIVITY_KEY);
+  assert.equal(output.base_url, newPrimary);
+  assert.deepEqual(output.backup_url, [newAkamai, secondBackupUrl]);
   assert.match(output.base_url, /token=old-primary$/);
 });
 
@@ -1577,7 +1576,7 @@ test("legacy nonblocking input maps to cron and never schedules a hot-path probe
     completionCount += 1;
   });
   assert.equal(completionCount, 1);
-  assert.equal(completion.reason, "cold-akamai");
+  assert.equal(completion.reason, "server-primary");
   assert.equal(completion.scriptElapsedMs, 0);
   assert.ok(completion.candidateCount >= 2);
   assert.equal(completion.candidateFamilies, "standard");
@@ -1587,7 +1586,7 @@ test("legacy nonblocking input maps to cron and never schedules a hot-path probe
   assert.equal(storage[cdn.AUTO_STATE_KEY], undefined);
 });
 
-test("off mode disables learning but still uses the complete Akamai cold fallback", () => {
+test("off mode disables learning and leaves unmeasured server primaries intact", () => {
   const input = JSON.stringify(videoFixture());
   const now = 75_000;
   const state = cdn.createEmptyAutoState();
@@ -1618,7 +1617,7 @@ test("off mode disables learning but still uses the complete Akamai cold fallbac
     },
   );
 
-  assert.equal(result.reason, "cold-akamai");
+  assert.equal(result.reason, "server-primary");
   assert.equal(result.probeCount, 0);
   assert.ok(result.candidateCount >= 2);
   assert.equal(result.candidateFamilies, "standard");
@@ -1626,7 +1625,7 @@ test("off mode disables learning but still uses the complete Akamai cold fallbac
   assert.equal(environment.calls.length, 0);
   assert.equal(
     JSON.parse(result.body).data.dash.video[0].base_url,
-    backupUrl,
+    originalUrl,
   );
 });
 
@@ -1849,14 +1848,14 @@ test("corrupted state fails open and a changed reset token clears v10 learning e
   const reset = JSON.parse(environment.storage[cdn.HOST_AUTO_STATE_KEY]);
   assert.equal(reset.resetToken, "reset_20260728");
   assert.deepEqual(reset.profiles, {});
-  assert.equal(environment.writes.length, 1);
+  assert.equal(environment.writes.filter(write => write.key === cdn.HOST_AUTO_STATE_KEY).length, 1);
 
   reset.profiles.auto = { ignored: true };
   environment.storage[cdn.HOST_AUTO_STATE_KEY] = JSON.stringify(reset);
   await processAuto(input, false, resetConfig, environment);
   const repeated = JSON.parse(environment.storage[cdn.HOST_AUTO_STATE_KEY]);
   assert.equal(repeated.resetToken, "reset_20260728");
-  assert.equal(environment.writes.length, 1);
+  assert.equal(environment.writes.filter(write => write.key === cdn.HOST_AUTO_STATE_KEY).length, 1);
 });
 
 test("v7 ignores older learned selections instead of reusing prefix-only validation", () => {
@@ -2054,7 +2053,7 @@ test("safe Protobuf mode isolates DashVideo, DashItem audio, and ResponseUrl", (
   assert.equal(output.split(originalHost).length - 1, 3);
 });
 
-test("default gRPC hot path cold-falls back without probes and aliasing retains the original URL", async () => {
+test("default gRPC hot path retains complete server URLs and never invents an alias", async () => {
   const now = Date.UTC(2026, 7, 2, 12, 0, 0);
   const dashVideo = bytes(
     stringField(1, originalUrl),
@@ -2071,9 +2070,10 @@ test("default gRPC hot path cold-falls back without probes and aliasing retains 
   const coldEnvironment = makeEnvironment({ now });
   const cold = await processAuto(input, true, config, coldEnvironment);
   const coldText = asciiFromBinary(cold.body);
-  assert.equal(cold.reason, "cold-akamai");
+  assert.equal(cold.reason, "server-primary");
   assert.equal(coldEnvironment.calls.length, 0);
-  assert.equal(coldEnvironment.writes.length, 0);
+  assert.equal(coldEnvironment.writes[0].key, cdn.PLAYBACK_ACTIVITY_KEY);
+  assert.deepEqual(cold.body, input);
   assert.match(coldText, new RegExp(backupHost));
   assert.match(coldText, new RegExp(originalHost));
 
@@ -2100,10 +2100,11 @@ test("default gRPC hot path cold-falls back without probes and aliasing retains 
   const aliasEnvironment = makeEnvironment({ hostState: state, now });
   const aliased = await processAuto(input, true, config, aliasEnvironment);
   const aliasText = asciiFromBinary(aliased.body);
-  assert.equal(aliased.reason, "host-auto-selected");
+  assert.equal(aliased.reason, "server-primary");
   assert.equal(aliasEnvironment.calls.length, 0);
-  assert.equal(aliasEnvironment.writes.length, 0);
-  assert.match(aliasText, new RegExp(targetHost));
+  assert.equal(aliasEnvironment.writes[0].key, cdn.PLAYBACK_ACTIVITY_KEY);
+  assert.doesNotMatch(aliasText, new RegExp(targetHost));
+  assert.deepEqual(aliased.body, input);
   assert.match(aliasText, new RegExp(originalHost));
   assert.match(aliasText, new RegExp(backupHost));
 });

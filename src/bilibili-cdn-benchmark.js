@@ -39,6 +39,8 @@
   var LOCK_MS = 60 * 1000;
   var BENCHMARK_BUDGET_MS = 45 * 1000;
   var SUSTAINED_SHORTLIST_SIZE = 3;
+  var LEARNING_INTERVAL_MS = 10 * 60 * 1000;
+  var LEARNING_RUN_LIMIT = 6;
   var FRACTIONS = [0.25, 0.5, 0.75];
   var PUBLIC_SAMPLES = [
     { bvid: "BV1xx411c7mD" },
@@ -96,7 +98,7 @@
     }
   }
 
-  function extractMediaSample(value) {
+  function extractMediaSample(value, preferredBucket) {
     var parsed = value;
     var data;
     var video;
@@ -109,6 +111,24 @@
     var bandwidth = 0;
     var quality = 0;
     var codecid = 0;
+    var tracks = [];
+    var preferred = [];
+    function addTracks(list, trackKind) {
+      if (!Array.isArray(list)) {
+        return;
+      }
+      list.slice(0, 32).forEach(function (track) {
+        if (!isObject(track)) {
+          return;
+        }
+        var item = { track: track, kind: trackKind };
+        var bucket = cdn.mediaBucketForDescriptor({
+          kind: trackKind, bandwidthBitsPerSecond: track.bandwidth,
+          quality: track.id, requiredKbps: cdn.requiredThroughputKbps(trackKind, track.bandwidth)
+        });
+        (preferredBucket && bucket === preferredBucket ? preferred : tracks).push(item);
+      });
+    }
     if (typeof value === "string") {
       try {
         parsed = JSON.parse(value);
@@ -116,17 +136,25 @@
         return null;
       }
     }
-    if (!isObject(parsed) || Array.isArray(parsed)) {
+    if (!isObject(parsed) || Array.isArray(parsed) ||
+      (parsed.code !== undefined && Number(parsed.code) !== 0)) {
       return null;
     }
     data = isObject(parsed.data) ? parsed.data : parsed.result;
-    if (
-      data &&
-      data.dash &&
-      Array.isArray(data.dash.video)
-    ) {
-      for (index = 0; index < data.dash.video.length; index += 1) {
-        video = data.dash.video[index];
+    if (data && !data.dash && isObject(data.video_info)) {
+      data = data.video_info;
+    }
+    if (data && data.dash) {
+      addTracks(data.dash.video, "video");
+      addTracks(data.dash.audio, "audio");
+      addTracks(data.dash.dolby && data.dash.dolby.audio, "audio");
+      if (data.dash.flac && data.dash.flac.audio) {
+        addTracks([data.dash.flac.audio], "audio");
+      }
+      tracks = preferred.concat(tracks);
+      for (index = 0; index < tracks.length; index += 1) {
+        video = tracks[index].track;
+        kind = tracks[index].kind;
         primaryUrl = video && (video.base_url || video.baseUrl);
         backups = video && (video.backup_url || video.backupUrl);
         if (
@@ -136,7 +164,7 @@
           backups.length > 0
         ) {
           requiredKbps = cdn.requiredThroughputKbps(
-            "video",
+            kind,
             video.bandwidth
           );
           bandwidth = boundedNumber(video.bandwidth, 0, 0, 1000000000);
@@ -144,6 +172,7 @@
           codecid = boundedNumber(video.codecid, 0, 0, 1000);
           break;
         }
+        primaryUrl = "";
       }
     }
     if (!primaryUrl && data && Array.isArray(data.durl)) {
@@ -169,7 +198,9 @@
     }
     addExactUrl(exactByHost, primaryUrl);
     for (index = 0; index < backups.length; index += 1) {
-      addExactUrl(exactByHost, backups[index]);
+      if (cdn.sameMediaObject(primaryUrl, backups[index])) {
+        addExactUrl(exactByHost, backups[index]);
+      }
     }
     return {
       exactByHost: exactByHost,
@@ -194,6 +225,7 @@
   function emptyProfile() {
     return {
       challengerCursor: 0,
+      learningRuns: 0,
       hosts: {},
       lastRunAt: 0,
       nextRunAt: 0,
@@ -217,28 +249,18 @@
   }
 
   function candidateUrlForHost(media, hostname) {
-    if (media.exactByHost[hostname]) {
-      return media.exactByHost[hostname];
-    }
-    if (hostname === AKAMAI_HOST) {
-      return "";
-    }
-    return cdn.replaceVodHostname(media.primaryUrl, hostname);
+    return media.exactByHost[hostname] || "";
   }
 
   function buildCandidatePlan(media, state, config, now) {
     var profile = ensureProfile(state, config && config.networkProfile);
-    var maintained =
-      config && Array.isArray(config.candidates) && config.candidates.length > 0
-        ? config.candidates
-        : cdn.FIXED_CDN_CANDIDATES;
+    var supplied = Object.keys(media.exactByHost);
     var plan = [];
     var seen = {};
     var referenceHost = media.exactByHost[AKAMAI_HOST]
       ? AKAMAI_HOST
       : media.primaryHost;
-    var challenger;
-    var challengerIndex;
+    var index;
 
     function circuitOpen(hostname) {
       var health = profile.hosts && profile.hosts[hostname];
@@ -256,7 +278,8 @@
         !hostname ||
         seen[hostname] ||
         circuitOpen(hostname) ||
-        cdn.FIXED_CDN_CANDIDATES.indexOf(hostname) === -1
+        !cdn.isBilibiliMediaHost(hostname) ||
+        plan.length >= 5
       ) {
         return;
       }
@@ -272,13 +295,12 @@
       referenceHost = media.primaryHost;
     }
     add(referenceHost, "reference");
+    add(media.primaryHost, "server-primary");
     add(profile.pendingHost, "pending");
     add(profile.selectedHost, "selected");
     add(AKAMAI_HOST, "akamai");
-    if (maintained.length > 0) {
-      challengerIndex = profile.challengerCursor % maintained.length;
-      challenger = String(maintained[challengerIndex] || "").toLowerCase();
-      add(challenger, "challenger");
+    for (index = 0; index < supplied.length; index += 1) {
+      add(supplied[(profile.challengerCursor + index) % supplied.length], "server-backup");
     }
     return plan;
   }
@@ -425,6 +447,7 @@
       var output = extra || {};
       profile.lastRunAt = now;
       profile.nextRunAt = nextAt;
+      profile.learningRuns = Math.min(LEARNING_RUN_LIMIT, (profile.learningRuns || 0) + 1);
       latest = cdn.loadHostAutoState(services);
       if (
         latest.lock &&
@@ -550,7 +573,9 @@
       profile.sampleCursor += 1;
       persistAndFinish(
         "completed",
-        now + config.intervalHours * 60 * 60 * 1000,
+        now + ((profile.learningRuns || 0) < LEARNING_RUN_LIMIT - 1
+          ? LEARNING_INTERVAL_MS
+          : config.intervalHours * 60 * 60 * 1000),
         { candidateCount: candidatePlan.length }
       );
     }
@@ -700,6 +725,10 @@
     config.intervalHours = boundedNumber(config.intervalHours, 2, 2, 72);
     now = services.now();
     startedAt = now;
+    if (cdn.playbackRecentlyActive(services, config.networkProfile, now)) {
+      finish({ probeCount: 0, reason: "playback-active", selectedHost: "" });
+      return;
+    }
     state = cdn.loadHostAutoState(services);
     if (config.resetToken && state.resetToken !== config.resetToken) {
       state = cdn.createEmptyHostAutoState();
@@ -742,7 +771,9 @@
         persistAndFinish("sample-fetch-failed", now + RETRY_MS);
         return;
       }
-      media = extractMediaSample(value);
+      media = extractMediaSample(value, ["normal-video", "audio", "high-bitrate-video"][
+        Math.floor(profile.sampleCursor / 2) % 3
+      ]);
       if (!media) {
         profile.sampleCursor += 1;
         persistAndFinish("sample-invalid", now + RETRY_MS);
