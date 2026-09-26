@@ -14,6 +14,7 @@ const apiRoot = "https://api.bilibili.com";
 
 function shadowrocketRuntimeSource(filename) {
   return [
+    fs.readFileSync(path.join(__dirname, "..", "src", "bilibili-response.js"), "utf8"),
     fs.readFileSync(
       path.join(__dirname, "..", "src", "bilibili-endpoints.js"),
       "utf8",
@@ -2289,7 +2290,7 @@ test("JSON cleanup is idempotent across repeated refresh responses", () => {
   assert.equal(second.body, first.body);
 });
 
-test("myinfo is diagnostic-only and never edits account data without a fixture", () => {
+test("myinfo is not intercepted and never edits account data without a fixture", () => {
   const input = JSON.stringify({
     code: 0,
     data: {
@@ -2304,8 +2305,8 @@ test("myinfo is diagnostic-only and never edits account data without a fixture",
     enhance.parseArgument(""),
   );
 
-  assert.equal(result.endpoint, "myinfo-diagnostic");
-  assert.equal(result.reason, "diagnostic-only");
+  assert.equal(result.endpoint, "");
+  assert.equal(result.reason, "endpoint-unmatched");
   assert.equal(result.changed, 0);
   assert.equal(result.body, input);
 });
@@ -3439,7 +3440,7 @@ test("Mine PubModule removes only asynchronous publishing guides after resume", 
   assert.equal(disabled.changed, 0);
 });
 
-test("DeviceFeature parses only field-1 UTF-8 JSON and safely passes unknown actions", async () => {
+test("DeviceFeature passes opaque actions without parsing or decompressing diagnostics", async () => {
   const url =
     "https://app.bilibili.com/bilibili.app.mine.v1.Mine/DeviceFeature";
   const valid = grpcFrame(
@@ -3458,9 +3459,8 @@ test("DeviceFeature parses only field-1 UTF-8 JSON and safely passes unknown act
     url,
     enhance.parseArgument(""),
   );
-  assert.equal(validResult.endpoint, "grpc-mine-device-feature");
-  assert.equal(validResult.reason, "no-verified-action");
-  assert.match(validResult.schema, /device-feature-action-data-v1/);
+  assert.equal(validResult.endpoint, "");
+  assert.equal(validResult.reason, "endpoint-unmatched");
   assert.equal(validResult.changed, 0);
   assert.deepEqual(Buffer.from(validResult.body), Buffer.from(valid));
 
@@ -3470,7 +3470,7 @@ test("DeviceFeature parses only field-1 UTF-8 JSON and safely passes unknown act
     url,
     enhance.parseArgument(""),
   );
-  assert.equal(notJsonResult.reason, "action-data-not-json");
+  assert.equal(notJsonResult.reason, "endpoint-unmatched");
   assert.deepEqual(Buffer.from(notJsonResult.body), Buffer.from(notJson));
 
   const invalidUtf8Payload = new Uint8Array([0xc3, 0x28]);
@@ -3486,7 +3486,7 @@ test("DeviceFeature parses only field-1 UTF-8 JSON and safely passes unknown act
     url,
     enhance.parseArgument(""),
   );
-  assert.equal(invalidResult.reason, "invalid-utf8");
+  assert.equal(invalidResult.reason, "endpoint-unmatched");
   assert.deepEqual(Buffer.from(invalidResult.body), Buffer.from(invalidUtf8));
 
   const compressed = grpcFrame(
@@ -3499,12 +3499,12 @@ test("DeviceFeature parses only field-1 UTF-8 JSON and safely passes unknown act
     enhance.parseArgument(""),
     { responseHeaders: { "grpc-encoding": "gzip" } },
   );
-  assert.equal(compressedResult.reason, "no-verified-action");
+  assert.equal(compressedResult.reason, "endpoint-unmatched");
   assert.equal(compressedResult.changed, 0);
   assert.deepEqual(Buffer.from(compressedResult.body), Buffer.from(compressed));
 });
 
-test("resource Module/List is matched for diagnostics and never blocks module updates", () => {
+test("resource Module/List is not intercepted and never blocks module updates", () => {
   const input = grpcFrame(
     bytes(
       stringField(1, "release"),
@@ -3531,9 +3531,8 @@ test("resource Module/List is matched for diagnostics and never blocks module up
     enhance.parseArgument(""),
   );
 
-  assert.equal(result.endpoint, "grpc-resource-module-list");
-  assert.equal(result.reason, "diagnostic-only");
-  assert.match(result.schema, /resource-module-list-v1/);
+  assert.equal(result.endpoint, "");
+  assert.equal(result.reason, "endpoint-unmatched");
   assert.equal(result.changed, 0);
   assert.deepEqual(Buffer.from(result.body), Buffer.from(input));
 });
@@ -4845,7 +4844,7 @@ test("gRPC response headers are normalized for Bilibili engine variants", () => 
   assert.equal(blue["grpc-status"], "0");
 });
 
-test("unknown framed gRPC method is diagnosed and cache-normalized without body leakage", () => {
+test("unknown framed gRPC method passes without header changes or body diagnostics", () => {
   const source = shadowrocketRuntimeSource("bilibili-enhance.js");
   const input = grpcFrame(bytes(varintField(1, 7), stringField(7, "shape")));
   const completions = [];
@@ -4880,21 +4879,11 @@ test("unknown framed gRPC method is diagnosed and cache-normalized without body 
   vm.runInNewContext(source, context, { filename: "bilibili-enhance.js" });
   assert.equal(completions.length, 1);
   assert.equal("body" in completions[0], false);
-  assert.equal(completions[0].headers.ETag, undefined);
-  assert.equal(
-    completions[0].headers["Cache-Control"],
-    "no-store, no-cache, must-revalidate",
-  );
-  assert.equal(logs.length, 1);
-  assert.match(logs[0], /host=grpc\.biliapi\.net/);
-  assert.match(logs[0], /path=\/bilibili\.app\.viewunite\.v2\.View\/NewCommercialCard/);
-  assert.match(logs[0], /transport=grpc/);
-  assert.match(logs[0], /topFields=1:1\|7:1/);
-  assert.match(logs[0], /reason=endpoint-unmatched/);
-  assert.doesNotMatch(logs[0], /secret|access_key|shape/);
+  assert.equal(completions[0].headers, undefined);
+  assert.equal(logs.length, 0);
 });
 
-test("unknown gzip gRPC method reports decoded top fields without rewriting its body", async () => {
+test("unknown gzip gRPC method passes without decompression or body logging", async () => {
   const source = shadowrocketRuntimeSource("bilibili-enhance.js");
   const payload = bytes(varintField(1, 7), stringField(7, "private-shape"));
   const input = grpcFrame(new Uint8Array(gzipSync(payload)), 1);
@@ -4933,11 +4922,8 @@ test("unknown gzip gRPC method reports decoded top fields without rewriting its 
   const completion = await completionPromise;
 
   assert.equal("body" in completion, false);
-  assert.equal(logs.length, 1);
-  assert.match(logs[0], /frameFlags=1:/);
-  assert.match(logs[0], /topFields=1:1\|7:1/);
-  assert.match(logs[0], /reason=endpoint-unmatched/);
-  assert.doesNotMatch(logs[0], /secret|access_key|private-shape/);
+  assert.equal(logs.length, 0);
+  assert.equal(completion.headers, undefined);
 });
 
 test("9.7.0 JSON diagnostics report bounded registry, transport, paths, and types without payload leakage", () => {
@@ -4989,7 +4975,7 @@ test("9.7.0 JSON diagnostics report bounded registry, transport, paths, and type
   );
 });
 
-test("volatile 304-shaped response with no ad change still returns no-store headers", () => {
+test("304 responses preserve their original cache semantics and never invent a body", () => {
   const source = shadowrocketRuntimeSource("bilibili-enhance.js");
   const completions = [];
   const logs = [];
@@ -5029,13 +5015,6 @@ test("volatile 304-shaped response with no ad change still returns no-store head
   vm.runInNewContext(source, context, { filename: "bilibili-enhance.js" });
   assert.equal(completions.length, 1);
   assert.equal("body" in completions[0], false);
-  assert.equal(completions[0].headers.Age, undefined);
-  assert.equal(completions[0].headers.ETag, undefined);
-  assert.equal(
-    completions[0].headers["Cache-Control"],
-    "no-store, no-cache, must-revalidate",
-  );
-  assert.match(logs[0], /registry=view method=GET status=304/);
-  assert.match(logs[0], /changed=0 .*reason=resume-fresh-response/);
-  assert.doesNotMatch(logs[0], /secret-token|access_key|ordinary/);
+  assert.equal(completions[0].headers, undefined);
+  assert.equal(logs.length, 0);
 });

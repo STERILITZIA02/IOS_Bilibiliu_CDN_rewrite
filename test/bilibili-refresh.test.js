@@ -33,7 +33,6 @@ test("cache guard is exact to reviewed volatile Bilibili metadata", () => {
     "https://app.bilibili.com/x/v2/search/type?type=0",
     "https://app.bilibili.com/x/v2/account/mine?build=9400000",
     "https://app.biliapi.net/x/v2/account/mine/ipad",
-    "https://app.bilibili.com/x/v2/account/myinfo",
     "https://api.bilibili.com/x/vip/ads/materials",
     "https://api.biliapi.net/x/vip/ads/material/report",
     "https://grpc.biliapi.net/bilibili.app.view.v1.View/ViewProgress",
@@ -50,6 +49,7 @@ test("cache guard is exact to reviewed volatile Bilibili metadata", () => {
   }
   for (const url of [
     "https://app.bilibili.com/x/v2/view/extra",
+    "https://app.bilibili.com/x/v2/account/myinfo",
     "https://app.bilibili.com/x/v2/search/typeahead",
     "https://app.bilibili.com/x/v2/account/myinfo/extra",
     "https://api.bilibili.com/x/vip/ads/material",

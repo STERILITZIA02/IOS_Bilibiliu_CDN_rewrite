@@ -2215,7 +2215,7 @@ test("safe auto fails open when persistence or HTTP services are unavailable", a
 });
 
 test("Shadowrocket fixed entrypoint returns only the changed JSON body", () => {
-  const source = fs.readFileSync(
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "bilibili-response.js"), "utf8") + "\n" + fs.readFileSync(
     path.join(__dirname, "..", "src", "bilibili-cdn.js"),
     "utf8",
   );
@@ -2254,7 +2254,7 @@ test("Shadowrocket fixed entrypoint returns only the changed JSON body", () => {
 });
 
 test("Shadowrocket gRPC entrypoint prefers bodyBytes and decodes gzip", async () => {
-  const source = fs.readFileSync(
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "bilibili-response.js"), "utf8") + "\n" + fs.readFileSync(
     path.join(__dirname, "..", "src", "bilibili-cdn.js"),
     "utf8",
   );
@@ -2327,7 +2327,7 @@ test("Shadowrocket gRPC entrypoint prefers bodyBytes and decodes gzip", async ()
 });
 
 test("Enhanced player-unite pipeline removes delayed dialogs, prompt bars, and toasts", () => {
-  const source = fs.readFileSync(
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "bilibili-response.js"), "utf8") + "\n" + fs.readFileSync(
     path.join(__dirname, "..", "src", "bilibili-cdn.js"),
     "utf8",
   );
@@ -2436,7 +2436,7 @@ test("Enhanced player-unite pipeline removes delayed dialogs, prompt bars, and t
 });
 
 test("Enhanced player-unite cleanup preserves multi-frame order after gzip decode", async () => {
-  const source = fs.readFileSync(
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "bilibili-response.js"), "utf8") + "\n" + fs.readFileSync(
     path.join(__dirname, "..", "src", "bilibili-cdn.js"),
     "utf8",
   );
@@ -2582,7 +2582,7 @@ test("Enhanced player-unite cleanup preserves multi-frame order after gzip decod
 });
 
 test("Shadowrocket auto entrypoint persists validation, then uses a fresh signed backup", () => {
-  const source = fs.readFileSync(
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "bilibili-response.js"), "utf8") + "\n" + fs.readFileSync(
     path.join(__dirname, "..", "src", "bilibili-cdn.js"),
     "utf8",
   );

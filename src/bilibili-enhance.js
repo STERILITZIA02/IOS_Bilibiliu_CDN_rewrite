@@ -1,6 +1,8 @@
 "use strict";
 
 (function (root) {
+  var responseTools = root.BiliResponse ||
+    (typeof module !== "undefined" && module.exports ? require("./bilibili-response.js") : null);
   var hasOwn = Object.prototype.hasOwnProperty;
   var gzipCodec = root.BiliGzip ||
     (typeof module !== "undefined" && module.exports ? require("./bilibili-gzip.js") : null);
@@ -1179,6 +1181,12 @@
       emptySplashData(endpoint)
     );
     changes += clearPresentSplashState(body.data);
+    // The public splash schema uses max_time for the ad display window. An empty
+    // ad list must not retain a positive countdown while startup waits for it.
+    if (hasOwn.call(body.data, "max_time") && body.data.max_time !== 0) {
+      body.data.max_time = 0;
+      changes += 1;
+    }
     return changes > 0 ? 1 : 0;
   }
 
@@ -1284,7 +1292,7 @@
             return (
               isPlainObject(banner) &&
               (
-                banner.type === "ad" ||
+                banner.type === "ad" || banner.type === "ad_inline" ||
                 isHighConfidencePromotion(banner)
               )
             );
@@ -3762,7 +3770,7 @@
     var effectiveConfig = config || parseArgument("");
 
     try {
-      parsed = JSON.parse(original);
+      parsed = JSON.parse(original.replace(/^\uFEFF/, ""));
     } catch (error) {
       return {
         body: original,
@@ -5543,6 +5551,24 @@
     });
   }
 
+  function transformReplyEditor(input) {
+    return rewriteProtoMessage(input, function (field, bytes) {
+      if (field.fieldNumber !== 2 || field.wireType !== 2) return null;
+      var nested = rewriteProtoMessage(protoPayload(bytes, field), function (group, inputBytes) {
+        if (group.fieldNumber !== 7 || group.wireType !== 2) return null;
+        var filtered = filterRepeatedMessage(protoPayload(inputBytes, group), 1, function (button) {
+          var fields = parseProtoFields(button);
+          return fields && fields.filter(function (value) { return value.fieldNumber === 1; }).length === 1 &&
+            includes([5, 8], smallVarintField(button, 1));
+        });
+        if (!filtered.valid) return { invalid: true };
+        return filtered.changed > 0 ? { changed: filtered.changed, payload: filtered.body } : null;
+      });
+      if (!nested.valid) return { invalid: true };
+      return nested.changed > 0 ? { changed: nested.changed, payload: nested.body } : null;
+    });
+  }
+
   function transformGrpcPayload(input, endpoint, config, context) {
     config = config || parseArgument("");
     switch (endpoint) {
@@ -5591,6 +5617,8 @@
         return transformEmptyKnownGrpcReply(input);
       case "grpc-reply":
         return transformReply(input);
+      case "grpc-reply-editor":
+        return transformReplyEditor(input);
       default:
         return {
           body: toUint8Array(input) || new Uint8Array(),
@@ -6351,7 +6379,8 @@
     return Boolean(matched && matched.volatile);
   }
 
-  function noStoreResponseHeaders(headers) {
+  function noStoreResponseHeaders(headers, bodyChanged) {
+    if (bodyChanged) headers = responseTools.rewrittenHeaders(headers);
     var output = {};
     var keys = isPlainObject(headers) ? Object.keys(headers) : [];
     var index;
@@ -6388,6 +6417,7 @@
   }
 
   function normalizeGrpcResponseHeaders(headers, body, requestHeaders, options) {
+    if (options && options.bodyChanged) headers = responseTools.rewrittenHeaders(headers);
     var output = {};
     var keys = isPlainObject(headers) ? Object.keys(headers) : [];
     var index;
@@ -6439,7 +6469,7 @@
       completion.body = result.body;
     }
     if (noStore) {
-      completion.headers = noStoreResponseHeaders(responseHeaders);
+      completion.headers = noStoreResponseHeaders(responseHeaders, Boolean(result && result.valid && result.changed > 0));
     }
     return completion;
   }
@@ -6604,6 +6634,7 @@
     var rawBody;
     var response;
     var transport;
+    var matched;
     try {
       config = parseArgument(
         typeof $argument === "string" ? $argument : ""
@@ -6617,8 +6648,15 @@
         typeof $request !== "undefined" && $request
           ? String($request.url || "")
           : "";
-      endpoint = classifyEndpoint(requestUrl);
-      grpcEndpoint = classifyGrpcEndpoint(requestUrl);
+      matched = endpointRegistry.classify(requestUrl, { runtime: "enhance", responseFilter: true }) ||
+        endpointRegistry.classify(requestUrl, { runtime: "story", responseFilter: true });
+      if (!endpointRegistry.enabled(matched, config) ||
+        !responseTools.canRewrite(typeof $response !== "undefined" ? $response : null)) {
+        $done({});
+        return;
+      }
+      endpoint = matched.transport === "json" ? matched.handler : "";
+      grpcEndpoint = matched.transport === "grpc" ? matched.handler : "";
       context = {
         requestHeaders:
           typeof $request !== "undefined" && $request

@@ -1,4 +1,40 @@
-this.__BILIFLOW_VERSION__ = "3.13.0";
+this.__BILIFLOW_VERSION__ = "3.14.0";
+"use strict";
+
+(function (root) {
+  function statusCode(response) {
+    var value = response && (response.statusCode !== undefined ? response.statusCode : response.status);
+    var match = String(value || "").match(/^(?:HTTP\/[\d.]+\s+)?(\d{3})(?:\s|$)/i);
+    return match ? Number(match[1]) : 0;
+  }
+
+  function canRewrite(response) {
+    var status = statusCode(response);
+    // Missing status is supported by older script engines. Partial, cached,
+    // redirected and failed responses must keep their original representation.
+    return status === 0 || status === 200;
+  }
+
+  function rewrittenHeaders(headers) {
+    var output = {};
+    Object.keys(headers || {}).forEach(function (key) {
+      // Script bodies are decoded. These fields describe the old bytes, not the
+      // replacement JSON/protobuf. grpc-encoding is handled per gRPC frame.
+      if (!/^(?:content-encoding|content-length|content-md5|digest|etag|last-modified)$/i.test(key)) {
+        output[key] = headers[key];
+      }
+    });
+    return output;
+  }
+
+  var api = { canRewrite: canRewrite, rewrittenHeaders: rewrittenHeaders, statusCode: statusCode };
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = api;
+  } else {
+    root.BiliResponse = api;
+  }
+})(this);
+
 /* fflate 0.8.3
 MIT License
 
@@ -151,11 +187,12 @@ SOFTWARE.*/
 
 (function (root) {
   var hasOwn = Object.prototype.hasOwnProperty;
-  var APP_HOSTS = ["app.bilibili.com", "app.biliapi.net"];
+  var APP_HOSTS = ["app.bilibili.com", "app.biliapi.net", "app.biliapi.com"];
   var API_HOSTS = ["api.bilibili.com", "api.biliapi.net"];
   var GRPC_HOSTS = [
     "app.bilibili.com",
     "app.biliapi.net",
+    "app.biliapi.com",
     "grpc.bilibili.com",
     "grpc.biliapi.net"
   ];
@@ -191,7 +228,7 @@ SOFTWARE.*/
   }
 
   var REGISTRY = [
-    row("cdn-json-playurl", ["api.bilibili.com", "api.biliapi.net", "app.bilibili.com", "app.biliapi.net", "interface.bilibili.com"], "\\/(?:x\\/(?:player\\/(?:wbi\\/)?playurl(?:v2)?|v2\\/playurl)|pgc\\/player\\/(?:api\\/playurl(?:proj)?|web\\/(?:v2\\/)?playurl(?:\\/html5)?)|pugv\\/player\\/(?:api|web)\\/playurl|v2\\/playurl)", "json", "cdn", ["cdn"], false, false, true, true),
+    row("cdn-json-playurl", ["api.bilibili.com", "api.biliapi.net", "app.bilibili.com", "app.biliapi.net", "app.biliapi.com", "interface.bilibili.com"], "\\/(?:x\\/(?:player\\/(?:wbi\\/)?playurl(?:v2)?|v2\\/playurl)|pgc\\/player\\/(?:api\\/playurl(?:proj)?|web\\/(?:v2\\/)?playurl(?:\\/html5)?)|pugv\\/player\\/(?:api|web)\\/playurl|v2\\/playurl)", "json", "cdn", ["cdn"], false, false, true, true),
     row("cdn-grpc-playurl", GRPC_HOSTS, "\\/(?:bilibili\\.app\\.playerunite\\.v1\\.Player\\/PlayViewUnite|bilibili\\.app\\.playurl\\.v1\\.PlayURL\\/PlayView|bilibili\\.(?:pgc\\.gateway\\.player\\.(?:v1|v2)|cheese\\.gateway\\.player\\.v1)\\.PlayURL\\/PlayView)", "grpc", "cdn", ["cdn"], false, false, true, true),
     row("grpc-playerunite-ui-guard", GRPC_HOSTS, "/bilibili.app.playerunite.v1.Player/PlayViewUnite", "grpc", "grpc-playerunite-ui-guard", ["enhance"], true, true, false),
 
@@ -210,7 +247,7 @@ SOFTWARE.*/
     row("search-results", APP_HOSTS, "\\/x\\/v2\\/search(?:\\/type)?", "json", "search-results", ["enhance"], true, true, true, true),
     row("navigation", APP_HOSTS, "/x/resource/show/tab/v2", "json", "navigation", ["enhance"], true, true, true),
     row("mine", APP_HOSTS, "\\/x\\/v2\\/account\\/mine(?:\\/ipad)?", "json", "mine", ["enhance"], true, true, true, true),
-    row("myinfo-diagnostic", APP_HOSTS, "/x/v2/account/myinfo", "json", "myinfo-diagnostic", ["enhance"], true, true, true),
+    row("myinfo-diagnostic", APP_HOSTS, "/x/v2/account/myinfo", "json", "myinfo-diagnostic", ["enhance"], false, false, false),
     row("view", APP_HOSTS, "/x/v2/view", "json", "view", ["enhance"], true, true, true),
     row("dynamic-web-feed", API_HOSTS, "/x/polymer/web-dynamic/v1/feed/all", "json", "dynamic-web-feed", ["enhance"], true, true, true),
     row("pgc", API_HOSTS, "\\/pgc\\/page\\/(?:bangumi|cinema\\/tab)", "json", "pgc", ["enhance"], true, true, true, true),
@@ -230,6 +267,7 @@ SOFTWARE.*/
     row("grpc-view-v1", GRPC_HOSTS, "/bilibili.app.view.v1.View/View", "grpc", "grpc-view-v1", ["enhance"], true, true, true),
     row("grpc-view-v1-progress", GRPC_HOSTS, "/bilibili.app.view.v1.View/ViewProgress", "grpc", "grpc-view-v1-progress", ["enhance"], true, true, true),
     row("grpc-view-v1-relates", GRPC_HOSTS, "/bilibili.app.view.v1.View/RelatesFeed", "grpc", "grpc-view-v1-relates", ["enhance"], true, true, true),
+    row("grpc-view-v1-player-relates", GRPC_HOSTS, "/bilibili.app.view.v1.View/PlayerRelates", "grpc", "grpc-view-v1-relates", ["enhance"], true, true, true),
     row("grpc-view-v1-tfinfo", GRPC_HOSTS, "/bilibili.app.view.v1.View/TFInfo", "grpc", "grpc-view-v1-tfinfo", ["enhance"], true, true, true),
     row("grpc-view-unite", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/View", "grpc", "grpc-view-unite", ["enhance"], true, true, true),
     row("grpc-view-unite-progress", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/ViewProgress", "grpc", "grpc-view-unite-progress", ["enhance"], true, true, true),
@@ -238,8 +276,8 @@ SOFTWARE.*/
     row("grpc-view-unite-relates", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/RelatesFeed", "grpc", "grpc-view-unite-relates", ["enhance"], true, true, true),
     row("grpc-view-unite-ai-relate-async", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/AIRelateAsync", "grpc", "grpc-view-unite-ai-relate-async", ["enhance"], true, true, true),
     row("grpc-mine-pub-module", GRPC_HOSTS, "/bilibili.app.mine.v1.Mine/PubModule", "grpc", "grpc-mine-pub-module", ["enhance"], true, true, true),
-    row("grpc-mine-device-feature", GRPC_HOSTS, "/bilibili.app.mine.v1.Mine/DeviceFeature", "grpc", "grpc-mine-device-feature", ["enhance"], true, true, true),
-    row("grpc-resource-module-list", GRPC_HOSTS, "/bilibili.app.resource.v1.Module/List", "grpc", "grpc-resource-module-list", ["enhance"], true, true, true),
+    row("grpc-mine-device-feature", GRPC_HOSTS, "/bilibili.app.mine.v1.Mine/DeviceFeature", "grpc", "grpc-mine-device-feature", ["enhance"], false, false, false),
+    row("grpc-resource-module-list", GRPC_HOSTS, "/bilibili.app.resource.v1.Module/List", "grpc", "grpc-resource-module-list", ["enhance"], false, false, false),
     row("grpc-popular", GRPC_HOSTS, "/bilibili.app.show.v1.Popular/Index", "grpc", "grpc-popular", ["enhance"], true, true, true),
     row("grpc-dynamic", GRPC_HOSTS, "/bilibili.app.dynamic.v2.Dynamic/DynAll", "grpc", "grpc-dynamic", ["enhance"], true, true, true),
     row("grpc-dynamic-video", GRPC_HOSTS, "/bilibili.app.dynamic.v2.Dynamic/DynVideo", "grpc", "grpc-dynamic-video", ["enhance"], true, true, true),
@@ -250,8 +288,9 @@ SOFTWARE.*/
     row("grpc-search-by-type", GRPC_HOSTS, "/bilibili.polymer.app.search.v1.Search/SearchByType", "grpc", "grpc-search-by-type", ["enhance"], true, true, true),
     row("grpc-search-default-words", GRPC_HOSTS, "/bilibili.app.interface.v1.Search/DefaultWords", "grpc", "grpc-search-default-words", ["enhance"], true, true, true),
     row("grpc-reply", GRPC_HOSTS, "/bilibili.main.community.reply.v1.Reply/MainList", "grpc", "grpc-reply", ["enhance"], true, true, true),
+    row("grpc-reply-editor", GRPC_HOSTS, "/bilibili.main.community.reply.v2.Reply/SubjectDescription", "grpc", "grpc-reply-editor", ["enhance"], true, true, true),
     row("grpc-story-bottom-diversion", GRPC_HOSTS, "/bilibili.app.story.v1.Story/BottomDiversionEntrance", "grpc", "grpc-story-bottom-diversion", ["enhance"], true, true, true),
-    row("grpc-metadata-diagnostic", GRPC_HOSTS, "\\/bilibili\\.app\\.(?:view|viewunite|show|story|home|card|feed)\\.[A-Za-z0-9_.]+\\/[A-Za-z0-9_]+", "grpc", "grpc-diagnostic", ["enhance"], true, true, true, true)
+    row("grpc-metadata-diagnostic", GRPC_HOSTS, "\\/bilibili\\.app\\.(?:view|viewunite|show|story|home|card|feed)\\.[A-Za-z0-9_.]+\\/[A-Za-z0-9_]+", "grpc", "grpc-diagnostic", ["enhance"], false, false, false, true)
   ];
 
   function parseRequestUrl(requestUrl) {
@@ -309,6 +348,25 @@ SOFTWARE.*/
     return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "\\/");
   }
 
+  function enabled(value, config) {
+    var handler = value && value.handler;
+    config = config || {};
+    if (!value || (!value.requestGuard && !value.responseFilter) || config.valid === false) {
+      return false;
+    }
+    if (handler === "navigation") return config.ui !== false;
+    if (handler === "mine") return config.ui !== false || (config.ads !== false && config.vipPromotions !== false);
+    if (/^vip-(?:center|materials|material-report)$/.test(handler)) return config.ads !== false && config.vipPromotions !== false;
+    if (handler === "grpc-mine-pub-module") return config.ui !== false &&
+      (config.hideMineFirstVideo !== false || config.hideMineRewardPublish !== false);
+    if (handler === "search-square") return config.searchPromotions !== false || config.ads !== false;
+    if (handler === "grpc-search-default-words" || handler === "search-recommend-words") {
+      return config.ads !== false && config.searchPromotions !== false;
+    }
+    if (handler === "live-shopping-material") return config.liveShopping !== false;
+    return config.ads !== false;
+  }
+
   function rowPattern(value) {
     var hosts = value.hosts.map(escapeRegex).join("|");
     var path = value.path ? escapeRegex(value.path) : value.pathPattern;
@@ -338,10 +396,22 @@ SOFTWARE.*/
     var rows = REGISTRY.filter(function (value) {
       return optionMatches(value, options || {});
     });
+    var groups = [];
+    var byHosts = Object.create(null);
     if (rows.length === 0) {
       return "(?!)";
     }
-    return "^https?:\\/\\/(?:" + rows.map(rowPattern).join("|") + ")(?:\\?|$)";
+    rows.forEach(function (value) {
+      var key = value.hosts.join("|");
+      if (!byHosts[key]) {
+        byHosts[key] = { hosts: value.hosts, paths: [] };
+        groups.push(byHosts[key]);
+      }
+      byHosts[key].paths.push(value.path ? escapeRegex(value.path) : value.pathPattern);
+    });
+    return "^https?:\\/\\/(?:" + groups.map(function (group) {
+      return rowPattern({ hosts: group.hosts, pathPattern: "(?:" + group.paths.join("|") + ")" });
+    }).join("|") + ")(?:\\?|$)";
   }
 
   function toBytes(value) {
@@ -416,6 +486,7 @@ SOFTWARE.*/
   var api = {
     REGISTRY: REGISTRY,
     classify: classify,
+    enabled: enabled,
     detectTransport: detectTransport,
     isGrpcFramedBody: isGrpcFramedBody,
     matcherPattern: matcherPattern,
@@ -433,6 +504,8 @@ SOFTWARE.*/
 "use strict";
 
 (function (root) {
+  var responseTools = root.BiliResponse ||
+    (typeof module !== "undefined" && module.exports ? require("./bilibili-response.js") : null);
   var hasOwn = Object.prototype.hasOwnProperty;
   var gzipCodec = root.BiliGzip ||
     (typeof module !== "undefined" && module.exports ? require("./bilibili-gzip.js") : null);
@@ -1611,6 +1684,12 @@ SOFTWARE.*/
       emptySplashData(endpoint)
     );
     changes += clearPresentSplashState(body.data);
+    // The public splash schema uses max_time for the ad display window. An empty
+    // ad list must not retain a positive countdown while startup waits for it.
+    if (hasOwn.call(body.data, "max_time") && body.data.max_time !== 0) {
+      body.data.max_time = 0;
+      changes += 1;
+    }
     return changes > 0 ? 1 : 0;
   }
 
@@ -1716,7 +1795,7 @@ SOFTWARE.*/
             return (
               isPlainObject(banner) &&
               (
-                banner.type === "ad" ||
+                banner.type === "ad" || banner.type === "ad_inline" ||
                 isHighConfidencePromotion(banner)
               )
             );
@@ -4194,7 +4273,7 @@ SOFTWARE.*/
     var effectiveConfig = config || parseArgument("");
 
     try {
-      parsed = JSON.parse(original);
+      parsed = JSON.parse(original.replace(/^\uFEFF/, ""));
     } catch (error) {
       return {
         body: original,
@@ -5975,6 +6054,24 @@ SOFTWARE.*/
     });
   }
 
+  function transformReplyEditor(input) {
+    return rewriteProtoMessage(input, function (field, bytes) {
+      if (field.fieldNumber !== 2 || field.wireType !== 2) return null;
+      var nested = rewriteProtoMessage(protoPayload(bytes, field), function (group, inputBytes) {
+        if (group.fieldNumber !== 7 || group.wireType !== 2) return null;
+        var filtered = filterRepeatedMessage(protoPayload(inputBytes, group), 1, function (button) {
+          var fields = parseProtoFields(button);
+          return fields && fields.filter(function (value) { return value.fieldNumber === 1; }).length === 1 &&
+            includes([5, 8], smallVarintField(button, 1));
+        });
+        if (!filtered.valid) return { invalid: true };
+        return filtered.changed > 0 ? { changed: filtered.changed, payload: filtered.body } : null;
+      });
+      if (!nested.valid) return { invalid: true };
+      return nested.changed > 0 ? { changed: nested.changed, payload: nested.body } : null;
+    });
+  }
+
   function transformGrpcPayload(input, endpoint, config, context) {
     config = config || parseArgument("");
     switch (endpoint) {
@@ -6023,6 +6120,8 @@ SOFTWARE.*/
         return transformEmptyKnownGrpcReply(input);
       case "grpc-reply":
         return transformReply(input);
+      case "grpc-reply-editor":
+        return transformReplyEditor(input);
       default:
         return {
           body: toUint8Array(input) || new Uint8Array(),
@@ -6783,7 +6882,8 @@ SOFTWARE.*/
     return Boolean(matched && matched.volatile);
   }
 
-  function noStoreResponseHeaders(headers) {
+  function noStoreResponseHeaders(headers, bodyChanged) {
+    if (bodyChanged) headers = responseTools.rewrittenHeaders(headers);
     var output = {};
     var keys = isPlainObject(headers) ? Object.keys(headers) : [];
     var index;
@@ -6820,6 +6920,7 @@ SOFTWARE.*/
   }
 
   function normalizeGrpcResponseHeaders(headers, body, requestHeaders, options) {
+    if (options && options.bodyChanged) headers = responseTools.rewrittenHeaders(headers);
     var output = {};
     var keys = isPlainObject(headers) ? Object.keys(headers) : [];
     var index;
@@ -6871,7 +6972,7 @@ SOFTWARE.*/
       completion.body = result.body;
     }
     if (noStore) {
-      completion.headers = noStoreResponseHeaders(responseHeaders);
+      completion.headers = noStoreResponseHeaders(responseHeaders, Boolean(result && result.valid && result.changed > 0));
     }
     return completion;
   }
@@ -7036,6 +7137,7 @@ SOFTWARE.*/
     var rawBody;
     var response;
     var transport;
+    var matched;
     try {
       config = parseArgument(
         typeof $argument === "string" ? $argument : ""
@@ -7049,8 +7151,15 @@ SOFTWARE.*/
         typeof $request !== "undefined" && $request
           ? String($request.url || "")
           : "";
-      endpoint = classifyEndpoint(requestUrl);
-      grpcEndpoint = classifyGrpcEndpoint(requestUrl);
+      matched = endpointRegistry.classify(requestUrl, { runtime: "enhance", responseFilter: true }) ||
+        endpointRegistry.classify(requestUrl, { runtime: "story", responseFilter: true });
+      if (!endpointRegistry.enabled(matched, config) ||
+        !responseTools.canRewrite(typeof $response !== "undefined" ? $response : null)) {
+        $done({});
+        return;
+      }
+      endpoint = matched.transport === "json" ? matched.handler : "";
+      grpcEndpoint = matched.transport === "grpc" ? matched.handler : "";
       context = {
         requestHeaders:
           typeof $request !== "undefined" && $request

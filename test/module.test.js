@@ -120,7 +120,7 @@ test("generated Enhanced and CDN-only modules are independently functional", () 
   assert.match(moduleText, /"hideMoreSettings":\{\{\{隐藏设置\}\}\}/);
   assert.match(
     moduleText,
-    /Bilibili Enhance Fresh UI = .*argument="\{"debug":\{\{\{调试日志\}\}\}\}"/,
+    /Bilibili Enhance Fresh UI = .*argument="\{"ads":\{\{\{广告过滤\}\}\}.*"debug":\{\{\{调试日志\}\}\}/,
   );
 
   assert.match(cdnOnlyModule, /^#!name=Bilibili CDN Switcher$/m);
@@ -227,7 +227,6 @@ test("fresh UI request guard covers every reviewed cache-sensitive metadata API"
     "https://app.bilibili.com/x/v2/feed/index/relate/story?aid=1",
     "https://app.bilibili.com/x/v2/account/mine?build=9400000",
     "https://app.biliapi.net/x/v2/account/mine/ipad",
-    "https://app.bilibili.com/x/v2/account/myinfo",
     "https://app.bilibili.com/x/v2/view?aid=1",
     "https://app.bilibili.com/x/v2/splash/list",
     "https://app.biliapi.net/x/v2/splash/event/list2",
@@ -254,6 +253,7 @@ test("fresh UI request guard covers every reviewed cache-sensitive metadata API"
   }
   for (const url of [
     "https://api.bilibili.com/x/v2/feed/index",
+    "https://app.bilibili.com/x/v2/account/myinfo",
     "https://app.bilibili.com/x/v2/view/extra",
     "https://grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmSegMobile",
   ]) {
@@ -285,8 +285,6 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
     "https://app.bilibili.com/bilibili.app.viewunite.v1.View/RelatesFeed",
     "https://grpc.biliapi.net/bilibili.app.viewunite.v1.View/AIRelateAsync",
     "https://grpc.biliapi.net/bilibili.app.mine.v1.Mine/PubModule",
-    "https://grpc.biliapi.net/bilibili.app.mine.v1.Mine/DeviceFeature",
-    "https://app.bilibili.com/bilibili.app.resource.v1.Module/List",
     "https://grpc.biliapi.net/bilibili.app.show.v1.Popular/Index",
     "https://grpc.biliapi.net/bilibili.app.dynamic.v2.Dynamic/DynAll",
     "https://grpc.biliapi.net/bilibili.app.dynamic.v2.Dynamic/DynVideo",
@@ -301,6 +299,8 @@ test("enhancement gRPC pattern is narrow and body processing is bounded", () => 
 
   for (const url of [
     "https://grpc.biliapi.net/bilibili.app.playurl.v1.PlayURL/PlayView",
+    "https://grpc.biliapi.net/bilibili.app.mine.v1.Mine/DeviceFeature",
+    "https://app.bilibili.com/bilibili.app.resource.v1.Module/List",
     "https://grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmSegMobile",
     "https://grpc.biliapi.net/bilibili.app.playerunite.v1.Player/PlayViewUnite",
     "https://grpc.biliapi.net/bilibili.app.interface.v1.Teenagers/ModeStatus",
@@ -570,7 +570,6 @@ test("enhancement response pattern covers only reviewed API endpoints", () => {
     "https://app.bilibili.com/x/resource/top/activity",
     "https://api.biliapi.net/x/resource/patch/tab/v2",
     "https://app.bilibili.com/x/v2/account/mine",
-    "https://app.bilibili.com/x/v2/account/myinfo",
     "https://app.bilibili.com/x/vip/ads/materials?position=mine",
     "https://app.bilibili.com/x/vip/ads/material/report",
     "https://api.biliapi.net/x/vip/ads/materials?position=mine",
@@ -593,6 +592,7 @@ test("enhancement response pattern covers only reviewed API endpoints", () => {
 
   for (const url of [
     "https://app.biliapi.net/x/v2/feed/index/story?device=phone",
+    "https://app.bilibili.com/x/v2/account/myinfo",
     "https://app.biliapi.net/x/v2/feed/index/story/cart",
     "https://app.biliapi.net/x/v2/search/typeahead",
     "https://upos-sz-mirrorali.bilivideo.com/upgcxcode/video.m4s",

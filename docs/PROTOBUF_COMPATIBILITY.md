@@ -1,13 +1,16 @@
 # Protobuf/gRPC 兼容性记录
 
-> 复核日期：2026-09-11（9.11.0 / 海外 6.5.0 真机载荷仍待提供）
+> 复核日期：2026-09-26（9.13.0 / 海外 6.6.0 目标 API 真机载荷仍待提供）
 > 过滤器实现：`src/bilibili-enhance.js`
 >
 > 播放地址实现：`src/bilibili-cdn.js`
 
-v3.12.0 沿用本表的字段编号，新增的是 6.x 语义版本 UA 的状态头兼容回归。
-未知/build 型 `bili-inter` UA 仍走旧兼容路径；不能由合成测试推断 6.5.0 真实 UA。
-新版本的证据边界见 [v3.12 审计](V3_12_AUDIT.md)。
+v3.14 增加公开 schema 确认的 PlayerRelates list(1)、PlayerUnite
+fragment_video(10).videos(1).fragment_info(1).fragment_type(3)=1 和评论编辑器
+input(2).func_buttons(7).buttons(1).type(1)=5/8。只删除明确商业项；保留未知字段、
+OGV 片段与原媒体。纯诊断的 DeviceFeature/Module/List 和未知 RPC 不再进入默认
+拦截。实际观察到新版 UA 前缀为 bili-universal 与 bili-overseas；详情见
+[v3.14 审计](V3_14_AUDIT.md)。
 
 本项目不打包完整 Bilibili Protobuf schema，也不使用“猜测式递归删除”。过滤器
 只在精确的 gRPC 方法上读取少量广告或推荐类型判别字段，删除目标字段或重复项时

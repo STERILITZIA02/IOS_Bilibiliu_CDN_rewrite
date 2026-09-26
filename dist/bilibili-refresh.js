@@ -1,13 +1,14 @@
-this.__BILIFLOW_VERSION__ = "3.13.0";
+this.__BILIFLOW_VERSION__ = "3.14.0";
 "use strict";
 
 (function (root) {
   var hasOwn = Object.prototype.hasOwnProperty;
-  var APP_HOSTS = ["app.bilibili.com", "app.biliapi.net"];
+  var APP_HOSTS = ["app.bilibili.com", "app.biliapi.net", "app.biliapi.com"];
   var API_HOSTS = ["api.bilibili.com", "api.biliapi.net"];
   var GRPC_HOSTS = [
     "app.bilibili.com",
     "app.biliapi.net",
+    "app.biliapi.com",
     "grpc.bilibili.com",
     "grpc.biliapi.net"
   ];
@@ -43,7 +44,7 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
   }
 
   var REGISTRY = [
-    row("cdn-json-playurl", ["api.bilibili.com", "api.biliapi.net", "app.bilibili.com", "app.biliapi.net", "interface.bilibili.com"], "\\/(?:x\\/(?:player\\/(?:wbi\\/)?playurl(?:v2)?|v2\\/playurl)|pgc\\/player\\/(?:api\\/playurl(?:proj)?|web\\/(?:v2\\/)?playurl(?:\\/html5)?)|pugv\\/player\\/(?:api|web)\\/playurl|v2\\/playurl)", "json", "cdn", ["cdn"], false, false, true, true),
+    row("cdn-json-playurl", ["api.bilibili.com", "api.biliapi.net", "app.bilibili.com", "app.biliapi.net", "app.biliapi.com", "interface.bilibili.com"], "\\/(?:x\\/(?:player\\/(?:wbi\\/)?playurl(?:v2)?|v2\\/playurl)|pgc\\/player\\/(?:api\\/playurl(?:proj)?|web\\/(?:v2\\/)?playurl(?:\\/html5)?)|pugv\\/player\\/(?:api|web)\\/playurl|v2\\/playurl)", "json", "cdn", ["cdn"], false, false, true, true),
     row("cdn-grpc-playurl", GRPC_HOSTS, "\\/(?:bilibili\\.app\\.playerunite\\.v1\\.Player\\/PlayViewUnite|bilibili\\.app\\.playurl\\.v1\\.PlayURL\\/PlayView|bilibili\\.(?:pgc\\.gateway\\.player\\.(?:v1|v2)|cheese\\.gateway\\.player\\.v1)\\.PlayURL\\/PlayView)", "grpc", "cdn", ["cdn"], false, false, true, true),
     row("grpc-playerunite-ui-guard", GRPC_HOSTS, "/bilibili.app.playerunite.v1.Player/PlayViewUnite", "grpc", "grpc-playerunite-ui-guard", ["enhance"], true, true, false),
 
@@ -62,7 +63,7 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
     row("search-results", APP_HOSTS, "\\/x\\/v2\\/search(?:\\/type)?", "json", "search-results", ["enhance"], true, true, true, true),
     row("navigation", APP_HOSTS, "/x/resource/show/tab/v2", "json", "navigation", ["enhance"], true, true, true),
     row("mine", APP_HOSTS, "\\/x\\/v2\\/account\\/mine(?:\\/ipad)?", "json", "mine", ["enhance"], true, true, true, true),
-    row("myinfo-diagnostic", APP_HOSTS, "/x/v2/account/myinfo", "json", "myinfo-diagnostic", ["enhance"], true, true, true),
+    row("myinfo-diagnostic", APP_HOSTS, "/x/v2/account/myinfo", "json", "myinfo-diagnostic", ["enhance"], false, false, false),
     row("view", APP_HOSTS, "/x/v2/view", "json", "view", ["enhance"], true, true, true),
     row("dynamic-web-feed", API_HOSTS, "/x/polymer/web-dynamic/v1/feed/all", "json", "dynamic-web-feed", ["enhance"], true, true, true),
     row("pgc", API_HOSTS, "\\/pgc\\/page\\/(?:bangumi|cinema\\/tab)", "json", "pgc", ["enhance"], true, true, true, true),
@@ -82,6 +83,7 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
     row("grpc-view-v1", GRPC_HOSTS, "/bilibili.app.view.v1.View/View", "grpc", "grpc-view-v1", ["enhance"], true, true, true),
     row("grpc-view-v1-progress", GRPC_HOSTS, "/bilibili.app.view.v1.View/ViewProgress", "grpc", "grpc-view-v1-progress", ["enhance"], true, true, true),
     row("grpc-view-v1-relates", GRPC_HOSTS, "/bilibili.app.view.v1.View/RelatesFeed", "grpc", "grpc-view-v1-relates", ["enhance"], true, true, true),
+    row("grpc-view-v1-player-relates", GRPC_HOSTS, "/bilibili.app.view.v1.View/PlayerRelates", "grpc", "grpc-view-v1-relates", ["enhance"], true, true, true),
     row("grpc-view-v1-tfinfo", GRPC_HOSTS, "/bilibili.app.view.v1.View/TFInfo", "grpc", "grpc-view-v1-tfinfo", ["enhance"], true, true, true),
     row("grpc-view-unite", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/View", "grpc", "grpc-view-unite", ["enhance"], true, true, true),
     row("grpc-view-unite-progress", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/ViewProgress", "grpc", "grpc-view-unite-progress", ["enhance"], true, true, true),
@@ -90,8 +92,8 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
     row("grpc-view-unite-relates", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/RelatesFeed", "grpc", "grpc-view-unite-relates", ["enhance"], true, true, true),
     row("grpc-view-unite-ai-relate-async", GRPC_HOSTS, "/bilibili.app.viewunite.v1.View/AIRelateAsync", "grpc", "grpc-view-unite-ai-relate-async", ["enhance"], true, true, true),
     row("grpc-mine-pub-module", GRPC_HOSTS, "/bilibili.app.mine.v1.Mine/PubModule", "grpc", "grpc-mine-pub-module", ["enhance"], true, true, true),
-    row("grpc-mine-device-feature", GRPC_HOSTS, "/bilibili.app.mine.v1.Mine/DeviceFeature", "grpc", "grpc-mine-device-feature", ["enhance"], true, true, true),
-    row("grpc-resource-module-list", GRPC_HOSTS, "/bilibili.app.resource.v1.Module/List", "grpc", "grpc-resource-module-list", ["enhance"], true, true, true),
+    row("grpc-mine-device-feature", GRPC_HOSTS, "/bilibili.app.mine.v1.Mine/DeviceFeature", "grpc", "grpc-mine-device-feature", ["enhance"], false, false, false),
+    row("grpc-resource-module-list", GRPC_HOSTS, "/bilibili.app.resource.v1.Module/List", "grpc", "grpc-resource-module-list", ["enhance"], false, false, false),
     row("grpc-popular", GRPC_HOSTS, "/bilibili.app.show.v1.Popular/Index", "grpc", "grpc-popular", ["enhance"], true, true, true),
     row("grpc-dynamic", GRPC_HOSTS, "/bilibili.app.dynamic.v2.Dynamic/DynAll", "grpc", "grpc-dynamic", ["enhance"], true, true, true),
     row("grpc-dynamic-video", GRPC_HOSTS, "/bilibili.app.dynamic.v2.Dynamic/DynVideo", "grpc", "grpc-dynamic-video", ["enhance"], true, true, true),
@@ -102,8 +104,9 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
     row("grpc-search-by-type", GRPC_HOSTS, "/bilibili.polymer.app.search.v1.Search/SearchByType", "grpc", "grpc-search-by-type", ["enhance"], true, true, true),
     row("grpc-search-default-words", GRPC_HOSTS, "/bilibili.app.interface.v1.Search/DefaultWords", "grpc", "grpc-search-default-words", ["enhance"], true, true, true),
     row("grpc-reply", GRPC_HOSTS, "/bilibili.main.community.reply.v1.Reply/MainList", "grpc", "grpc-reply", ["enhance"], true, true, true),
+    row("grpc-reply-editor", GRPC_HOSTS, "/bilibili.main.community.reply.v2.Reply/SubjectDescription", "grpc", "grpc-reply-editor", ["enhance"], true, true, true),
     row("grpc-story-bottom-diversion", GRPC_HOSTS, "/bilibili.app.story.v1.Story/BottomDiversionEntrance", "grpc", "grpc-story-bottom-diversion", ["enhance"], true, true, true),
-    row("grpc-metadata-diagnostic", GRPC_HOSTS, "\\/bilibili\\.app\\.(?:view|viewunite|show|story|home|card|feed)\\.[A-Za-z0-9_.]+\\/[A-Za-z0-9_]+", "grpc", "grpc-diagnostic", ["enhance"], true, true, true, true)
+    row("grpc-metadata-diagnostic", GRPC_HOSTS, "\\/bilibili\\.app\\.(?:view|viewunite|show|story|home|card|feed)\\.[A-Za-z0-9_.]+\\/[A-Za-z0-9_]+", "grpc", "grpc-diagnostic", ["enhance"], false, false, false, true)
   ];
 
   function parseRequestUrl(requestUrl) {
@@ -161,6 +164,25 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
     return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "\\/");
   }
 
+  function enabled(value, config) {
+    var handler = value && value.handler;
+    config = config || {};
+    if (!value || (!value.requestGuard && !value.responseFilter) || config.valid === false) {
+      return false;
+    }
+    if (handler === "navigation") return config.ui !== false;
+    if (handler === "mine") return config.ui !== false || (config.ads !== false && config.vipPromotions !== false);
+    if (/^vip-(?:center|materials|material-report)$/.test(handler)) return config.ads !== false && config.vipPromotions !== false;
+    if (handler === "grpc-mine-pub-module") return config.ui !== false &&
+      (config.hideMineFirstVideo !== false || config.hideMineRewardPublish !== false);
+    if (handler === "search-square") return config.searchPromotions !== false || config.ads !== false;
+    if (handler === "grpc-search-default-words" || handler === "search-recommend-words") {
+      return config.ads !== false && config.searchPromotions !== false;
+    }
+    if (handler === "live-shopping-material") return config.liveShopping !== false;
+    return config.ads !== false;
+  }
+
   function rowPattern(value) {
     var hosts = value.hosts.map(escapeRegex).join("|");
     var path = value.path ? escapeRegex(value.path) : value.pathPattern;
@@ -190,10 +212,22 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
     var rows = REGISTRY.filter(function (value) {
       return optionMatches(value, options || {});
     });
+    var groups = [];
+    var byHosts = Object.create(null);
     if (rows.length === 0) {
       return "(?!)";
     }
-    return "^https?:\\/\\/(?:" + rows.map(rowPattern).join("|") + ")(?:\\?|$)";
+    rows.forEach(function (value) {
+      var key = value.hosts.join("|");
+      if (!byHosts[key]) {
+        byHosts[key] = { hosts: value.hosts, paths: [] };
+        groups.push(byHosts[key]);
+      }
+      byHosts[key].paths.push(value.path ? escapeRegex(value.path) : value.pathPattern);
+    });
+    return "^https?:\\/\\/(?:" + groups.map(function (group) {
+      return rowPattern({ hosts: group.hosts, pathPattern: "(?:" + group.paths.join("|") + ")" });
+    }).join("|") + ")(?:\\?|$)";
   }
 
   function toBytes(value) {
@@ -268,6 +302,7 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
   var api = {
     REGISTRY: REGISTRY,
     classify: classify,
+    enabled: enabled,
     detectTransport: detectTransport,
     isGrpcFramedBody: isGrpcFramedBody,
     matcherPattern: matcherPattern,
@@ -342,7 +377,7 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
     headers[name] = value;
   }
 
-  function guardRequest(requestUrl, headers) {
+  function guardRequest(requestUrl, headers, config) {
     var output;
     var matched = volatileEndpoint(requestUrl);
     var endpoint = matched ? matched.id : "";
@@ -351,7 +386,7 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
     var removedValidators = 0;
     var removedValidatorNames = [];
     var validatorName;
-    if (!endpoint) {
+    if (!endpoint || !endpointRegistry.enabled(matched, config)) {
       return {
         changed: false,
         endpoint: "",
@@ -402,6 +437,43 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
     }
   }
 
+  function parseArgument(raw) {
+    var config = {};
+    try {
+      if (!raw) return config;
+      if (String(raw).trim().charAt(0) === "{") config = JSON.parse(raw);
+      else String(raw).split(/[&,]/).forEach(function (pair) {
+        var at = pair.indexOf("=");
+        if (at >= 0) config[decodeURIComponent(pair.slice(0, at))] = decodeURIComponent(pair.slice(at + 1));
+      });
+      if (!config || typeof config !== "object" || Array.isArray(config)) return { valid: false };
+      ["ads", "ui", "searchPromotions", "liveShopping", "vipPromotions", "hideMineFirstVideo", "hideMineRewardPublish"].forEach(function (key) {
+        if (config[key] !== undefined) config[key] = /^(?:true|1|on|yes)$/i.test(String(config[key]));
+      });
+      return config;
+    } catch (error) {
+      return { valid: false };
+    }
+  }
+
+  function recordUiActivity(requestUrl, config, store, now) {
+    var matched = volatileEndpoint(requestUrl);
+    var key = "BiliCDN.uiActivity.v1";
+    var previous;
+    if (!matched || config.valid === false ||
+      (config.cdn !== undefined && config.cdn !== "auto") ||
+      (config.probeMode !== undefined && !/^(?:cron|nonblocking)$/.test(config.probeMode)) ||
+      !/^(?:feed|story|navigation|mine|splash-list|search-results|grpc-dynamic(?:-video|-personal)?)$/.test(matched.handler) ||
+      !store || typeof store.read !== "function" || typeof store.write !== "function") return false;
+    try {
+      previous = Number(store.read(key));
+      if (previous > 0 && previous <= now && now - previous < 30000) return false;
+      return Boolean(store.write(String(now), key));
+    } catch (error) {
+      return false;
+    }
+  }
+
   function safeLog(message) {
     if (
       typeof console !== "undefined" &&
@@ -417,11 +489,14 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
       typeof $request !== "undefined" && $request
         ? String($request.url || "")
         : "";
+    var config = parseArgument(typeof $argument === "string" ? $argument : "");
+    recordUiActivity(requestUrl, config, typeof $persistentStore !== "undefined" ? $persistentStore : null, Date.now());
     var result = guardRequest(
       requestUrl,
       typeof $request !== "undefined" && $request
         ? $request.headers
-        : null
+        : null,
+      config
     );
     var parsedUrl = endpointRegistry && endpointRegistry.parseRequestUrl
       ? endpointRegistry.parseRequestUrl(requestUrl)
@@ -475,6 +550,8 @@ this.__BILIFLOW_VERSION__ = "3.13.0";
     classifyVolatileEndpoint: classifyVolatileEndpoint,
     debugEnabled: debugEnabled,
     guardRequest: guardRequest,
+    parseArgument: parseArgument,
+    recordUiActivity: recordUiActivity,
     isVolatileMetadataUrl: isVolatileMetadataUrl,
     runShadowrocket: runShadowrocket
   };

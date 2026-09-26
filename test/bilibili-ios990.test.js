@@ -254,7 +254,8 @@ test("9.9 generated response matchers have one owner for every exact registry en
   for (const entry of endpoints.REGISTRY.filter((entry) => entry.path)) {
     for (const host of entry.hosts) {
       const url = `https://${host}${entry.path}`;
-      assert.equal(scripts.filter((pattern) => pattern.test(url)).length, 1, url);
+      assert.equal(scripts.filter((pattern) => pattern.test(url)).length,
+        entry.requestGuard || entry.responseFilter ? 1 : 0, url);
     }
   }
 });

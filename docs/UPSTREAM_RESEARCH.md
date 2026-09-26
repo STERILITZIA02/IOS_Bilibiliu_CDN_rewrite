@@ -3,6 +3,14 @@
 > 调研日期：2026-07-30
 > 用途：记录 v3 升级采用的来源、许可证和安全边界。本文不是功能完成声明。
 
+## 2026-09-26：9.13.0 / 海外 6.6.0 复核
+
+App Store 两个独立应用的版本说明已核对；另检查 Biliverse/ADBlock
+`1dbaef14d55006fb8c13d5b29dffb2977c10fa99` 实际 Response.mjs、vendored schema，
+以及 Sparkle、app2smile、Maasea 的实现。新增备用 app 主机、PlayerRelates、播放器
+AD_FRAGMENT 和评论商品按钮覆盖；启动/刷新风险与公开协议边界详见
+[v3.14 审计及事项清单](V3_14_AUDIT.md)。用户日志只作为本地诊断数据，不发布原文。
+
 ## 2026-09-11：9.11.0 / 海外 6.5.0 复核
 
 核对 App Store 两个独立应用、Sparkle

@@ -411,6 +411,7 @@
     var startupRows = [];
     var shortlist = [];
     var referenceRetried = false;
+    var pausedForActivity = false;
 
     function retryReference() {
       var health = profile.hosts && profile.hosts[media.primaryHost];
@@ -477,6 +478,10 @@
 
     function budgetAllowsProbe() {
       var wallElapsed = Math.max(0, services.now() - startedAt);
+      if (cdn.playbackRecentlyActive(services, config.networkProfile, services.now())) {
+        pausedForActivity = true;
+        return false;
+      }
       return Math.max(wallElapsed, elapsedBudgetMs) + PROBE_TIMEOUT_MS <=
         BENCHMARK_BUDGET_MS;
     }
@@ -612,7 +617,7 @@
       }
       if (!budgetAllowsProbe()) {
         persistAndFinish(
-          "budget-exhausted",
+          pausedForActivity ? "playback-active" : "budget-exhausted",
           now + RETRY_MS,
           { candidateCount: candidatePlan.length }
         );
@@ -665,7 +670,7 @@
       }
       if (!budgetAllowsProbe()) {
         persistAndFinish(
-          "budget-exhausted",
+          pausedForActivity ? "playback-active" : "budget-exhausted",
           now + RETRY_MS,
           { candidateCount: candidatePlan.length }
         );

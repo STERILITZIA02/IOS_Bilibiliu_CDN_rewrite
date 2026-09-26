@@ -469,11 +469,12 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.13.0 面向 Bilibili iOS 9.11.0 和海外版 6.5.0，
-              覆盖动态视频流、UP 主商品和播放中商业指令过滤，补齐番剧频道商业横幅。
+              使用本站同版本的已审核快照。Enhanced 3.14.0 面向 Bilibili iOS 9.13.0 和海外版 6.6.0，
+              覆盖动态视频流、UP 主商品和播放中商业指令过滤，补齐播放器广告片段与关联推荐。
               首页默认立即显示已有视频，可选择额外补取；保留首页非空保护。
               CDN v10 按持续带宽和起播延迟选择本次视频的完整地址，不再接管媒体重试和快进请求。
-              内置 gzip 的 JSC 脚本继续处理恢复请求；两个新版本的真机效果仍需核验。
+              内置 gzip 的 JSC 脚本继续处理恢复请求，并修复压缩头写回与开屏计时。
+              启动、刷新时暂停后台测速；具体设备效果仍需复测。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
@@ -519,7 +520,7 @@ export function Customizer({
                 </strong>
                 <small>
                   {variant === "enhanced"
-                    ? "9.11.0 / 海外 6.5.0 · 去广告、首页即显与 CDN 优选"
+                    ? "9.13.0 / 海外 6.6.0 · 去广告、首页即显与 CDN 优选"
                     : "仅 CDN 与流量分流"}
                 </small>
               </div>
@@ -596,7 +597,7 @@ export function Customizer({
                   </span>
                   <span>
                     <strong>CDN + Enhanced</strong>
-                    <small>推荐 · 9.11.0 / 海外 6.5.0 去广告、首页即显与 CDN 优选</small>
+                    <small>推荐 · 9.13.0 / 海外 6.6.0 去广告、首页即显与 CDN 优选</small>
                   </span>
                   <span className="radio-dot">
                     {variant === "enhanced" && <span />}
@@ -845,7 +846,7 @@ export function Customizer({
                       Range 探测。主机需在两个不同匿名对象上通过内部 Range/hash
                       校验；连续失败会短期熔断。没有可靠测速时保留原地址，不强推
                       Akamai，也不改写播放中的媒体请求。初期最多六轮加快学习，
-                      收到播放信息后三分钟暂停测速；初期学习会额外使用流量。
+                      识别到启动、刷新或播放信息后三分钟暂停测速；初期学习会额外使用流量。
                     </small>
                   </label>
                   <label className="range-field">

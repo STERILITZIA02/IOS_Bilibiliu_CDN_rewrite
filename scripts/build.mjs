@@ -48,6 +48,7 @@ const refreshScript = await readFile(
   path.join(rootDirectory, "src", "bilibili-refresh.js"),
   "utf8",
 );
+const responseScript = await readFile(path.join(rootDirectory, "src", "bilibili-response.js"), "utf8");
 const fflateDirectory = path.resolve(path.dirname(require.resolve("fflate")), "..");
 const gzipRuntime = [
   `/* fflate ${packageJson.devDependencies.fflate}\n${await readFile(path.join(fflateDirectory, "LICENSE"), "utf8")}*/`,
@@ -387,22 +388,23 @@ function storyScriptArgument(includeEnhancements) {
 
 const combinedStoryScript = [
   '"use strict";\nthis.__BILIFLOW_COMBINED__ = true;',
+  responseScript,
   endpointScript,
   enhanceScript,
   sourceScript,
   `(function (root) {
   "use strict";
 
-  function noStoreHeaders() {
+  function noStoreHeaders(changed) {
     var headers =
       typeof $response !== "undefined" && $response
         ? $response.headers
         : null;
-    return root.BiliEnhance.noStoreResponseHeaders(headers);
+    return root.BiliEnhance.noStoreResponseHeaders(headers, changed > 0);
   }
 
   function complete(body, changed) {
-    var result = { headers: noStoreHeaders() };
+    var result = { headers: noStoreHeaders(changed) };
     if (changed > 0 && typeof body === "string") {
       result.body = body;
     }
@@ -416,6 +418,10 @@ const combinedStoryScript = [
   }
 
   function run() {
+    if (!root.BiliResponse.canRewrite(typeof $response !== "undefined" ? $response : null)) {
+      $done({});
+      return;
+    }
     var rawArgument =
       typeof $argument === "string" ? $argument : "";
     var original =
@@ -514,6 +520,7 @@ const combinedStoryScript = [
 
 const cdnOnlyStoryScript = [
   '"use strict";\nthis.__BILIFLOW_COMBINED__ = true;',
+  responseScript,
   sourceScript,
   `(function (root) {
   "use strict";
@@ -547,7 +554,7 @@ const cdnOnlyStoryScript = [
       typeof $response !== "undefined" && $response
         ? $response.headers
         : null;
-    var result = { headers: noStoreHeaders(headers) };
+    var result = { headers: noStoreHeaders(changed > 0 ? root.BiliResponse.rewrittenHeaders(headers) : headers) };
     if (changed > 0 && typeof body === "string") {
       result.body = body;
     }
@@ -557,6 +564,10 @@ const cdnOnlyStoryScript = [
   function run() {
     var rawArgument =
       typeof $argument === "string" ? $argument : "";
+    if (!root.BiliResponse.canRewrite(typeof $response !== "undefined" ? $response : null)) {
+      $done({});
+      return;
+    }
     var original =
       typeof $response !== "undefined" &&
       $response &&
@@ -618,7 +629,7 @@ const cdnOnlyStoryScript = [
 })(this);`,
 ].join("\n");
 
-const combinedBenchmarkScript = [sourceScript, benchmarkScript].join("\n");
+const combinedBenchmarkScript = [responseScript, sourceScript, benchmarkScript].join("\n");
 
 const ruleList = [
   "# NAME: Bilibili",
@@ -692,7 +703,7 @@ function cdnCronLines() {
 
 function enhanceScriptLines() {
   return [
-    `Bilibili Enhance Fresh UI = type=http-request,pattern=${refreshPattern},timeout=3,engine=jsc,script-path=${versionedRaw("dist/bilibili-refresh.js")},argument="{"debug":{{{调试日志}}}}"`,
+    `Bilibili Enhance Fresh UI = type=http-request,pattern=${refreshPattern},timeout=3,engine=jsc,script-path=${versionedRaw("dist/bilibili-refresh.js")},argument="${scriptArgument([...enhanceArgumentKeys, "cdn", "probeMode"])}"`,
     `Bilibili Enhance JSON = type=http-response,pattern=${enhancePattern},requires-body=1,max-size=4194304,timeout=8,engine=jsc,script-path=${versionedRaw("dist/bilibili-enhance.js")},argument="${enhanceScriptArgument}"`,
     `Bilibili Enhance gRPC = type=http-response,pattern=${enhanceGrpcPattern},requires-body=1,binary-body-mode=1,max-size=4194304,timeout=10,engine=jsc,script-path=${versionedRaw("dist/bilibili-enhance.js")},argument="${enhanceScriptArgument}"`,
   ];
@@ -790,10 +801,10 @@ const outputs = new Map([
   // Keep the v1/v2 URL updating in place; it intentionally tracks Enhanced.
   ["dist/Bilibili.CDN.sgmodule", enhancedModule],
   ["dist/Bilibili.list", ruleList],
-  ["dist/bilibili-cdn.js", [gzipRuntime, sourceScript].join("\n")],
+  ["dist/bilibili-cdn.js", [responseScript, gzipRuntime, sourceScript].join("\n")],
   ["dist/bilibili-cdn-route.js", routeScript],
   ["dist/bilibili-cdn-benchmark.js", combinedBenchmarkScript],
-  ["dist/bilibili-enhance.js", [gzipRuntime, endpointScript, enhanceScript].join("\n")],
+  ["dist/bilibili-enhance.js", [responseScript, gzipRuntime, endpointScript, enhanceScript].join("\n")],
   ["dist/bilibili-refresh.js", [endpointScript, refreshScript].join("\n")],
   ["dist/bilibili-story.js", combinedStoryScript],
   ["dist/bilibili-story-cdn.js", cdnOnlyStoryScript],

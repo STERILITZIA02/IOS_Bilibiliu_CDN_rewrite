@@ -1,3 +1,39 @@
+"use strict";
+
+(function (root) {
+  function statusCode(response) {
+    var value = response && (response.statusCode !== undefined ? response.statusCode : response.status);
+    var match = String(value || "").match(/^(?:HTTP\/[\d.]+\s+)?(\d{3})(?:\s|$)/i);
+    return match ? Number(match[1]) : 0;
+  }
+
+  function canRewrite(response) {
+    var status = statusCode(response);
+    // Missing status is supported by older script engines. Partial, cached,
+    // redirected and failed responses must keep their original representation.
+    return status === 0 || status === 200;
+  }
+
+  function rewrittenHeaders(headers) {
+    var output = {};
+    Object.keys(headers || {}).forEach(function (key) {
+      // Script bodies are decoded. These fields describe the old bytes, not the
+      // replacement JSON/protobuf. grpc-encoding is handled per gRPC frame.
+      if (!/^(?:content-encoding|content-length|content-md5|digest|etag|last-modified)$/i.test(key)) {
+        output[key] = headers[key];
+      }
+    });
+    return output;
+  }
+
+  var api = { canRewrite: canRewrite, rewrittenHeaders: rewrittenHeaders, statusCode: statusCode };
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = api;
+  } else {
+    root.BiliResponse = api;
+  }
+})(this);
+
 /*
  * Bilibili CDN Switcher v10 for Shadowrocket
  *
@@ -13,6 +49,8 @@
 (function (root) {
   "use strict";
 
+  var responseTools = root.BiliResponse ||
+    (typeof module !== "undefined" && module.exports ? require("./bilibili-response.js") : null);
   var gzipCodec = root.BiliGzip ||
     (typeof module !== "undefined" && module.exports ? require("./bilibili-gzip.js") : null);
   var NAME = "BiliCDN";
@@ -23,6 +61,7 @@
   var MEDIA_ROUTE_STATE_KEY = "BiliCDN.mediaRoutes.v9";
   var MEDIA_ROUTE_STATE_VERSION = 9;
   var PLAYBACK_ACTIVITY_KEY = "BiliCDN.playbackActivity.v1";
+  var UI_ACTIVITY_KEY = "BiliCDN.uiActivity.v1";
   var PLAYBACK_PROBE_PAUSE_MS = 3 * 60 * 1000;
   var DEFAULT_AUTO_INTERVAL_HOURS = 2;
   var DEFAULT_SWITCH_THRESHOLD = 20;
@@ -935,6 +974,9 @@
       return { body: input, changed: 0, valid: false };
     }
 
+    if (isObject(parsed) && Object.prototype.hasOwnProperty.call(parsed, "code") && Number(parsed.code) !== 0) {
+      return { body: input, changed: 0, valid: true };
+    }
     state.changed = walkSafeFixedJson(parsed, config, 0);
     return {
       body: state.changed > 0 ? JSON.stringify(parsed) : input,
@@ -2683,6 +2725,9 @@
       return { body: input, changed: 0, descriptors: descriptors, valid: false };
     }
 
+    if (isObject(parsed) && Object.prototype.hasOwnProperty.call(parsed, "code") && Number(parsed.code) !== 0) {
+      return { body: input, changed: 0, descriptors: descriptors, valid: true };
+    }
     changed = walkSafeJson(
       parsed,
       "unknown",
@@ -4130,6 +4175,40 @@
     };
   }
 
+  function stripAdFragments(input) {
+    var fields = parseProtoFields(input);
+    var chunks = [];
+    var changed = 0;
+    var index;
+    var inner;
+    var videoFields;
+    var infoFields;
+    var remove;
+    if (!fields) return { bytes: input, changed: 0, valid: false };
+    for (index = 0; index < fields.length; index += 1) {
+      var field = fields[index];
+      remove = false;
+      if (field.fieldNumber === 1 && field.wireType === 2) {
+        videoFields = parseProtoFields(field.payload);
+        if (!videoFields) return { bytes: input, changed: 0, valid: false };
+        if (videoFields.filter(function (value) { return value.fieldNumber === 1; }).length !== 1) {
+          chunks.push(input.subarray(field.rawStart, field.end));
+          continue;
+        }
+        for (inner = 0; inner < videoFields.length; inner += 1) {
+          if (videoFields[inner].fieldNumber !== 1 || videoFields[inner].wireType !== 2) continue;
+          infoFields = parseProtoFields(videoFields[inner].payload);
+          if (!infoFields) return { bytes: input, changed: 0, valid: false };
+          if (infoFields.filter(function (value) { return value.fieldNumber === 3; }).length === 1 &&
+            firstProtoVarint(infoFields, 3) === 1) remove = true;
+        }
+      }
+      if (remove) changed += 1;
+      else chunks.push(input.subarray(field.rawStart, field.end));
+    }
+    return { bytes: changed > 0 ? concatBytes(chunks) : input, changed: changed, valid: true };
+  }
+
   function stripPlayerPromotionPayload(input, config) {
     var bytes = toUint8Array(input);
     var fields = parseProtoFields(bytes);
@@ -4153,11 +4232,13 @@
     }
     for (index = 0; index < fields.length; index += 1) {
       field = fields[index];
-      if (field.fieldNumber !== 9 || field.wireType !== 2) {
+      if ((field.fieldNumber !== 9 && field.fieldNumber !== 10) || field.wireType !== 2) {
         chunks.push(bytes.subarray(field.rawStart, field.end));
         continue;
       }
-      nested = removeLengthDelimitedProtoFields(field.payload, [1, 2, 3]);
+      nested = field.fieldNumber === 10
+        ? stripAdFragments(field.payload)
+        : removeLengthDelimitedProtoFields(field.payload, [1, 2, 3]);
       if (!nested.valid) {
         return { bytes: bytes, changed: 0, valid: false };
       }
@@ -5114,6 +5195,13 @@
   }
 
   function playbackRecentlyActive(services, profile, now) {
+    try {
+      var raw = services && typeof services.read === "function" ? services.read(UI_ACTIVITY_KEY) : null;
+      var uiAt = typeof raw === "string" && /^\d{1,16}$/.test(raw) ? Number(raw) : 0;
+      if (uiAt > 0 && uiAt <= now && now - uiAt < PLAYBACK_PROBE_PAUSE_MS) return true;
+    } catch (error) {
+      // Optional metadata activity tracking must not block a benchmark forever.
+    }
     var at = playbackActivityAt(services, profile, now);
     return at > 0 && now - at < PLAYBACK_PROBE_PAUSE_MS;
   }
@@ -5993,6 +6081,10 @@
           " gzipCodec=" + (gzipCodec ? "bundled" : "host"));
       }
     }
+    if (changed > 0) {
+      completion.headers = responseTools.rewrittenHeaders(completion.headers ||
+        (typeof $response !== "undefined" && $response ? $response.headers : null));
+    }
     $done(completion);
   }
 
@@ -6168,6 +6260,10 @@
         $done({});
         return;
       }
+      if (!responseTools.canRewrite(typeof $response !== "undefined" ? $response : null)) {
+        $done({});
+        return;
+      }
       requestUrl =
         typeof $request !== "undefined" && $request && $request.url
           ? String($request.url)
@@ -6266,6 +6362,7 @@
     MEDIA_ROUTE_MAX_TTL_MS: MEDIA_ROUTE_MAX_TTL_MS,
     MEDIA_ROUTE_STATE_KEY: MEDIA_ROUTE_STATE_KEY,
     PLAYBACK_ACTIVITY_KEY: PLAYBACK_ACTIVITY_KEY,
+    UI_ACTIVITY_KEY: UI_ACTIVITY_KEY,
     DEFAULT_CDN: DEFAULT_CDN,
     RUNTIME_OPTION_LIMITS: RUNTIME_OPTION_LIMITS,
     asciiBytesToString: asciiBytesToString,
@@ -6752,6 +6849,7 @@
     var startupRows = [];
     var shortlist = [];
     var referenceRetried = false;
+    var pausedForActivity = false;
 
     function retryReference() {
       var health = profile.hosts && profile.hosts[media.primaryHost];
@@ -6818,6 +6916,10 @@
 
     function budgetAllowsProbe() {
       var wallElapsed = Math.max(0, services.now() - startedAt);
+      if (cdn.playbackRecentlyActive(services, config.networkProfile, services.now())) {
+        pausedForActivity = true;
+        return false;
+      }
       return Math.max(wallElapsed, elapsedBudgetMs) + PROBE_TIMEOUT_MS <=
         BENCHMARK_BUDGET_MS;
     }
@@ -6953,7 +7055,7 @@
       }
       if (!budgetAllowsProbe()) {
         persistAndFinish(
-          "budget-exhausted",
+          pausedForActivity ? "playback-active" : "budget-exhausted",
           now + RETRY_MS,
           { candidateCount: candidatePlan.length }
         );
@@ -7006,7 +7108,7 @@
       }
       if (!budgetAllowsProbe()) {
         persistAndFinish(
-          "budget-exhausted",
+          pausedForActivity ? "playback-active" : "budget-exhausted",
           now + RETRY_MS,
           { candidateCount: candidatePlan.length }
         );

@@ -5,6 +5,14 @@ Starting with v3.11.0, the build uses pinned fflate 0.8.3 for gzip decoding and
 embeds its JavaScript and license into the two gRPC runtime artifacts. There is
 no runtime dependency download on the device.
 
+The v3.14 review used Biliverse/ADBlock commit
+`1dbaef14d55006fb8c13d5b29dffb2977c10fa99` for fallback-host coverage and the
+wire field facts for PlayerRelates, PlayerUnite AD_FRAGMENT, and reply-editor
+commerce button types. Sparkle, app2smile/rules and Maasea/sgmodule were also
+cross-checked. No upstream executable implementation or user packet log was
+incorporated; the wire-preserving filters and response helper are independent.
+See [the v3.14 source and compatibility record](docs/V3_14_AUDIT.md).
+
 For v3.13.0, the user supplied Bilibili Video CDN Switcher 0.1.4 (Greasy Fork
 script 500213). It was inspected for its response-level DASH video/audio handling
 and default preservation of backup URLs. Its source declares no license; no code

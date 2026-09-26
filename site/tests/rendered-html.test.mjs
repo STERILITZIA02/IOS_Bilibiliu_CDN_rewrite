@@ -36,8 +36,9 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /你的 Bilibili/);
   assert.match(html, /CDN \+ Enhanced/);
   assert.match(html, /仅 CDN Switcher/);
-  assert.match(html, /Enhanced 3\.13\.0/);
-  assert.match(html, /Bilibili iOS 9\.11\.0 和海外版 6\.5\.0/);
+  assert.match(html, /Enhanced 3\.14\.0/);
+  assert.match(html, /Bilibili iOS 9\.13\.0 和海外版 6\.6\.0/);
+  assert.match(html, /压缩头写回与开屏计时/);
   assert.match(html, /动态视频流、UP 主商品和播放中商业指令过滤/);
   assert.match(html, /内置 gzip 的 JSC 脚本/);
   assert.match(html, /音视频分别测速，保留播放器重试和快进/);

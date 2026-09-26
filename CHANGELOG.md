@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented here.
 
+## [3.14.0] - 2026-09-26
+
+- Target iOS 9.13.0 and overseas 6.6.0 with observed `bili-universal/91300100`
+  and `bili-overseas/91300300` UA prefixes. Keep user-supplied build identifiers
+  separate from numeric request builds; device response bodies remain unverified.
+- Clear stale compression, length and representation validators whenever decoded
+  JSON/protobuf is rewritten. Apply one shared response contract to Enhanced,
+  CDN and both Story pipelines; preserve HTTP errors, 304/206 and API error bodies.
+- Remove automatic interception/cache changes for diagnostic-only myinfo,
+  DeviceFeature, Module/List and unknown RPCs. Disabled filters pass through;
+  reviewed advertising/UI responses keep their cache guards. Group matchers by
+  host without widening paths or adding competing response owners.
+- Cover the reviewed `app.biliapi.com` fallback host, legacy `View/PlayerRelates`,
+  explicit PlayerUnite AD_FRAGMENT entries, and comment-editor commerce buttons.
+  Preserve normal OGV/media fragments, input controls, unknown fields and signed URLs.
+- Clear an existing splash max_time when removing splash ads, support BOM-prefixed
+  JSON, and recognize inline banner ads. Record only throttled UI activity time to
+  defer background probes during startup/refresh, including between probe requests.
+- Analyze a user-supplied transport log privately. HTTPDNS connection timeouts and
+  missing script-execution evidence are not presented as proof of a device root
+  cause. No raw logs, signature URLs, global QUIC block or HTTPDNS rejection is shipped.
+- See `docs/V3_14_AUDIT.md` for sources, coverage, verified fixes and remaining device checks.
+
 ## [3.13.0] - 2026-09-16
 
 - Stop request-time media redirection. New modules no longer intercept media

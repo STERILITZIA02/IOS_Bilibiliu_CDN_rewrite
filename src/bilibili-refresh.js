@@ -58,7 +58,7 @@
     headers[name] = value;
   }
 
-  function guardRequest(requestUrl, headers) {
+  function guardRequest(requestUrl, headers, config) {
     var output;
     var matched = volatileEndpoint(requestUrl);
     var endpoint = matched ? matched.id : "";
@@ -67,7 +67,7 @@
     var removedValidators = 0;
     var removedValidatorNames = [];
     var validatorName;
-    if (!endpoint) {
+    if (!endpoint || !endpointRegistry.enabled(matched, config)) {
       return {
         changed: false,
         endpoint: "",
@@ -118,6 +118,43 @@
     }
   }
 
+  function parseArgument(raw) {
+    var config = {};
+    try {
+      if (!raw) return config;
+      if (String(raw).trim().charAt(0) === "{") config = JSON.parse(raw);
+      else String(raw).split(/[&,]/).forEach(function (pair) {
+        var at = pair.indexOf("=");
+        if (at >= 0) config[decodeURIComponent(pair.slice(0, at))] = decodeURIComponent(pair.slice(at + 1));
+      });
+      if (!config || typeof config !== "object" || Array.isArray(config)) return { valid: false };
+      ["ads", "ui", "searchPromotions", "liveShopping", "vipPromotions", "hideMineFirstVideo", "hideMineRewardPublish"].forEach(function (key) {
+        if (config[key] !== undefined) config[key] = /^(?:true|1|on|yes)$/i.test(String(config[key]));
+      });
+      return config;
+    } catch (error) {
+      return { valid: false };
+    }
+  }
+
+  function recordUiActivity(requestUrl, config, store, now) {
+    var matched = volatileEndpoint(requestUrl);
+    var key = "BiliCDN.uiActivity.v1";
+    var previous;
+    if (!matched || config.valid === false ||
+      (config.cdn !== undefined && config.cdn !== "auto") ||
+      (config.probeMode !== undefined && !/^(?:cron|nonblocking)$/.test(config.probeMode)) ||
+      !/^(?:feed|story|navigation|mine|splash-list|search-results|grpc-dynamic(?:-video|-personal)?)$/.test(matched.handler) ||
+      !store || typeof store.read !== "function" || typeof store.write !== "function") return false;
+    try {
+      previous = Number(store.read(key));
+      if (previous > 0 && previous <= now && now - previous < 30000) return false;
+      return Boolean(store.write(String(now), key));
+    } catch (error) {
+      return false;
+    }
+  }
+
   function safeLog(message) {
     if (
       typeof console !== "undefined" &&
@@ -133,11 +170,14 @@
       typeof $request !== "undefined" && $request
         ? String($request.url || "")
         : "";
+    var config = parseArgument(typeof $argument === "string" ? $argument : "");
+    recordUiActivity(requestUrl, config, typeof $persistentStore !== "undefined" ? $persistentStore : null, Date.now());
     var result = guardRequest(
       requestUrl,
       typeof $request !== "undefined" && $request
         ? $request.headers
-        : null
+        : null,
+      config
     );
     var parsedUrl = endpointRegistry && endpointRegistry.parseRequestUrl
       ? endpointRegistry.parseRequestUrl(requestUrl)
@@ -191,6 +231,8 @@
     classifyVolatileEndpoint: classifyVolatileEndpoint,
     debugEnabled: debugEnabled,
     guardRequest: guardRequest,
+    parseArgument: parseArgument,
+    recordUiActivity: recordUiActivity,
     isVolatileMetadataUrl: isVolatileMetadataUrl,
     runShadowrocket: runShadowrocket
   };

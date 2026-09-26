@@ -18,6 +18,13 @@
 > 组合的真机验收。仓库会明确区分“代码测试通过”和“真机已验证”；发布前后的
 > 检查矩阵见 [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
 >
+> **v3.14.0：国内 9.13.0 / 国际 6.6.0 启动与恢复修复**。统一清理改写正文后的旧
+> 压缩/长度/校验头，清零已存在的开屏广告计时，移除纯诊断接口和未知 RPC 的默认
+> 拦截；补齐 `app.biliapi.com`、播放器明确广告片段、`PlayerRelates` 和评论商品
+> 按钮。启动与刷新期间后台测速让路。已完成合成回归，用户日志中的 HTTPDNS 超时
+> 和具体手机效果仍需复测；不能保证未知投放或视频内植入广告全部消失。
+> [多源核对、覆盖清单与验收状态](docs/V3_14_AUDIT.md)。
+>
 > **v3.13.0 播放稳定性修复**：针对国际版默认 CDN 下反复加载、快进花屏和音画
 > 不同步的反馈，取消媒体请求重定向、自动拼接主机与无测速的 Akamai 提升。
 > 只在播放信息中提升同一媒体路径的完整服务端候选；保留播放器重试、Range、
@@ -142,6 +149,7 @@ app.bilibili.com
 interface.bilibili.com
 api.biliapi.net
 app.biliapi.net
+app.biliapi.com
 grpc.bilibili.com
 grpc.biliapi.net
 ```
@@ -264,12 +272,13 @@ JSON API 的非零 `code` 响应保持原正文，不把登录或业务错误改
 首页/推荐页和“我的”页的易变请求另有精确请求侧缓存保护：只对四个 splash
 接口、`/x/v2/feed/index`、`/x/v2/feed/index/story(/cart)`、
 `/x/v2/feed/index/relate/story`、`/x/v2/view`、
-`/x/v2/account/mine(/ipad)`、`/x/v2/account/myinfo`、搜索运营词、漫画闪屏以及
+`/x/v2/account/mine(/ipad)`、搜索运营词、漫画闪屏以及
 两个 VIP 广告素材/上报接口移除条件缓存校验头，并设置
 `no-cache, no-store, max-age=0`；响应侧在
 feed/story、mine、view、splash 与 VIP 素材/上报等实际过滤接口成功分类后，也会
 移除 ETag/Last-Modified/Content-Length 等缓存元数据并返回 `no-store`，避免
-过滤后的页面被旧响应覆盖。`myinfo` 仍只诊断、不改正文或响应头。不修改原始 URL、
+过滤后的页面被旧响应覆盖。v3.14 不再拦截 `myinfo`、`DeviceFeature`、资源 `Module/List`
+和未知 RPC；关闭相应过滤功能时也保持缓存头和正文原样。不修改原始 URL、
 查询参数、请求体或签名。后台恢复后得到的新响应会再次经过同一过滤器。
 异步 `Mine/PubModule` 只删除发布引导 `PubGuide`，保留 UGC、动态及未知卡；
 `Popular/Index` 备用推荐流同样只保留最多 6 个有明确视频身份的普通 AV。
@@ -327,7 +336,7 @@ feed/story、mine、view、splash 与 VIP 素材/上报等实际过滤接口成�
 
 1. Shadowrocket cron 每十分钟检查一次。每个网络档案首次最多六轮学习；正常完成时
    前五轮间隔十分钟，之后按“测速间隔”运行；失败采用原有退避，不无限加快重试。
-   收到播放信息后的三分钟暂停测速。它轮换三个
+   识别到启动/首页刷新/播放信息后的三分钟暂停测速，已开始的测速在下一探测前让路。它轮换三个
    公共、未登录样本，不读取 App Cookie、`access_key`、`buvid`、设备 ID 或用户日志；
 2. 第一阶段对本次匿名响应的完整参考 URL、原主地址和实际备用候选（最多五个）逐个执行
    64 KiB Range，校验前缀内容并记录启动 TTFB/短段吞吐；第二阶段只让参考与第一
