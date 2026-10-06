@@ -53,7 +53,7 @@ test("request eligibility preserves conditional/authenticated/non-VOD and unsupp
   const cfg = config();
   for (const patch of [
     { method: "HEAD" }, { body: "data" },
-    { url: url.replace("https:", "http:") }, { url: url.replace("cosov.bilivideo.com", "evil.example") },
+    { url: url.replace("cosov.bilivideo.com", "evil.example") },
     { url: url.replace("/upgcxcode/", "/live/") }, { url: url + "#fragment" },
     { url: url.replace("https://", "https://user@") }, { url: url.replace(".com/", ".com:4483/") },
   ]) assert.equal(btr.planRequest({ ...request(), ...patch }, cfg), null);
@@ -74,7 +74,7 @@ test("request eligibility preserves conditional/authenticated/non-VOD and unsupp
 test("disabled/ineligible/missing-store paths issue no requests", async () => {
   let count = 0;
   const svc = { request() { count++; }, now: Date.now };
-  assert.equal((await btr.accelerate(request(), btr.parseArgument(""), svc)).reason, "ineligible");
+  assert.equal((await btr.accelerate(request(), btr.parseArgument(""), svc)).reason, "disabled");
   assert.equal((await btr.accelerate(request(), config(), svc)).reason, "busy");
   assert.equal(count, 0);
 });
@@ -105,15 +105,18 @@ test("dynamic concurrency tries a higher level, keeps improvement and rolls back
   assert.equal(c.threads(), 2);
   c.observe(wave(256 * KiB), 1400);
   assert.equal(c.threads(), 3);
-  assert.equal(c.snapshot().threads, 2, "unproven trial is not persisted");
+  assert.equal(c.snapshot().threads, 3, "pending trial continues in the next invocation");
+  assert.equal(c.snapshot().trialFrom, 2, "unproven level retains its rollback baseline");
   c.observe(wave(384 * KiB), 1600);
   assert.equal(c.threads(), 3);
   c.observe(wave(384 * KiB), 1800);
+  assert.equal(c.threads(), 3, "upstream-style 2.5 second step cooldown prevents oscillation");
+  c.observe(wave(384 * KiB), 4100);
   assert.equal(c.threads(), 4);
-  c.observe(wave(384 * KiB), 2000);
+  c.observe(wave(384 * KiB), 4300);
   assert.equal(c.threads(), 3);
-  assert.ok(c.snapshot().cooldownUntil > 2000);
-  c.observe({ failed: true, status: 429 }, 2200);
+  assert.ok(c.snapshot().cooldownUntil > 4300);
+  c.observe({ failed: true, status: 429 }, 4500);
   assert.equal(c.threads(), 1);
 });
 
@@ -160,10 +163,13 @@ test("short/idle samples do not increase concurrency and manual mode remains fix
 });
 
 test("scheduler applies dynamic concurrency to actual asynchronous downloads", async () => {
-  const env = environment({ delay: 90 });
+  const env = environment({ delay: 180 });
   const result = await btr.accelerate(request(4 * MiB), config(), env.services);
   assert.equal(result.action, "respond");
-  assert.ok(result.stats.threads.includes(3), JSON.stringify(result.stats));
+  assert.equal(result.stats.nextThreads, 3);
+  const next = await btr.accelerate(request(4 * MiB), config(), env.services);
+  assert.equal(next.action, "respond");
+  assert.ok(next.stats.threads.includes(3), JSON.stringify(next.stats));
   assert.ok(env.peak() >= 3 && env.peak() <= 8);
   assert.deepEqual(result.response.body, data(1024, 4 * MiB));
 });

@@ -11,7 +11,9 @@ const play = await fetch("https://api.bilibili.com/x/player/playurl?bvid=BV1xx41
 if (!play.ok) throw new Error(`Anonymous play API HTTP ${play.status}`);
 const payload = await play.json();
 const media = payload.data?.dash?.video?.[0];
-const url = media?.baseUrl || media?.base_url;
+const serverUrl = media?.baseUrl || media?.base_url;
+const scheme = process.argv.includes("--scheme=http") ? "http" : "https";
+const url = typeof serverUrl === "string" ? serverUrl.replace(/^https?:/, `${scheme}:`) : serverUrl;
 if (!btr.mediaUrl(url)) throw new Error("No supported anonymous media URL");
 const range = "bytes=1048576-3145727";
 async function getBytes(url, headers, signal, maxBytes) {
@@ -48,7 +50,7 @@ const result = await btr.accelerate({ url, method: "GET", headers: { ...baseHead
   btr.parseArgument(`enabled=true&threads=auto&budgetMs=15000&mode=${mode}`), services);
 const digest = body => createHash("sha256").update(body).digest("hex");
 const same = result.action === "respond" && digest(result.response.body) === digest(baseline.body);
-console.log(JSON.stringify({ host: new URL(url).hostname, mode, action: result.action, reason: result.reason,
+console.log(JSON.stringify({ host: new URL(url).hostname, scheme, mode, action: result.action, reason: result.reason,
   baselineMs, byteIdentical: same, stats: result.stats,
   strongEtagPresent: /^"[^\"]+"$/.test(baseline.headers.etag || ""),
   validatorShape: { etagQuoted: /^"[^\"]+"$/.test(baseline.headers.etag || ""), etagLength: (baseline.headers.etag || "").length,

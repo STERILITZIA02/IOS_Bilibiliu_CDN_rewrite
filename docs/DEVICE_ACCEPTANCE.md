@@ -1,5 +1,10 @@
 # iOS / Shadowrocket 真机验收清单
 
+v3.16.0 的用户日志确认了 HTTP 媒体漏匹配，现已同时支持 HTTP 与 HTTPS。
+更新 BTR 模块后检查 `[BiliBTR]` 摘要：`accelerated` 和 `deliveredBytes` 表示脚本
+完成了校验响应；`range-open/large`、`busy` 等为原样通过原因。仍需同设备复测，
+不能把提交的并发请求数当成独立 TCP 连接数或播放器缓冲状态。
+
 v3.15.0 增加独立、默认关闭的 [BTR 实验模块](BTR_PORT.md)。需要额外确认：
 二进制 206 写回、媒体 MITM 后的启动/播放、闭合 Range 覆盖比例、实际并发、
 快进/换清晰度取消、内存/流量和停用模块后的完整回滚。Node 测试、模拟 VM 与

@@ -1,6 +1,6 @@
 {
   "name": "ios-bilibili-cdn-rewrite",
-  "version": "3.15.0",
+  "version": "3.16.0",
   "private": true,
   "description": "Conservative Bilibili routing, ad/UI filtering, and resource-safe CDN selection for Shadowrocket on iOS.",
   "license": "MIT",
@@ -19,6 +19,7 @@
     "check:site": "npm --prefix site run lint && npm --prefix site test",
     "check:all": "npm run check && npm run check:site",
     "smoke:auto": "node scripts/smoke-auto.mjs",
-    "smoke:btr": "node scripts/smoke-btr.mjs"
+    "smoke:btr": "node scripts/smoke-btr.mjs",
+    "benchmark:btr": "node scripts/benchmark-btr.mjs"
   }
 }

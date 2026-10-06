@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented here.
 
+## [3.16.0] - 2026-10-06
+
+- Fix the confirmed BTR activation gap: native media in the supplied transport
+  log used HTTP, while v3.15 only matched HTTPS. Support HTTP/80 and HTTPS/443
+  in one reviewed matcher/runtime contract, preserving scheme, path and query.
+- Accept empty binary GET bodies and prefer native bodyBytes over text callback
+  data. Canonical default ports are equivalent; protocol/path/query redirects
+  remain rejected. Report binary transport failures explicitly.
+- Replace batch barriers with continuous slot refill. Adapt upstream weighted
+  route distribution, 48 KiB measurement floor, 0.6-second chunk target and
+  1 MiB maximum, while retaining the request-size and total-time limits.
+- Carry useful samples and pending concurrency trials between isolated script
+  contexts. Enforce a 2.5-second adjustment interval, recover after cooldown,
+  expire unmeasured trials and isolate protocol/mode/range-size evidence.
+- Add throttled, private-data-free default summaries plus detailed opt-in logs:
+  distinguish acceleration, open/large ranges, admission, backoff and framing
+  failures; separate actual request peak from the next trial limit.
+- Keep the original device log and detailed analysis local. Add synthetic
+  regressions, an offline old/new scheduling comparison and HTTP/HTTPS anonymous
+  byte-equality checks. See docs/V3_16_AUDIT.md; device acceptance remains pending.
+
 ## [3.15.0] - 2026-10-06
 
 - Add a separate, disabled-by-default BTR experimental companion module for

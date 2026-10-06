@@ -50,6 +50,7 @@ const refreshScript = await readFile(
 );
 const responseScript = await readFile(path.join(rootDirectory, "src", "bilibili-response.js"), "utf8");
 const btrScript = await readFile(path.join(rootDirectory, "src", "bilibili-btr.js"), "utf8");
+const btrApi = require(path.join(rootDirectory, "src", "bilibili-btr.js"));
 const fflateDirectory = path.resolve(path.dirname(require.resolve("fflate")), "..");
 const gzipRuntime = [
   `/* fflate ${packageJson.devDependencies.fflate}\n${await readFile(path.join(fflateDirectory, "LICENSE"), "utf8")}*/`,
@@ -783,7 +784,7 @@ const publishedCatalog = `${JSON.stringify(moduleOptions, null, 2)}\n`;
 // Separate opt-in companion: ordinary CDN/Enhanced installations keep media outside MITM.
 const btrModule = [
   "#!name=Bilibili BTR Experimental",
-  "#!desc=BTR 有界分块并发实验：配合一个 CDN/Enhanced 模块使用；默认关闭，真机效果待验证。启用前阅读 BTR_PORT.md；停用整个模块可撤销媒体 HTTPS 解密。",
+  "#!desc=BTR HTTP/HTTPS 有界并发实验：持续补任务与自动线程学习；配合一个 CDN/Enhanced 使用，默认关闭，真机效果待验证。启用前阅读 BTR_PORT.md；停用整个模块可撤销媒体 HTTPS 解密。",
   `#!version=${packageJson.version}`,
   "#!author=STERILITZIA02 / Bilibili-thread-ripper contributors",
   `#!homepage=${homepage}/blob/main/docs/BTR_PORT.md`,
@@ -792,7 +793,7 @@ const btrModule = [
   "#!arguments-desc=启用加速：实验功能，默认 false；需与一个现有 CDN/Enhanced 模块配合\\n\\n并发数：auto 或 1–8；auto 按真实完成吞吐试探增减，并不读取 App 缓冲\\n\\n并发上限：1–8，每个被接管请求的上限；一个协作租约限制同时接管的请求，非系统原子锁\\n\\nCDN模式：original 仅使用原完整 URL；mainland/overseas 对最多两个候选做强校验和双采样后才并发\\n\\n单次上限MiB：1–8，超出范围由 App 原样下载\\n\\n执行预算毫秒：2000–15000，到期回退；脚本无法保证终止未暴露取消句柄的底层请求\\n\\n调试日志：只记录数量、线程变化和结果，不记录 URL、签名或账号",
   "",
   "[Script]",
-  `Bilibili BTR Range = type=http-request,pattern=^https:\\/\\/(?:[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.bilivideo\\.(?:com|cn|net)|upos-hz-mirrorakam\\.akamaized\\.net)(?::443)?\\/upgcxcode\\/[^?\\s]+\\.(?:m4s|mp4)(?:\\?|$),binary-body-mode=1,timeout=20,engine=jsc,enable={{{启用加速}}},script-path=${versionedRaw("dist/bilibili-btr.js")},argument="enabled={{{启用加速}}}&threads={{{并发数}}}&maxThreads={{{并发上限}}}&mode={{{CDN模式}}}&maxMiB={{{单次上限MiB}}}&budgetMs={{{执行预算毫秒}}}&debug={{{调试日志}}}"`,
+  `Bilibili BTR Range = type=http-request,pattern=${btrApi.REQUEST_PATTERN},binary-body-mode=1,timeout=20,engine=jsc,enable={{{启用加速}}},script-path=${versionedRaw("dist/bilibili-btr.js")},argument="enabled={{{启用加速}}}&threads={{{并发数}}}&maxThreads={{{并发上限}}}&mode={{{CDN模式}}}&maxMiB={{{单次上限MiB}}}&budgetMs={{{执行预算毫秒}}}&debug={{{调试日志}}}"`,
   "",
   "[MITM]",
   "h2 = true",

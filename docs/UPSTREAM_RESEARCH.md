@@ -3,6 +3,15 @@
 > 调研日期：2026-07-30
 > 用途：记录 v3 升级采用的来源、许可证和安全边界。本文不是功能完成声明。
 
+## 2026-10-06：实测日志后的 BTR 核心复核
+
+再次核对固定提交 `bbf4d3dee502a16e424232ae6a51705f52b0e60d` 的
+`Semaphore.drainQueue/acquire`、`createAutoConcurrency`、`recordMeter`、
+`adaptiveMinChunk`、`assignPrimaries` 和 CDN resolver。v3.16 将持续补任务、
+有效完成吞吐、2.5 秒调整间隔、加权节点分配和 64 KiB–1 MiB 分块原则适配到
+短生命周期脚本，同时修复手机日志确证的 HTTP 匹配缺口。
+完整对应表和验证结果见 [v3.16 审计](V3_16_AUDIT.md)。原始设备日志及细节报告未发布。
+
 ## 2026-10-06：BTR 接入可行性
 
 核对 Bilibili-thread-ripper `bbf4d3dee502a16e424232ae6a51705f52b0e60d`

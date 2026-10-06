@@ -17,6 +17,12 @@ no runtime dependency download on the device.
   not included. The complete MIT notice is embedded in the source and generated
   runtime. See [BTR implementation and limits](docs/BTR_PORT.md).
 
+The v3.16 revision additionally adapts the same pinned downloader's continuous
+slot refill, smooth weighted round-robin route allocation, completed-byte
+measurement floor, chunk-size target and concurrency-change cooldown. A separate
+bounded persistence adapter carries learning between Shadowrocket contexts;
+unavailable browser playback/progress signals are not synthesized.
+
 The v3.14 review used Biliverse/ADBlock commit
 `1dbaef14d55006fb8c13d5b29dffb2977c10fa99` for fallback-host coverage and the
 wire field facts for PlayerRelates, PlayerUnite AD_FRAGMENT, and reply-editor
