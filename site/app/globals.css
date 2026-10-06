@@ -567,6 +567,54 @@ footer small {
   padding: 30px;
 }
 
+.btr-panel {
+  border-color: var(--blue);
+  scroll-margin-top: 88px;
+}
+
+.btr-panel .section-heading p,
+.btr-actions .button,
+.btr-steps {
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.btr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.btr-actions .button {
+  flex: 1 1 15rem;
+  justify-content: center;
+  min-height: 48px;
+  text-align: center;
+  white-space: normal;
+}
+
+.btr-steps {
+  margin: 20px 0 12px;
+  padding-left: 1.5rem;
+}
+
+.btr-steps li + li {
+  margin-top: 10px;
+}
+
+.btr-help {
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.65;
+  margin-bottom: 0;
+}
+
+.btr-help a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .section-heading {
   align-items: flex-start;
   display: flex;

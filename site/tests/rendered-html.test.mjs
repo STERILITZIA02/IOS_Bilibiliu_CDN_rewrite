@@ -37,9 +37,12 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /CDN \+ Enhanced/);
   assert.match(html, /仅 CDN Switcher/);
   assert.match(html, /Enhanced 3\.15\.0/);
-  assert.match(html, /BTR 并发加速/);
+  assert.match(html, /给当前模块添加 BTR/);
   assert.match(html, /安装 BTR 实验模块/);
   assert.match(html, /Bilibili\.BTR\.Experimental\.sgmodule/);
+  assert.match(html, /href="#btr"/);
+  assert.match(html, /复制 BTR 订阅链接/);
+  assert.ok(html.indexOf('id="btr"') < html.indexOf("选择要启用的增强功能"));
   assert.match(html, /Bilibili iOS 9\.13\.0 和海外版 6\.6\.0/);
   assert.match(html, /压缩头写回与开屏计时/);
   assert.match(html, /动态视频流、UP 主商品和播放中商业指令过滤/);

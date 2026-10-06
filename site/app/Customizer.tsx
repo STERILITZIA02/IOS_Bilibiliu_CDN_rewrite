@@ -267,6 +267,7 @@ export function Customizer({
   );
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState(false);
+  const [btrCopied, setBtrCopied] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -425,6 +426,16 @@ export function Customizer({
     }
   }
 
+  async function copyBtrUrl() {
+    try {
+      await navigator.clipboard.writeText(BTR_MODULE_URL);
+      setBtrCopied(true);
+      window.setTimeout(() => setBtrCopied(false), 1800);
+    } catch {
+      window.prompt("复制 BTR 模块地址，在 Shadowrocket → 配置 → 模块 → + 中添加", BTR_MODULE_URL);
+    }
+  }
+
   return (
     <main>
       <header className="topbar">
@@ -476,12 +487,15 @@ export function Customizer({
               CDN v10 按持续带宽和起播延迟选择本次视频的完整地址，不再接管媒体重试和快进请求。
               内置 gzip 的 JSC 脚本继续处理恢复请求，并修复压缩头写回与开屏计时。
               启动、刷新时暂停后台测速；具体设备效果仍需复测。
-              另提供独立的 BTR 分块并发实验模块，可在下方安装区查看。
+              BTR 是单独安装的附加模块，安装入口位于基础版本选择下方。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
                 开始定制
                 <Icon name="arrow" />
+              </a>
+              <a className="button secondary" href="#btr">
+                安装 BTR
               </a>
               <a
                 className="button secondary"
@@ -623,6 +637,33 @@ export function Customizer({
                 </button>
               </div>
             </div>
+
+            <section className="panel btr-panel" id="btr" aria-label="BTR 安装与启用">
+              <SectionHeading
+                description="保留上面的 Enhanced 或 CDN-only，再单独安装 BTR。原来的“一键安装”按钮只安装基础模块。"
+                eyebrow="可选附加模块 · 实验功能"
+                icon="rocket"
+                title="给当前模块添加 BTR"
+              />
+              <div className="btr-actions">
+                <a className="button primary" href={`shadowrocket://install?module=${encodeURIComponent(BTR_MODULE_URL)}`}>
+                  安装 BTR 实验模块
+                </a>
+                <button className="button secondary" type="button" onClick={copyBtrUrl}>
+                  <Icon name={btrCopied ? "check" : "copy"} size={18} />
+                  <span aria-live="polite">{btrCopied ? "BTR 链接已复制" : "复制 BTR 订阅链接"}</span>
+                </button>
+              </div>
+              <ol className="btr-steps">
+                <li>在 iPhone 上点“安装 BTR 实验模块”。无法唤起时，复制链接到 Shadowrocket → 配置 → 模块 → +。</li>
+                <li>打开 Bilibili BTR Experimental 的编辑参数，将<strong>启用加速</strong>改为 <strong>true</strong>。</li>
+                <li>保留“并发数 auto、CDN模式 original”，重新应用配置，再退出并重开 Bilibili。</li>
+              </ol>
+              <p className="btr-help">
+                默认关闭，真机效果仍需验证。停用整个 BTR 模块可恢复基础模块的媒体处理方式。
+                {" "}<a href={`${REPOSITORY_URL}/blob/main/docs/BTR_PORT.md`} target="_blank" rel="noreferrer">完整设置与回滚说明</a>
+              </p>
+            </section>
 
             {variant === "enhanced" && (
               <>
@@ -1005,21 +1046,6 @@ export function Customizer({
                 安装后仍可在 Shadowrocket
                 内更新；同一链接会保留本页选择，并优先获取最新脚本。
               </p>
-            </div>
-            <div className="safety-card">
-              <Icon name="rocket" />
-              <div>
-                <strong>BTR 并发加速 · 实验功能</strong>
-                <p>
-                  动态并发与分块下载，配合上方任一模块使用。默认关闭；安装后需在模块参数中启用。
-                  会增加视频域名的 HTTPS 解密，可能增加内存与流量，真机效果待验证。
-                </p>
-                <p>
-                  <a href={`shadowrocket://install?module=${encodeURIComponent(BTR_MODULE_URL)}`}>安装 BTR 实验模块</a>
-                  {" · "}
-                  <a href={`${REPOSITORY_URL}/blob/main/docs/BTR_PORT.md`} target="_blank" rel="noreferrer">设置与回滚说明</a>
-                </p>
-              </div>
             </div>
             <div className="safety-card">
               <Icon name="shield" />
