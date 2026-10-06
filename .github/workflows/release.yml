@@ -55,6 +55,8 @@ jobs:
           dist/Bilibili.CDN.sgmodule
           dist/Bilibili.CDN.Enhanced.sgmodule
           dist/Bilibili.CDN.Switcher.sgmodule
+          dist/Bilibili.BTR.Experimental.sgmodule
+          dist/bilibili-btr.js
           dist/Bilibili.list
           dist/bilibili-cdn.js
           dist/bilibili-cdn-route.js

@@ -18,6 +18,12 @@
 > 组合的真机验收。仓库会明确区分“代码测试通过”和“真机已验证”；发布前后的
 > 检查矩阵见 [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
 >
+> **v3.15.0：BTR 分块并发实验模块**。新增独立、默认关闭的媒体下载模块，支持
+> 1–8 路动态/固定并发、自适应分块、条件校验、有限重试和可选多 CDN 验证。
+> 可配合一个现有 CDN-only 或 Enhanced 模块使用；基础模块保持原来的媒体边界。
+> [安装、参数、实测与限制](docs/BTR_PORT.md)。完整浏览器播放器接管无法移植到
+> 官方 iOS App；本次不把 Node 或桌面网络验证当作手机验收。
+>
 > **v3.14.0：国内 9.13.0 / 国际 6.6.0 启动与恢复修复**。统一清理改写正文后的旧
 > 压缩/长度/校验头，清零已存在的开屏广告计时，移除纯诊断接口和未知 RPC 的默认
 > 拦截；补齐 `app.biliapi.com`、播放器明确广告片段、`PlayerRelates` 和评论商品
@@ -97,6 +103,16 @@
 - [最新发行版校验文件][latest-checksums]
 - [全部 GitHub Releases][releases]
 - [历史兼容更新地址][raw-compat]
+
+### BTR 并发实验模块
+
+- [安装 BTR 实验模块](https://lowertop.github.io/Shadowrocket-First/redirect.html?url=shadowrocket%3A%2F%2Finstall%3Fmodule%3Dhttps%3A%2F%2Fraw.githubusercontent.com%2FSTERILITZIA02%2FIOS_Bilibiliu_CDN_rewrite%2Fmain%2Fdist%2FBilibili.BTR.Experimental.sgmodule)
+- [BTR 固定更新地址](https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.BTR.Experimental.sgmodule)
+- [参数与设备验收](docs/BTR_PORT.md)
+
+它是独立附加模块，默认 `启用加速=false`；安装后在 Shadowrocket 参数中开启。
+可保留一个现有 Enhanced/CDN-only 模块。BTR 需要解密媒体域名；完全回滚时应停用
+整个 BTR 模块，而不是只把其参数开关关掉。首次建议 `CDN模式=original`、`并发数=auto`。
 
 [install-enhanced]: https://lowertop.github.io/Shadowrocket-First/redirect.html?url=shadowrocket%3A%2F%2Finstall%3Fmodule%3Dhttps%3A%2F%2Fraw.githubusercontent.com%2FSTERILITZIA02%2FIOS_Bilibiliu_CDN_rewrite%2Fmain%2Fdist%2FBilibili.CDN.Enhanced.sgmodule
 [install-cdn]: https://lowertop.github.io/Shadowrocket-First/redirect.html?url=shadowrocket%3A%2F%2Finstall%3Fmodule%3Dhttps%3A%2F%2Fraw.githubusercontent.com%2FSTERILITZIA02%2FIOS_Bilibiliu_CDN_rewrite%2Fmain%2Fdist%2FBilibili.CDN.Switcher.sgmodule

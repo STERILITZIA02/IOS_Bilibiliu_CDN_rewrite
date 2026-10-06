@@ -1,9 +1,21 @@
 # Third-Party Research Notices
 
-The filtering and CDN logic was written independently in this repository.
+The filtering and original CDN-selection logic was written independently in this repository.
 Starting with v3.11.0, the build uses pinned fflate 0.8.3 for gzip decoding and
 embeds its JavaScript and license into the two gRPC runtime artifacts. There is
 no runtime dependency download on the device.
+
+## Bilibili-thread-ripper (adapted in v3.15.0)
+
+- Repository: https://github.com/MrTangLuyao/Bilibili-thread-ripper
+- Reviewed commit: `bbf4d3dee502a16e424232ae6a51705f52b0e60d` (`2026.10.4.1`).
+- License: MIT, Copyright (c) 2026 Bilibili-thread-ripper contributors.
+- Use: Range partitioning and bounded parallel download scheduling were adapted
+  into `src/bilibili-btr.js`, with a new Shadowrocket transport, strong-validator
+  checks, cooperative admission and throughput-based concurrency controller.
+  Browser hooks, MSE playback, account access and user-interface injection are
+  not included. The complete MIT notice is embedded in the source and generated
+  runtime. See [BTR implementation and limits](docs/BTR_PORT.md).
 
 The v3.14 review used Biliverse/ADBlock commit
 `1dbaef14d55006fb8c13d5b29dffb2977c10fa99` for fallback-host coverage and the

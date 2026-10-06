@@ -12,12 +12,13 @@ import {
   type ModuleOption,
   type ModuleVariant,
 } from "@/lib/catalog";
-import { REPOSITORY_URL } from "@/lib/repository";
+import { RAW_ROOT, REPOSITORY_URL } from "@/lib/repository";
 
 type OptionValue = boolean | number | string;
 type OptionValues = Record<string, OptionValue>;
 
 const STORAGE_KEY = "biliflow-customizer-v3";
+const BTR_MODULE_URL = `${RAW_ROOT}/dist/Bilibili.BTR.Experimental.sgmodule`;
 
 function defaultsFor(catalog: ModuleCatalog): OptionValues {
   return Object.fromEntries(
@@ -469,12 +470,13 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.14.0 面向 Bilibili iOS 9.13.0 和海外版 6.6.0，
+              使用本站同版本的已审核快照。Enhanced 3.15.0 面向 Bilibili iOS 9.13.0 和海外版 6.6.0，
               覆盖动态视频流、UP 主商品和播放中商业指令过滤，补齐播放器广告片段与关联推荐。
               首页默认立即显示已有视频，可选择额外补取；保留首页非空保护。
               CDN v10 按持续带宽和起播延迟选择本次视频的完整地址，不再接管媒体重试和快进请求。
               内置 gzip 的 JSC 脚本继续处理恢复请求，并修复压缩头写回与开屏计时。
               启动、刷新时暂停后台测速；具体设备效果仍需复测。
+              另提供独立的 BTR 分块并发实验模块，可在下方安装区查看。
             </p>
             <div className="hero-actions">
               <a className="button primary" href="#modules">
@@ -1005,12 +1007,27 @@ export function Customizer({
               </p>
             </div>
             <div className="safety-card">
+              <Icon name="rocket" />
+              <div>
+                <strong>BTR 并发加速 · 实验功能</strong>
+                <p>
+                  动态并发与分块下载，配合上方任一模块使用。默认关闭；安装后需在模块参数中启用。
+                  会增加视频域名的 HTTPS 解密，可能增加内存与流量，真机效果待验证。
+                </p>
+                <p>
+                  <a href={`shadowrocket://install?module=${encodeURIComponent(BTR_MODULE_URL)}`}>安装 BTR 实验模块</a>
+                  {" · "}
+                  <a href={`${REPOSITORY_URL}/blob/main/docs/BTR_PORT.md`} target="_blank" rel="noreferrer">设置与回滚说明</a>
+                </p>
+              </div>
+            </div>
+            <div className="safety-card">
               <Icon name="shield" />
               <div>
                 <strong>明确的安全边界</strong>
                 <p>
-                  不伪造会员、订单、支付、登录或地区授权；HTTPS
-                  解密只覆盖模块中列出的 Bilibili API 域名。
+                  不伪造会员、订单、支付、登录或地区授权。
+                  上方两个基础模块的解密仅覆盖列出的 Bilibili API 域名；BTR 实验模块另增加媒体域名。
                 </p>
               </div>
             </div>

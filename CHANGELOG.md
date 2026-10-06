@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here.
 
+## [3.15.0] - 2026-10-06
+
+- Add a separate, disabled-by-default BTR experimental companion module for
+  official Bilibili iOS apps with Shadowrocket. Retain existing CDN/Enhanced
+  modules and their API-only media boundary unless the companion is installed.
+- Adapt bounded Range partitioning and parallel download scheduling from the
+  MIT-licensed Bilibili-thread-ripper. Add real throughput-based auto concurrency
+  (1–8), fixed limits, RTT-aware chunk sizing, exact reassembly and limited retries.
+- Verify 206 framing, total length, content type and strong ETag or qualifying
+  Last-Modified/If-Range semantics. Optional reviewed mirrors require matching
+  version metadata and two byte samples before joining a request.
+- Separate signed-address failures from host/network rate limits, respect
+  Retry-After, bound execution/memory/state and use cooperative admission. Record
+  throttled media activity to make existing background benchmarks yield.
+- Add binary-response VM/regression coverage and an optional anonymous real-CDN
+  SHA-256 comparison. Document native cancellation, streaming, global semaphore
+  and player-state limits explicitly; real iPhone acceptance remains pending.
+- Publish the experimental module and runtime as separately checksummed assets,
+  and expose an opt-in installation link and rollback instructions on the Site.
+
 ## [3.14.0] - 2026-09-26
 
 - Target iOS 9.13.0 and overseas 6.6.0 with observed `bili-universal/91300100`
