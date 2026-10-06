@@ -1,5 +1,8 @@
 # iOS / Shadowrocket 真机验收清单
 
+v3.16.1 默认启用独立 BTR 下载器，旧“启用加速=false”不再影响更新后的脚本。
+更新已启用的 BTR 模块并重新应用配置即可；如果模块总开关已关闭，仍需在 App 中打开。
+
 v3.16.0 的用户日志确认了 HTTP 媒体漏匹配，现已同时支持 HTTP 与 HTTPS。
 更新 BTR 模块后检查 `[BiliBTR]` 摘要：`accelerated` 和 `deliveredBytes` 表示脚本
 完成了校验响应；`range-open/large`、`busy` 等为原样通过原因。仍需同设备复测，

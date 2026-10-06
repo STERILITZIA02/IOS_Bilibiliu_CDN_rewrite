@@ -40,8 +40,10 @@ function environment({ delay = 2, mutate, fault, store = new Map(), network = "t
   return { services, calls, store, cancelCalls, live, peak: () => peak };
 }
 
-test("BTR is off by default and rejects ambiguous/unknown settings", () => {
-  assert.equal(btr.parseArgument("").enabled, false);
+test("BTR defaults on, respects explicit runtime disable and rejects ambiguous/unknown settings", () => {
+  assert.equal(btr.parseArgument("").enabled, true);
+  assert.equal(btr.parseArgument("enabled=false").enabled, false);
+  assert.equal(btr.parseArgument("enabled=").enabled, false);
   for (const argument of ["enabled=true&threads=32", "enabled=true&mode=arbitrary", "enabled=true&enabled=true", "enabled=yes", "enabled=true&evil=x"]) {
     assert.equal(btr.parseArgument(argument).enabled, false, argument);
   }
@@ -74,7 +76,7 @@ test("request eligibility preserves conditional/authenticated/non-VOD and unsupp
 test("disabled/ineligible/missing-store paths issue no requests", async () => {
   let count = 0;
   const svc = { request() { count++; }, now: Date.now };
-  assert.equal((await btr.accelerate(request(), btr.parseArgument(""), svc)).reason, "disabled");
+  assert.equal((await btr.accelerate(request(), btr.parseArgument("enabled=false"), svc)).reason, "disabled");
   assert.equal((await btr.accelerate(request(), config(), svc)).reason, "busy");
   assert.equal(count, 0);
 });
@@ -342,11 +344,13 @@ test("fresh Shadowrocket VM uses binary body, avoids recursion and completes exa
   assert.ok(![...env.store.values()].join("").includes("private-ssid"));
 });
 
-test("generated companion is opt-in, matches VOD only and keeps ordinary modules free of media MITM", () => {
+test("installed companion starts enabled, matches VOD only and keeps ordinary modules free of media MITM", () => {
   const dist = path.join(__dirname, "../dist");
   const module = fs.readFileSync(path.join(dist, "Bilibili.BTR.Experimental.sgmodule"), "utf8");
-  assert.match(module, /启用加速:false/);
-  assert.match(module, /enable=\{\{\{启用加速\}\}\}/);
+  assert.doesNotMatch(module, /^#!arguments=.*启用加速/m);
+  assert.doesNotMatch(module, /\{\{\{启用加速\}\}\}/);
+  assert.match(module, /engine=jsc,enable=true,/);
+  assert.match(module, /argument="enabled=true&/);
   assert.match(module, /binary-body-mode=1/);
   assert.match(module, /type=http-request/);
   assert.doesNotMatch(module, /type=http-response/);
@@ -361,4 +365,17 @@ test("generated companion is opt-in, matches VOD only and keeps ordinary modules
   }
   const runtime = fs.readFileSync(path.join(dist, "bilibili-btr.js"), "utf8");
   assert.match(runtime, /Copyright \(c\) 2026 Bilibili-thread-ripper contributors/);
+});
+
+test("updating with a retained legacy false override still enables BTR and preserves other choices", () => {
+  const template = fs.readFileSync(path.join(__dirname, "../dist/Bilibili.BTR.Experimental.sgmodule"), "utf8");
+  const args = Object.fromEntries(template.match(/^#!arguments=(.+)$/m)[1].split(",").map(item => item.split(":")));
+  Object.assign(args, { "启用加速": "false", "并发数": "4", "CDN模式": "overseas" });
+  const rendered = template.replace(/\{\{\{([^}]+)\}\}\}/g, (_, key) => args[key]);
+  assert.match(rendered, /engine=jsc,enable=true,/);
+  const actual = btr.parseArgument(rendered.match(/argument="([^"]+)"/)[1]);
+  assert.equal(actual.enabled, true);
+  assert.equal(actual.threads, 4);
+  assert.equal(actual.mode, "overseas");
+  assert.doesNotMatch(rendered, /enabled=false/);
 });

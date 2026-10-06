@@ -1,9 +1,9 @@
-# BiliFlow Shadowrocket modules v3.16.0
+# BiliFlow Shadowrocket modules v3.16.1
 # Repository: https://github.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite
-# Enhanced: https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.Enhanced.sgmodule?v=3.16.0
-# CDN-only: https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.Switcher.sgmodule?v=3.16.0
-# Enhanced compatibility alias: https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.sgmodule?v=3.16.0
-# Optional BTR experiment (separate opt-in): https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.BTR.Experimental.sgmodule?v=3.16.0
-https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.Enhanced.sgmodule?v=3.16.0
-https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.Switcher.sgmodule?v=3.16.0
-https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.sgmodule?v=3.16.0
+# Enhanced: https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.Enhanced.sgmodule?v=3.16.1
+# CDN-only: https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.Switcher.sgmodule?v=3.16.1
+# Enhanced compatibility alias: https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.sgmodule?v=3.16.1
+# Optional BTR experiment (separate opt-in): https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.BTR.Experimental.sgmodule?v=3.16.1
+https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.Enhanced.sgmodule?v=3.16.1
+https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.Switcher.sgmodule?v=3.16.1
+https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.CDN.sgmodule?v=3.16.1

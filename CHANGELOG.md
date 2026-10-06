@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [3.16.1] - 2026-10-06
+
+- Enable the standalone BTR module by default at the user's request. Register the
+  media request script with literal `enable=true` and send literal `enabled=true`.
+- Remove the duplicate `启用加速` module parameter so an old retained false override
+  cannot silently keep an updated installation inactive. Use the Shadowrocket
+  module's master switch to disable BTR; all other parameter choices are preserved.
+- Default the runtime parser to enabled while retaining explicit runtime disable
+  and rejection of malformed settings. Update Site instructions and migration tests.
+
 ## [3.16.0] - 2026-10-06
 
 - Fix the confirmed BTR activation gap: native media in the supplied transport

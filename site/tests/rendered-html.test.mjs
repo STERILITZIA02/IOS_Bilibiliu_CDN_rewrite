@@ -36,7 +36,9 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /你的 Bilibili/);
   assert.match(html, /CDN \+ Enhanced/);
   assert.match(html, /仅 CDN Switcher/);
-  assert.match(html, /Enhanced 3\.16\.0/);
+  assert.match(html, /Enhanced 3\.16\.1/);
+  assert.match(html, /v3\.16\.1 默认启用/);
+  assert.match(html, /无需再编辑启用参数/);
   assert.match(html, /同时支持 HTTP 与 HTTPS/);
   assert.match(html, /给当前模块添加 BTR/);
   assert.match(html, /安装 BTR 实验模块/);

@@ -18,10 +18,14 @@
 > 组合的真机验收。仓库会明确区分“代码测试通过”和“真机已验证”；发布前后的
 > 检查矩阵见 [真机验收清单](docs/DEVICE_ACCEPTANCE.md)。
 >
+> **v3.16.1：BTR 模块启用即运行**。按用户要求改为默认启用，移除重复的“启用加速”
+> 参数开关；旧的 `false` 覆盖值不再禁用新版。更新已启用的 BTR 模块并重新应用配置
+> 即可，其他参数继续保留；需要关闭时停用整个 BTR 模块。
+>
 > **v3.16.0：修复 BTR 未接管原生 HTTP 媒体的问题**。实测日志里的完整点播 URL
 > 使用 HTTP，v3.15 的 HTTPS-only 规则没有命中。新版同时支持 HTTP/80 与 HTTPS/443，
 > 并采用持续补任务、按速率分配节点、跨请求自动并发学习和脱敏诊断摘要。
-> 必须更新 **BTR 实验模块本身**，保持“启用加速=true”；详细分析、上游对应关系和
+> 必须更新 **BTR 实验模块本身**；详细分析、上游对应关系和
 > 验证边界见 [v3.16 审计](docs/V3_16_AUDIT.md)。
 >
 > **v3.15.0：BTR 分块并发实验模块**。新增独立、默认关闭的媒体下载模块，支持
@@ -116,9 +120,9 @@
 - [BTR 固定更新地址](https://raw.githubusercontent.com/STERILITZIA02/IOS_Bilibiliu_CDN_rewrite/main/dist/Bilibili.BTR.Experimental.sgmodule)
 - [参数与设备验收](docs/BTR_PORT.md)
 
-它是独立附加模块，默认 `启用加速=false`；安装后在 Shadowrocket 参数中开启。
-可保留一个现有 Enhanced/CDN-only 模块。BTR 需要解密媒体域名；完全回滚时应停用
-整个 BTR 模块，而不是只把其参数开关关掉。首次建议 `CDN模式=original`、`并发数=auto`。
+它是独立附加模块，v3.16.1 起模块启用即运行，无需再开启参数。已安装用户更新
+BTR 模块即可，旧的 `启用加速=false` 不再参与判断。可保留一个 Enhanced/CDN-only。
+BTR 会解密媒体域名；关闭时停用整个 BTR 模块。首次建议 `CDN模式=original`、`并发数=auto`。
 
 [install-enhanced]: https://lowertop.github.io/Shadowrocket-First/redirect.html?url=shadowrocket%3A%2F%2Finstall%3Fmodule%3Dhttps%3A%2F%2Fraw.githubusercontent.com%2FSTERILITZIA02%2FIOS_Bilibiliu_CDN_rewrite%2Fmain%2Fdist%2FBilibili.CDN.Enhanced.sgmodule
 [install-cdn]: https://lowertop.github.io/Shadowrocket-First/redirect.html?url=shadowrocket%3A%2F%2Finstall%3Fmodule%3Dhttps%3A%2F%2Fraw.githubusercontent.com%2FSTERILITZIA02%2FIOS_Bilibiliu_CDN_rewrite%2Fmain%2Fdist%2FBilibili.CDN.Switcher.sgmodule

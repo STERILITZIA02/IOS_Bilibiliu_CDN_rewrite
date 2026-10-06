@@ -1,4 +1,4 @@
-this.__BILIFLOW_VERSION__ = "3.16.0";
+this.__BILIFLOW_VERSION__ = "3.16.1";
 /*
  * BiliFlow BTR: bounded media Range transport for Shadowrocket.
  * Range splitting and download scheduling adapted from Bilibili-thread-ripper
@@ -62,9 +62,9 @@ this.__BILIFLOW_VERSION__ = "3.16.0";
     var threads = raw.threads || "auto";
     var mode = raw.mode || "original";
     if (!/^(?:auto|[1-8])$/.test(threads) || !/^(?:original|mainland|overseas)$/.test(mode)) valid = false;
-    if (raw.enabled && !/^(?:true|false)$/.test(raw.enabled)) valid = false;
+    if (raw.enabled !== undefined && !/^(?:true|false)$/.test(raw.enabled)) valid = false;
     return {
-      enabled: valid && raw.enabled === "true", valid: valid,
+      enabled: valid && raw.enabled !== "false", valid: valid,
       auto: threads === "auto", threads: threads === "auto" ? 2 : Number(threads),
       maxThreads: number(raw.maxThreads, 8, 1, 8),
       maxBytes: number(raw.maxMiB, 4, 1, 8) * MIB,
