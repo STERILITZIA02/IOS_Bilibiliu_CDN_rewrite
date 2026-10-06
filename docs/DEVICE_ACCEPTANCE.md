@@ -1,5 +1,9 @@
 # iOS / Shadowrocket 真机验收清单
 
+2026-10-06 真机状态更新：已确认 v3.16.2 的脚本加载、参数解析、下载接口可见与
+存储回读正常，也已确认媒体请求进入后以 `range-open` 原样放行。尚未取得成功并发
+回包或播放提速的真机验收证据。开放式 Range 安全接管仍未实现，不因本机自检成功而勾选。
+
 v3.16.2 增加同一 BTR 脚本处理的本机状态入口 `http://bilibtr.invalid/status`。
 先播放、拖动进度条，再在同一台 iPhone 的 Safari 打开该 HTTP 地址。
 记录 `version / argumentsValid / storageRoundTrip / requestsSeen / acceleratedRequests / last`。

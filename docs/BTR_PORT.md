@@ -3,6 +3,11 @@
 版本：v3.16.2，2026-10-06。目标环境是官方 Bilibili iOS App + Shadowrocket，
 无需额外设备或服务器。这是独立实验模块，模块启用即运行；手机上的收益和稳定性仍需验收。
 
+**已确认的适用限制：当前不能加速开放式 Range。** 原生 App 的媒体请求已经能进入
+脚本，但 `Range: bytes=start-` 会返回 `range-open` 并原样下载，不启动分块或自动线程。
+这说明传输适配还没有覆盖这种请求形式，调整线程数、CDN 模式或单次上限不会使它变成
+支持的闭合范围。当前实现不能称为原生 App 的完整 BTR 提速方案。
+
 v3.16.1 按用户要求默认启用，脚本注册与运行参数固定为 true；移除重复的“启用加速”
 参数，防止旧 false 覆盖值在更新后继续禁用下载器。仍可在模块列表停用 BTR，其他选项保留。
 
@@ -52,6 +57,17 @@ v3.16 修复实测中 HTTP 媒体未被接管的问题，同时保留 HTTPS 支�
 不显示媒体路径、签名、请求头、账号或网络身份；不依赖控制台日志是否可见。
 地址打不开表示自检请求没有完成，先检查当前配置的“脚本 URL”下载状态和重新编译，
 不能归因于线程数。`requestsSeen=0` 也可能是更新后尚未播放；应先播放再复查。
+
+`requestsSeen` 是处理完成后保存的计数，不是请求入口计数。`last` 只描述最近一次，
+不能据它推断此前每个请求的放行原因。`acceleratedRequests=0` 则表示该版本尚无已记录
+的成功分块回包；最后一次为 `range-open` 且 `peak=0` 时，该请求根本没有启动下载器。
+
+上游的 [兼容模式](https://github.com/MrTangLuyao/Bilibili-thread-ripper/blob/bbf4d3dee502a16e424232ae6a51705f52b0e60d/src/native-range-transport.js#L184)
+同样排除开放式 Range；[全接管模式](https://github.com/MrTangLuyao/Bilibili-thread-ripper/blob/bbf4d3dee502a16e424232ae6a51705f52b0e60d/src/native-mse-player.js#L675)
+读取分段索引，并将有界下载结果逐步写入网页的 SourceBuffer。因此，Chrome 的成功
+不能证明把同一调度器复制进 Shadowrocket 后就能处理原生 App 的开放式请求。
+本适配器目前一次性合成完整响应，尚未确认可用的原生流式写回接口。不能以随意截短
+原请求或先缓冲整个大文件的方式宣称补齐了这一能力。
 
 ## 已实现的能力
 

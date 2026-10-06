@@ -645,6 +645,10 @@ export function Customizer({
                 icon="rocket"
                 title="给当前模块添加 BTR"
               />
+              <p className="btr-help">
+                <strong>当前仅对有明确起止位置的媒体请求拆分并发。</strong>
+                官方 App 使用开放式 Range 时仍由 App 原样下载。自检显示 range-open 代表该请求没有加速，调高线程数不会改变这一结果。
+              </p>
               <div className="btr-actions">
                 <a className="button primary" href={`shadowrocket://install?module=${encodeURIComponent(BTR_MODULE_URL)}`}>
                   安装 BTR 实验模块
