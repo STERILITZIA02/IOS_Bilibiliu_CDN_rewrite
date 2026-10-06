@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [3.16.2] - 2026-10-06
+
+- Add an exact local status endpoint, `http://bilibtr.invalid/status`, handled by
+  the same BTR script registration and engine. Report runtime version, argument
+  validity, storage round-trip, media counts and the latest bounded result;
+  never fetch media, acquire a download lease, expose URLs or upload diagnostics.
+- Record invalid arguments and keep diagnostic counters when no console exists.
+  Retain version-scoped totals and the latest reason across throttled log windows.
+- Accept a void storage-write return only after exact read-back verification;
+  explicit failures and mismatches continue to pass media through safely.
+- Correct module-enablement wording and add Site/device diagnostic instructions.
+  These changes fix reproducible diagnostic/bridge gaps; the user's remaining
+  buffering cause and actual device performance are not yet confirmed.
+
 ## [3.16.1] - 2026-10-06
 
 - Enable the standalone BTR module by default at the user's request. Register the

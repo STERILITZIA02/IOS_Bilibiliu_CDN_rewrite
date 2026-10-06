@@ -481,7 +481,7 @@ export function Customizer({
             <p>
               选择 CDN-only 或 Enhanced，开启首页六条普通视频流，并逐项决定
               首页和“我的”显示什么。生成链接优先读取仓库最新模块，网络异常时
-              使用本站同版本的已审核快照。Enhanced 3.16.1 面向 Bilibili iOS 9.13.0 和海外版 6.6.0，
+              使用本站同版本的已审核快照。Enhanced 3.16.2 面向 Bilibili iOS 9.13.0 和海外版 6.6.0，
               覆盖动态视频流、UP 主商品和播放中商业指令过滤，补齐播放器广告片段与关联推荐。
               首页默认立即显示已有视频，可选择额外补取；保留首页非空保护。
               CDN v10 按持续带宽和起播延迟选择本次视频的完整地址，不再接管媒体重试和快进请求。
@@ -640,7 +640,7 @@ export function Customizer({
 
             <section className="panel btr-panel" id="btr" aria-label="BTR 安装与启用">
               <SectionHeading
-                description="保留 Enhanced 或 CDN-only，再单独安装 BTR。v3.16.1 默认启用，同时支持 HTTP 与 HTTPS；已安装的用户更新 BTR 模块即可。"
+                description="保留 Enhanced 或 CDN-only，再单独安装 BTR。v3.16.2 默认启用，同时支持 HTTP 与 HTTPS；已安装的用户更新 BTR 模块即可。"
                 eyebrow="可选附加模块 · 实验功能"
                 icon="rocket"
                 title="给当前模块添加 BTR"
@@ -653,15 +653,22 @@ export function Customizer({
                   <Icon name={btrCopied ? "check" : "copy"} size={18} />
                   <span aria-live="polite">{btrCopied ? "BTR 链接已复制" : "复制 BTR 订阅链接"}</span>
                 </button>
+                <a className="button secondary" href="http://bilibtr.invalid/status" target="_blank" rel="noreferrer">
+                  iPhone 本机自检
+                </a>
               </div>
               <ol className="btr-steps">
                 <li>在 iPhone 上点“安装 BTR 实验模块”。无法唤起时，复制链接到 Shadowrocket → 配置 → 模块 → +。</li>
-                <li>已安装的用户更新 BTR 模块到 <strong>3.16.1</strong>，确认模块总开关打开；无需再编辑启用参数。</li>
+                <li>已安装的用户更新 BTR 模块到 <strong>3.16.2</strong>，在模块列表中保持 BTR 启用；无需再编辑启用参数。</li>
                 <li>保留“并发数 auto、CDN模式 original”，重新应用配置，再退出并重开 Bilibili。</li>
+                <li>播放并拖动一次进度条，再在同一台 iPhone 上点“本机自检”，查看运行版本、媒体命中数和最近一次处理原因。</li>
               </ol>
               <p className="btr-help">
                 模块启用即运行，旧版的 false 参数不再影响更新。真机效果仍需验证；停用整个 BTR 模块可关闭加速。
                 {" "}<a href={`${REPOSITORY_URL}/blob/main/docs/BTR_PORT.md`} target="_blank" rel="noreferrer">完整设置与回滚说明</a>
+              </p>
+              <p className="btr-help">
+                自检由手机上的 BTR 脚本直接响应，不向本站上传日志。请保留地址开头的 http://；如果无法打开，自检请求未完成，不能据此判断下载性能。
               </p>
             </section>
 

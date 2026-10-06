@@ -41,6 +41,8 @@
   var MEDIA_AUTHORITY = "(?:[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.bilivideo\\.(?:com|cn|net)|upos-hz-mirrorakam\\.akamaized\\.net)";
   var REQUEST_PATTERN = "^(?:http:\\/\\/" + MEDIA_AUTHORITY + "(?::80)?|https:\\/\\/" + MEDIA_AUTHORITY +
     "(?::443)?)\\/upgcxcode\\/[^?\\s]+\\.(?:m4s|mp4)(?:\\?|$)";
+  var STATUS_PATTERN = "^http:\\/\\/bilibtr\\.invalid(?::80)?\\/status$";
+  REQUEST_PATTERN = "(?:" + REQUEST_PATTERN + "|" + STATUS_PATTERN + ")";
   var LADDER = [1, 2, 3, 4, 6, 8];
   var HOSTS = {
     mainland: ["upos-sz-mirrorali.bilivideo.com", "upos-sz-mirrorcos.bilivideo.com", "upos-sz-mirrorhw.bilivideo.com"],
@@ -106,7 +108,8 @@
     return binary ? binary.length > 0 : true;
   }
   function requestReason(request, config) {
-    if (!config.valid || !config.enabled) return "disabled";
+    if (!config.valid) return "arguments-invalid";
+    if (!config.enabled) return "disabled";
     if (!request || String(request.method).toUpperCase() !== "GET") return "method";
     var url = mediaUrl(request.url), h = headers(request.headers), range = h && byteRange(h.range);
     if (!url) return "url-unsupported";
@@ -275,7 +278,13 @@
     } catch (_) { return {}; }
   }
   function writeJson(services, key, value) {
-    try { return Boolean(services.write && services.write(JSON.stringify(value), key)); } catch (_) { return false; }
+    try {
+      if (!services.write) return false;
+      var text = JSON.stringify(value), result = services.write(text, key);
+      // Some bridges return void. Accept that only when the exact write is observable;
+      // an explicit failure still fails open, and the lease also checks ownership later.
+      return result === undefined ? Boolean(services.read && services.read(key) === text) : Boolean(result);
+    } catch (_) { return false; }
   }
   function storedHealth(services, key, now) {
     var entry = readJson(services, STATE_KEY)[key];
@@ -570,8 +579,8 @@
     var network = root.$network || {}, wifi = network.wifi || {}, cell = network.cellular || {};
     return {
       now: Date.now, network: hash(String(wifi.ssid || wifi.bssid || cell.carrier || "unknown")),
-      read: store && function (key) { return store.read(key); },
-      write: store && function (value, key) { return store.write(value, key); },
+      read: store && typeof store.read === "function" && function (key) { return store.read(key); },
+      write: store && typeof store.write === "function" && function (value, key) { return store.write(value, key); },
       cancellable: false,
       request: function (options, callback) {
         if (!client || typeof client.get !== "function") { callback(new Error("http-unavailable")); return null; }
@@ -590,10 +599,11 @@
     };
   }
   function recordDiagnostic(root, services, config, request, result) {
-    if (!config.enabled || result.reason === "internal" || !root.console) return;
+    if (result.reason === "internal" || !mediaUrl(request && request.url)) return;
     var at = (services.now || Date.now)();
     var previous = readJson(services, DIAGNOSTIC_KEY);
     var version = String(root.__BILIFLOW_VERSION__ || "dev");
+    if (previous.version !== version) previous = {};
     var counts = {}, oldCounts = previous.counts || {}, stats = result.stats || {};
     Object.keys(oldCounts).filter(function (key) { return /^[a-z-]{1,40}$/.test(key); }).slice(0, 32).forEach(function (key) {
       counts[key] = number(oldCounts[key], 0, 0, 100000);
@@ -606,9 +616,14 @@
       http: number(previous.http, 0, 0, 100000) + (scheme === "http" ? 1 : 0),
       https: number(previous.https, 0, 0, 100000) + (scheme === "https" ? 1 : 0),
       peak: Math.max(number(previous.peak, 0, 0, 8), stats.peak || 0),
-      deliveredBytes: number(previous.deliveredBytes, 0, 0, 1e12) + (stats.deliveredBytes || 0)
+      deliveredBytes: number(previous.deliveredBytes, 0, 0, 1e12) + (stats.deliveredBytes || 0),
+      seen: number((Number(previous.seen) || 0) + 1, 0, 0, 1000000),
+      accelerated: number((Number(previous.accelerated) || 0) + (code === "accelerated" ? 1 : 0), 0, 0, 1000000),
+      last: diagnosticLast({ at: at, scheme: scheme, reason: code, peak: stats.peak,
+        nextThreads: stats.nextThreads, elapsedMs: stats.elapsedMs, deliveredBytes: stats.deliveredBytes })
     };
-    if (config.debug) root.console.log("[BiliBTR] " + JSON.stringify({ version: version, event: "request", scheme: scheme,
+    var canLog = root.console && typeof root.console.log === "function";
+    if (config.debug && canLog) root.console.log("[BiliBTR] " + JSON.stringify({ version: version, event: "request", scheme: scheme,
       reason: code, stats: stats }));
     var summary = null;
     if (!totals.lastLogAt || at - totals.lastLogAt >= 30000 || previous.version !== version) {
@@ -616,7 +631,31 @@
         http: totals.http, https: totals.https, peak: totals.peak, deliveredBytes: totals.deliveredBytes };
       totals.lastLogAt = at; totals.counts = {}; totals.http = 0; totals.https = 0; totals.peak = 0; totals.deliveredBytes = 0;
     }
-    if (writeJson(services, DIAGNOSTIC_KEY, totals) && summary) root.console.log("[BiliBTR] " + JSON.stringify(summary));
+    if (writeJson(services, DIAGNOSTIC_KEY, totals) && summary && canLog) root.console.log("[BiliBTR] " + JSON.stringify(summary));
+  }
+  function diagnosticLast(value) {
+    if (!value || typeof value !== "object") return null;
+    return { at: number(value.at, 0, 0, 1e15),
+      scheme: /^(?:http|https)$/.test(value.scheme) ? value.scheme : "unknown",
+      reason: /^[a-z-]{1,40}$/.test(value.reason || "") ? value.reason : "error",
+      peak: number(value.peak, 0, 0, 8), nextThreads: number(value.nextThreads, 0, 0, 8),
+      elapsedMs: number(value.elapsedMs, 0, 0, 60000), deliveredBytes: number(value.deliveredBytes, 0, 0, 8 * MIB) };
+  }
+  function statusResponse(root, services, config) {
+    var version = String(root.__BILIFLOW_VERSION__ || "dev"), previous = readJson(services, DIAGNOSTIC_KEY);
+    if (previous.version !== version) previous = {};
+    var probeKey = "BiliBTR.statusProbe.v1", probe = { at: (services.now || Date.now)(), nonce: Math.random() };
+    var stored = writeJson(services, probeKey, probe);
+    var report = { component: "BiliFlow BTR", version: version, scriptLoaded: true,
+      argumentsValid: config.valid, enabled: config.enabled,
+      httpClientAvailable: Boolean(root.$httpClient && typeof root.$httpClient.get === "function"),
+      storageRoundTrip: stored && readJson(services, probeKey).nonce === probe.nonce,
+      mode: config.valid ? config.mode : "invalid", threads: config.auto ? "auto" : number(config.threads, 0, 0, 8),
+      maxThreads: config.maxThreads, requestsSeen: number(previous.seen, 0, 0, 1000000),
+      acceleratedRequests: number(previous.accelerated, 0, 0, 1000000), last: diagnosticLast(previous.last) };
+    return { status: 200, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'" },
+      body: JSON.stringify(report, null, 2) };
   }
   function runShadowrocket(root) {
     var completed = false;
@@ -624,6 +663,11 @@
     try {
       var config = parseArgument(typeof root.$argument === "string" ? root.$argument : "");
       var services = createShadowrocketServices(root);
+      // One exact local URL uses the same registration, engine and script as media.
+      // It makes no network request and never acquires a download lease.
+      if (root.$request && root.$request.method === "GET" && new RegExp(STATUS_PATTERN).test(root.$request.url)) {
+        done({ response: statusResponse(root, services, config) }); return;
+      }
       function finish(result) {
         try { recordDiagnostic(root, services, config, root.$request, result); } catch (_) { /* Diagnostics never block completion. */ }
         done(result.action === "respond" ? { response: result.response } : {});

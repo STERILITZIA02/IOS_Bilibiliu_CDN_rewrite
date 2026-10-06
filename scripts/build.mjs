@@ -784,7 +784,7 @@ const publishedCatalog = `${JSON.stringify(moduleOptions, null, 2)}\n`;
 // Separate opt-in companion: ordinary CDN/Enhanced installations keep media outside MITM.
 const btrModule = [
   "#!name=Bilibili BTR Experimental",
-  "#!desc=BTR HTTP/HTTPS 有界并发：模块启用即运行，无需另开参数；配合一个 CDN/Enhanced 使用。真机效果待验证；停用整个模块可关闭加速并撤销额外媒体 HTTPS 解密。",
+  "#!desc=BTR HTTP/HTTPS 有界并发：模块启用即运行；配合一个 CDN/Enhanced。手机自检：http://bilibtr.invalid/status 。真机效果待验证；停用模块可关闭加速并撤销额外媒体 HTTPS 解密。",
   `#!version=${packageJson.version}`,
   "#!author=STERILITZIA02 / Bilibili-thread-ripper contributors",
   `#!homepage=${homepage}/blob/main/docs/BTR_PORT.md`,

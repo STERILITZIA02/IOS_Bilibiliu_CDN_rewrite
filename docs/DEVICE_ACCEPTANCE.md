@@ -1,7 +1,13 @@
 # iOS / Shadowrocket 真机验收清单
 
+v3.16.2 增加同一 BTR 脚本处理的本机状态入口 `http://bilibtr.invalid/status`。
+先播放、拖动进度条，再在同一台 iPhone 的 Safari 打开该 HTTP 地址。
+记录 `version / argumentsValid / storageRoundTrip / requestsSeen / acceleratedRequests / last`。
+能打开只证明脚本入口执行；有媒体命中不等于加速成功，加速成功也不等于播放更流畅。
+该入口不上传日志、不改变下载租约；详细解释见 [BTR 使用说明](BTR_PORT.md#本机自检)。
+
 v3.16.1 默认启用独立 BTR 下载器，旧“启用加速=false”不再影响更新后的脚本。
-更新已启用的 BTR 模块并重新应用配置即可；如果模块总开关已关闭，仍需在 App 中打开。
+更新已启用的 BTR 模块并重新应用配置即可；如果模块已停用，仍需在模块列表中启用。
 
 v3.16.0 的用户日志确认了 HTTP 媒体漏匹配，现已同时支持 HTTP 与 HTTPS。
 更新 BTR 模块后检查 `[BiliBTR]` 摘要：`accelerated` 和 `deliveredBytes` 表示脚本

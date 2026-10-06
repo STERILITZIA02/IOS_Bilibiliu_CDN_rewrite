@@ -1,4 +1,4 @@
-this.__BILIFLOW_VERSION__ = "3.16.1";
+this.__BILIFLOW_VERSION__ = "3.16.2";
 "use strict";
 
 (function (root) {

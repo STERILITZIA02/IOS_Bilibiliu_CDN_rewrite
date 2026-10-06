@@ -36,8 +36,8 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /你的 Bilibili/);
   assert.match(html, /CDN \+ Enhanced/);
   assert.match(html, /仅 CDN Switcher/);
-  assert.match(html, /Enhanced 3\.16\.1/);
-  assert.match(html, /v3\.16\.1 默认启用/);
+  assert.match(html, /Enhanced 3\.16\.2/);
+  assert.match(html, /v3\.16\.2 默认启用/);
   assert.match(html, /无需再编辑启用参数/);
   assert.match(html, /同时支持 HTTP 与 HTTPS/);
   assert.match(html, /给当前模块添加 BTR/);
@@ -45,6 +45,9 @@ test("server-renders the complete BiliFlow customizer", async () => {
   assert.match(html, /Bilibili\.BTR\.Experimental\.sgmodule/);
   assert.match(html, /href="#btr"/);
   assert.match(html, /复制 BTR 订阅链接/);
+  assert.match(html, /href="http:\/\/bilibtr\.invalid\/status"/);
+  assert.match(html, /iPhone 本机自检/);
+  assert.match(html, /不向本站上传日志/);
   assert.ok(html.indexOf('id="btr"') < html.indexOf("选择要启用的增强功能"));
   assert.match(html, /Bilibili iOS 9\.13\.0 和海外版 6\.6\.0/);
   assert.match(html, /压缩头写回与开屏计时/);
